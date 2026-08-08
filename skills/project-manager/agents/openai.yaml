@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Manager"
+  short_description: "Plan, coordinate, track, and report projects"
+  default_prompt: "Use $project-manager to initialize and manage this folder-native project."
