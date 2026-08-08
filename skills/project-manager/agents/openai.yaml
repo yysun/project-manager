@@ -1,4 +1,4 @@
 interface:
   display_name: "Project Manager"
-  short_description: "Plan, coordinate, track, and report projects"
-  default_prompt: "Use $project-manager to initialize and manage this folder-native project."
+  short_description: "Plan, track, review, and visualize projects"
+  default_prompt: "Use $project-manager to manage or open the Kanban Studio for this folder-native project."

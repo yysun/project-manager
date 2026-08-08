@@ -1,0 +1,26 @@
+{
+  "name": "rpd-skill-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build:pm-server": "node scripts/build-project-manager-studio.mjs",
+    "build:pm-client": "vite build --config vite.project-manager.config.mts",
+    "build": "npm run build:pm-server && npm run build:pm-client",
+    "typecheck": "tsc --noEmit",
+    "test:pm": "node --test skills/project-manager/tests/project-manager.test.js tests/project-manager-studio/*.test.js",
+    "test": "npm run build && npm run test:pm"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.30",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.0.5",
+    "esbuild": "^0.28.1",
+    "express": "^5.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.8.3",
+    "vite": "^8.2.1"
+  }
+}

@@ -2,7 +2,7 @@
  * Responsibility: load and validate one explicitly selected Markdown project,
  * then calculate deterministic status, ranking, blockers, coverage, and reports.
  * Invariants: read-only operation, selected-root isolation, and stable v1 output.
- * Initial project-manager implementation.
+ * Recent change: expose one evidence-aware Kanban projection for Project Manager Studio.
  */
 'use strict';
 
@@ -635,6 +635,95 @@ function reportData(state) {
   return { schema_version: 1, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
 }
 
+const KANBAN_LANES = [
+  { id: 'planned', title: 'Planned', statuses: ['planned'] },
+  { id: 'ready', title: 'Ready', statuses: ['ready'] },
+  { id: 'active', title: 'Active', statuses: ['in_progress', 'implemented', 'verification'] },
+  { id: 'verified', title: 'Verified', statuses: ['verified'] },
+  { id: 'done', title: 'Done', statuses: ['done'] },
+];
+
+function taskEditEligibility(state, task) {
+  if (!['planned', 'ready'].includes(task.status)) return { editable: false, reason: 'Evidence-backed work must be changed through project update.' };
+  if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: 'This task has active execution evidence and must be changed through project update.' };
+  if (fs.existsSync(path.join(state.root, 'handoffs', task.id))) return { editable: false, reason: 'This task has attempt history and must be changed through project update.' };
+  if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: 'This task is governed by re-verification state and must be changed through project update.' };
+  return { editable: true, reason: null };
+}
+
+function kanbanData(state, mutationRevision = null) {
+  const status = statusData(state);
+  const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
+  const next = nextData(state).tasks;
+  const nextRank = new Map(next.map((item, index) => [item.id, index + 1]));
+  const tasks = state.tasks.map((task) => {
+    const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
+    const eligibility = taskEditEligibility(state, task);
+    return {
+      id: task.id,
+      title: task.title,
+      outcome: task.outcome,
+      acceptance: task.acceptance,
+      status: task.status,
+      priority: task.priority,
+      milestone: task.milestone,
+      owner: task.owner,
+      executor: task.executor,
+      depends_on: task.depends_on,
+      blocks: task.blocks,
+      blocked_by: task.blocked_by,
+      dependency_blockers: blocker.dependency_tasks,
+      sources: task.sources,
+      success_criteria: task.success_criteria,
+      constraints: task.constraints,
+      critical: task.critical,
+      active_contract: task.active_contract,
+      last_manifest: task.last_manifest,
+      created: task.created,
+      updated: task.updated,
+      task_revision: task.spec_sha256,
+      next_rank: nextRank.get(task.id) ?? null,
+      editable: eligibility.editable,
+      edit_reason: eligibility.reason,
+    };
+  });
+  const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
+  return {
+    schema_version: 1,
+    mutation_revision: mutationRevision,
+    semantic_revision: state.source_sha256,
+    project: {
+      id: state.project.id,
+      name: state.project.name,
+      root: state.root,
+      status: state.project.status,
+      owner: state.project.owner,
+      objective: state.project.objective,
+      target_date: state.project.target_date,
+      current_milestone: state.project.current_milestone,
+      profile: state.project.profile,
+    },
+    summary: {
+      tasks: status.tasks,
+      success: status.success,
+      coverage: status.coverage,
+      risks: status.risks,
+      decisions: status.decisions,
+      owner_gaps: tasks.filter((task) => task.owner === null).length,
+    },
+    warnings: state.status_stale ? [{ code: 'STATUS_STALE', message: 'STATUS.md is stale; the board is showing validated authoritative state.' }] : [],
+    options: {
+      owners: ownerOptions,
+      priorities: PRIORITIES,
+      milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title })),
+      success_criteria: state.project.success_criteria_items,
+      tasks: tasks.map((task) => ({ id: task.id, title: task.title })),
+    },
+    next,
+    lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.statuses.includes(task.status)) })),
+  };
+}
+
 function renderStatus(state, generatedAt = new Date().toISOString()) {
   if (!validTimestamp(generatedAt)) throw new Error('STATUS generated_at must be RFC3339 UTC');
   const data = statusData(state, generatedAt.slice(0, 10));
@@ -647,4 +736,4 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
   return loadProject(state.root, options);
 }
 
-module.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
+module.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };

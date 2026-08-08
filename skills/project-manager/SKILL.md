@@ -18,7 +18,7 @@ Treat a project as a first-class folder containing structured Markdown state. Ne
 
 ## Route the request
 
-Use these seven user-facing routes. Natural language is preferred; do not force a command DSL.
+Use these nine user-facing routes. Natural language is preferred; do not force a command DSL.
 
 1. `project init <folder> <objective-or-source>` — create the minimal three-file project atomically. Read [init.md](references/init.md).
 2. `project plan <folder>` — clarify success, decompose outcomes, and establish dependencies. Read [plan.md](references/plan.md).
@@ -27,6 +27,8 @@ Use these seven user-facing routes. Natural language is preferred; do not force 
 5. `project next <folder>` — rank executable work with `project-next.js`.
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
 7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage.
+8. `project validate-task <folder> <task-id>` — validate the folder, then use LLM judgment to review task quality. Read [tasks.md](references/tasks.md).
+9. `project studio <folder>` — launch the local Kanban Studio for the explicitly selected folder.
 
 For source or scope changes, read [impact.md](references/impact.md). For exact schemas, lifecycle rules, and output contracts, read [conventions.md](references/conventions.md).
 
@@ -97,6 +99,30 @@ node <absolute-skill-dir>/scripts/project-report-data.js <project-folder> --json
 ```
 
 Change emphasis by audience, never facts. Keep absent schedule, forecast, or coverage evidence explicitly `unknown` or `unconfigured`.
+
+## Validate task quality
+
+`project validate-task` is semantic LLM review, not the deterministic project validator. Load and
+validate the explicit folder first, then judge the named task using the checklist and output contract
+in [tasks.md](references/tasks.md). Do not mutate the task unless the user separately asks to apply
+revisions.
+
+## Studio
+
+Studio is a local Kanban operating view and controlled editor for genuinely never-started tasks. It
+does not execute work or edit task IDs, evidence, attempts, or re-verification state. “Check changes”
+is deterministic whole-project validation; “Copy LLM review command” only copies the semantic route
+above and does not call a model.
+
+Resolve this skill's absolute directory, then launch the packaged runtime with the selected folder:
+
+```bash
+node <absolute-skill-dir>/scripts/project-manager-studio.js --project <folder>
+```
+
+The command prints a tokenized loopback URL. Report it to the user. Use `--no-open` only for automated
+verification; `--port` accepts an explicit local port. Never substitute the current repository for the
+user-selected project folder.
 
 ## Mutate atomically
 

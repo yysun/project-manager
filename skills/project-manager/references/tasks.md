@@ -22,3 +22,20 @@ Providers:
 `blocked_by` stores explicit non-empty blocker descriptions. `depends_on` stores task IDs. Never mix them.
 
 External tracker identifiers belong in `external_refs`. They are display-only and cannot participate in dependencies, lifecycle, or identity.
+
+## LLM task-quality validation
+
+For `project validate-task <folder> <task-id>`, validate the selected project first, then review the
+named task semantically. This route is read-only unless the user separately asks to apply revisions.
+
+Judge:
+
+- whether the outcome names a concrete state change rather than an activity;
+- whether every acceptance item is observable, distinct, and testable;
+- whether scope is coherent and small enough to execute without hidden decomposition;
+- whether dependencies and blockers are necessary, complete, and non-circular in intent;
+- whether constraints protect real boundaries without prescribing accidental implementation detail;
+- whether executor evidence requirements can prove the acceptance items.
+
+Return three short sections: `Blocking defects`, `Recommendations`, and `Strong properties`. Use
+`None` when a section has no items. Do not rewrite or save the task unless explicitly authorized.

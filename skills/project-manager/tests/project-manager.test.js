@@ -1,7 +1,8 @@
 /**
  * Responsibility: executable contract tests for folder isolation, deterministic
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
- * Invariants: temporary fixtures only; no repository mutation. Initial suite.
+ * Invariants: temporary fixtures only; no repository mutation. Recent change:
+ * cover the Kanban projection without weakening the core engine suite.
  */
 'use strict';
 
@@ -12,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, regenerateStatus,
+  loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, regenerateStatus,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
@@ -85,6 +86,20 @@ test('minimal generic project validates without Git, milestones, traceability, o
   assert.deepEqual(coverageData(state), { schema_version: 1, configured: false });
   assert.equal(nextData(state).tasks[0].id, 'TASK-LAUNCH');
   assert.equal(reportData(state).unknowns.some((item) => item.field === 'status.coverage'), true);
+});
+
+test('Kanban projection groups exact lifecycle state and exposes truthful edit eligibility', () => {
+  const base = temp();
+  const root = createProject(base, 'KANBAN', [
+    task('TASK-PLAN', 'Plan', 'Plan it.', ['Plan accepted.'], { status: 'planned', owner: null, success_criteria: ['SC-OUTCOME'] }),
+    task('TASK-READY', 'Ready', 'Ready it.', ['Ready accepted.'], { status: 'ready', owner: 'Lee', priority: 'P1' }),
+  ]);
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  const board = kanbanData(loadProject(root), 'a'.repeat(64));
+  assert.equal(board.mutation_revision, 'a'.repeat(64));
+  assert.deepEqual(board.lanes.map((lane) => [lane.id, lane.tasks.length]), [['planned', 1], ['ready', 1], ['active', 0], ['verified', 0], ['done', 0]]);
+  assert.equal(board.lanes[0].tasks[0].status, 'planned'); assert.equal(board.lanes[0].tasks[0].editable, true);
+  assert.equal(board.summary.owner_gaps, 1); assert.equal(board.summary.coverage.configured, false);
 });
 
 test('ID bounds, trailing hyphens, and duplicate success criteria are rejected exactly', () => {

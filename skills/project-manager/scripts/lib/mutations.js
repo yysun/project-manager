@@ -1,13 +1,73 @@
 /**
  * Responsibility: same-filesystem candidate/backup transactions for skill-led
  * project initialization and updates. Invariants: validate before exposure and
- * restore exact prior bytes after any failed replacement. Initial implementation.
+ * restore exact prior bytes after any failed replacement. Recent change: exact
+ * tree revisions and verbatim candidate copies prevent stale whole-folder swaps.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { canonicalJson } = require('./contracts');
+
+class MutationConflictError extends Error {
+  constructor(message, currentRevision = null) {
+    super(message);
+    this.name = 'MutationConflictError';
+    this.code = 'MUTATION_CONFLICT';
+    this.currentRevision = currentRevision;
+  }
+}
+
+class UnsupportedProjectEntryError extends Error {
+  constructor(relative, kind) {
+    super(`Unsupported project entry type at ${relative}: ${kind}`);
+    this.name = 'UnsupportedProjectEntryError';
+    this.code = 'UNSUPPORTED_PROJECT_ENTRY';
+    this.path = relative;
+  }
+}
+
+function lstatIfExists(target) {
+  try { return fs.lstatSync(target); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+function assertProjectDirectoryRoot(root) {
+  const stat = lstatIfExists(root);
+  if (!stat) throw Object.assign(new Error(`Project root does not exist: ${root}`), { code: 'ENOENT' });
+  if (!stat.isDirectory()) {
+    const kind = stat.isSymbolicLink() ? 'symlink-root' : stat.isFile() ? 'file-root' : 'special-root';
+    throw new UnsupportedProjectEntryError('.', kind);
+  }
+}
+
+function mutationRevision(root) {
+  assertProjectDirectoryRoot(root);
+  const records = [];
+  function walk(folder) {
+    for (const name of fs.readdirSync(folder).sort()) {
+      const full = path.join(folder, name);
+      const relative = path.relative(root, full).split(path.sep).join('/');
+      const stat = fs.lstatSync(full);
+      if (stat.isDirectory()) {
+        records.push({ path: relative, type: 'directory' });
+        walk(full);
+      } else if (stat.isFile()) {
+        records.push({ path: relative, type: 'file', digest: crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex') });
+      } else if (stat.isSymbolicLink()) {
+        records.push({ path: relative, type: 'symlink', target: fs.readlinkSync(full) });
+      } else {
+        const kind = stat.isFIFO() ? 'fifo' : stat.isSocket() ? 'socket' : stat.isCharacterDevice() ? 'character-device' : stat.isBlockDevice() ? 'block-device' : 'unknown';
+        throw new UnsupportedProjectEntryError(relative, kind);
+      }
+    }
+  }
+  walk(root);
+  records.sort((a, b) => a.path.localeCompare(b.path));
+  return crypto.createHash('sha256').update(canonicalJson(records)).digest('hex');
+}
 
 function isEmptyDirectory(target) {
   return fs.existsSync(target) && fs.lstatSync(target).isDirectory() && fs.readdirSync(target).length === 0;
@@ -82,22 +142,37 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
   if (!path.isAbsolute(target)) throw new Error('Project mutation target must be absolute');
   const parent = path.dirname(target); const name = path.basename(target);
   if (!fs.existsSync(parent) || !fs.lstatSync(parent).isDirectory()) throw new Error('Project parent directory must exist');
-  const exists = fs.existsSync(target); const initializing = !exists || isEmptyDirectory(target);
+  const targetStat = lstatIfExists(target); const exists = targetStat !== null;
+  if (exists && !targetStat.isDirectory()) throw new UnsupportedProjectEntryError('.', targetStat.isSymbolicLink() ? 'symlink-root' : 'non-directory-root');
+  const initializing = !exists || isEmptyDirectory(target);
   if (options.init === true && exists && !initializing) throw new Error('Initialization target must be nonexistent or empty');
   if (options.init !== true && !exists) throw new Error('Update target must exist');
   const immutableBefore = exists && !initializing ? immutableInventory(target) : new Map();
+  const expectedRevision = options.expectedMutationRevision ?? null;
+  if (exists && expectedRevision !== null) {
+    const currentRevision = mutationRevision(target);
+    if (currentRevision !== expectedRevision) throw new MutationConflictError('Project changed before mutation started', currentRevision);
+  }
   const beforeState = exists && !initializing ? validateCandidate(target, { logicalRoot: target }) : null;
   const work = fs.mkdtempSync(path.join(parent, `.${name}.transaction-`));
   const candidate = path.join(work, name); const backup = path.join(work, `${name}.backup`);
   let targetMoved = false; let candidateMoved = false; let committed = false;
   try {
-    if (exists && !initializing) fs.cpSync(target, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true });
+    if (exists && !initializing) {
+      fs.cpSync(target, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+      assertProjectDirectoryRoot(candidate);
+      if (expectedRevision !== null && mutationRevision(candidate) !== expectedRevision) throw new MutationConflictError('Candidate copy does not match the selected project revision', mutationRevision(target));
+    }
     else fs.mkdirSync(candidate);
     const context = { logicalRoot: target };
     mutateCandidate(candidate, context);
     const validation = validateCandidate(candidate, context);
     if (validation?.status_stale === true) throw new Error('Mutation candidate must regenerate STATUS.md before apply');
     assertImmutablePreserved(immutableBefore, candidate, beforeState, validation);
+    if (exists && expectedRevision !== null) {
+      const currentRevision = mutationRevision(target);
+      if (currentRevision !== expectedRevision) throw new MutationConflictError('Project changed while the mutation was being prepared', currentRevision);
+    }
     if (exists) { fs.renameSync(target, backup); targetMoved = true; }
     fs.renameSync(candidate, target); candidateMoved = true;
     if (options.injectFailureAfterReplace) throw new Error('Injected failure after replacement');
@@ -126,4 +201,4 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
   }
 }
 
-module.exports = { atomicProjectMutation, isEmptyDirectory, immutableInventory };
+module.exports = { atomicProjectMutation, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };

@@ -1,0 +1,91 @@
+// Project Manager Studio shell: truthful summaries, filterable Kanban lanes,
+// coherent refresh, and accessible task inspection/editing.
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { KanbanData, KanbanTask, Priority } from '../shared/api';
+import { TaskDialog } from './components/TaskDialog';
+
+export function App() {
+  const [data, setData] = useState<KanbanData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [priority, setPriority] = useState<Priority | 'all'>('all');
+  const [owner, setOwner] = useState('all');
+  const [blockedOnly, setBlockedOnly] = useState(false);
+  const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const response = await fetch('/api/project'); const body = await response.json();
+      if (!response.ok) throw new Error(body.errors?.[0]?.message ?? 'Could not load project.');
+      setData(body.data);
+      setSelected((current) => {
+        if (!current) return null;
+        const task = (body.data as KanbanData).lanes.flatMap((lane) => lane.tasks).find((item) => item.id === current.task.id);
+        return task ? { ...current, task, formRevision: (body.data as KanbanData).mutation_revision } : null;
+      });
+    } catch (value) {
+      setData(null);
+      setSelected(null);
+      setError(value instanceof Error ? value.message : 'Could not load project.');
+    }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const filtered = useMemo(() => {
+    if (!data) return new Map<string, KanbanTask[]>();
+    const query = search.trim().toLowerCase();
+    return new Map(data.lanes.map((lane) => [lane.id, lane.tasks.filter((task) => {
+      const matchesSearch = !query || `${task.id} ${task.title} ${task.outcome} ${task.owner ?? ''}`.toLowerCase().includes(query);
+      const matchesPriority = priority === 'all' || task.priority === priority;
+      const matchesOwner = owner === 'all' || (owner === 'unassigned' ? task.owner === null : task.owner === owner);
+      const matchesBlocked = !blockedOnly || task.blocked_by.length > 0 || task.dependency_blockers.length > 0;
+      return matchesSearch && matchesPriority && matchesOwner && matchesBlocked;
+    })]));
+  }, [data, search, priority, owner, blockedOnly]);
+
+  if (loading && !data) return <div className="loading-screen"><div className="mark">PM</div><p>Loading validated project state…</p></div>;
+  if (!data) return <div className="loading-screen error-screen"><div className="mark">!</div><h1>Project could not be loaded</h1><p>{error}</p><button className="primary-button" onClick={load}>Try again</button></div>;
+
+  return <main className="app-shell">
+    <header className="topbar">
+      <div className="brand"><div className="mark">PM</div><div><span>Project Manager</span><strong>Studio</strong></div></div>
+      <div className="project-title"><span className="eyebrow">{data.project.id} · {data.project.profile}</span><h1>{data.project.name}</h1><p>{data.project.objective}</p></div>
+      <button className="refresh-button" onClick={load} disabled={loading}><span aria-hidden="true">↻</span> {loading ? 'Refreshing…' : 'Refresh'}</button>
+    </header>
+    {data.warnings.map((warning) => <div className="warning-banner" role="status" key={warning.code}>{warning.message}</div>)}
+    {error && <div className="error-banner" role="alert">Refresh failed: {error}</div>}
+    <section className="summary-grid" aria-label="Project summary">
+      <Metric label="Total tasks" value={data.summary.tasks.total} detail={`${data.summary.tasks.actionable} actionable`} />
+      <Metric label="Blocked" value={data.summary.tasks.blocked} detail="dependency or explicit" tone={data.summary.tasks.blocked ? 'warn' : 'good'} />
+      <Metric label="Success verified" value={`${data.summary.success.verified}/${data.summary.success.total}`} detail={`${data.summary.success.covered} covered`} />
+      <Metric label="Owner gaps" value={data.summary.owner_gaps} detail="tasks need an owner" tone={data.summary.owner_gaps ? 'warn' : 'good'} />
+      <Metric label="Target" value={data.project.target_date ?? 'Unknown'} detail={data.project.current_milestone ?? 'No active milestone'} compact />
+    </section>
+    <section className="toolbar" aria-label="Board filters">
+      <label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="Search tasks" placeholder="Search ID, title, outcome, owner…" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
+      <label><span>Priority</span><select value={priority} onChange={(e) => setPriority(e.target.value as Priority | 'all')}><option value="all">All priorities</option>{data.options.priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label><span>Owner</span><select value={owner} onChange={(e) => setOwner(e.target.value)}><option value="all">All owners</option><option value="unassigned">Unassigned</option>{data.options.owners.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label className="toggle"><input type="checkbox" checked={blockedOnly} onChange={(e) => setBlockedOnly(e.target.checked)} /><span>Blocked only</span></label>
+      {(search || priority !== 'all' || owner !== 'all' || blockedOnly) && <button className="clear-button" onClick={() => { setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); }}>Clear filters</button>}
+    </section>
+    <section className="board" aria-label="Task Kanban board">
+      {data.lanes.map((lane) => { const tasks = filtered.get(lane.id) ?? []; return <section className={`lane lane--${lane.id}`} key={lane.id} aria-labelledby={`lane-${lane.id}`}>
+        <header><div><span className="lane-dot" aria-hidden="true" /><h2 id={`lane-${lane.id}`}>{lane.title}</h2></div><span className="lane-count" aria-label={`${tasks.length} tasks`}>{tasks.length}</span></header>
+        <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
+      </section>; })}
+    </section>
+    <footer className="footer-note"><span>Folder-native state</span><span>·</span><span>Evidence-backed lifecycle</span><span>·</span><span>Studio edits never-started tasks only</span></footer>
+    {selected && <TaskDialog key={`${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} onSaved={(next) => { setData(next); const updated = next.lanes.flatMap((lane) => lane.tasks).find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated }); }} />}
+  </main>;
+}
+
+function Metric({ label, value, detail, tone, compact }: { label: string; value: string | number; detail: string; tone?: 'warn' | 'good'; compact?: boolean }) { return <article className={`metric ${tone ? `metric--${tone}` : ''}`}><span>{label}</span><strong className={compact ? 'metric-compact' : ''}>{value}</strong><small>{detail}</small></article>; }
+function TaskCard({ task, onOpen }: { task: KanbanTask; onOpen: (opener: HTMLElement) => void }) { const blocked = task.blocked_by.length + task.dependency_blockers.length; return <button className={`task-card ${task.next_rank ? 'task-card--next' : ''}`} onClick={(event) => onOpen(event.currentTarget)}>
+  <div className="task-card-top"><span className="task-id">{task.id}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span></div>
+  <h3>{task.title}</h3><p>{task.outcome}</p>
+  <div className="task-badges"><span className={`state state--${task.status}`}>{task.status.replaceAll('_', ' ')}</span>{task.critical && <span className="critical-chip">Critical</span>}{blocked > 0 && <span className="blocked-chip">{blocked} blocked</span>}{task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}</div>
+  <div className="task-card-footer"><span className={task.owner ? '' : 'owner-gap'}>{task.owner ?? 'Unassigned'}</span><span>{task.milestone ?? 'No milestone'}</span></div>
+</button>; }
