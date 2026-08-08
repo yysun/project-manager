@@ -1,8 +1,9 @@
 /**
  * Responsibility: load and validate one explicitly selected Markdown project,
- * then calculate deterministic status, ranking, blockers, coverage, and reports.
- * Invariants: read-only operation, selected-root isolation, and stable v1 output.
- * Recent change: expose one evidence-aware Kanban projection for Project Manager Studio.
+ * then calculate deterministic status, ranking, blockers, coverage, and Studio views.
+ * Invariants: read-only operation, selected-root isolation, exact schema versions,
+ * and schedule metadata that never changes execution-contract identity.
+ * Recent change: add TASKS v2 schedules and a shared Kanban/Timeline projection.
  */
 'use strict';
 
@@ -83,10 +84,11 @@ function parseFrontmatter(text, filePath) {
   return { data, body: lines.slice(end + 1).join('\n') };
 }
 
-function parseCollection(text, filePath) {
+function parseCollection(text, filePath, options = {}) {
   const parsed = parseFrontmatter(text, filePath);
   exactKeys(parsed.data, ['schema_version'], filePath, 'collection frontmatter');
-  if (parsed.data.schema_version !== 1) fail('grammar', 'SCHEMA_VERSION', filePath, 'Unsupported schema_version');
+  const schemaVersions = options.schemaVersions ?? [1];
+  if (!schemaVersions.includes(parsed.data.schema_version)) fail('grammar', 'SCHEMA_VERSION', filePath, 'Unsupported schema_version');
   const heading = /^## ([A-Z][A-Z0-9-]{1,63}) - (.+)$/gm;
   const matches = [...parsed.body.matchAll(heading)];
   const allHeadings = [...parsed.body.matchAll(/^##(?:[ \t].*)?$/gm)];
@@ -107,6 +109,7 @@ function parseCollection(text, filePath) {
   }
   const ids = records.map((record) => record.id.toLowerCase());
   if (new Set(ids).size !== ids.length) fail('semantic', 'DUPLICATE_ID', filePath, 'Record IDs must be unique case-insensitively');
+  Object.defineProperty(records, 'schema_version', { value: parsed.data.schema_version, enumerable: false });
   return records;
 }
 
@@ -193,8 +196,9 @@ function parseProject(text, filePath, root) {
   return { ...data, root, objective, success_criteria_items: success };
 }
 
-function normalizeTask(record, project, filePath) {
+function normalizeTask(record, project, filePath, schemaVersion = 1) {
   const allowed = ['outcome', 'acceptance', 'status', 'priority', 'milestone', 'owner', 'executor', 'depends_on', 'blocks', 'blocked_by', 'sources', 'success_criteria', 'constraints', 'evidence_requirements', 'external_refs', 'critical', 'active_contract', 'last_manifest', 'created', 'updated'];
+  if (schemaVersion === 2) allowed.push('scheduled_start', 'scheduled_end');
   exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
   assert(nonEmpty(record.raw.outcome), 'TASK_OUTCOME', filePath, `Task ${record.id} requires outcome`, project);
   uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
@@ -232,6 +236,12 @@ function normalizeTask(record, project, filePath) {
     active_contract: record.raw.active_contract ?? null, last_manifest: record.raw.last_manifest ?? null,
     created: record.raw.created ?? null, updated: record.raw.updated ?? null,
   };
+  // Keep the normalized v1 shape byte-compatible with the original reader so
+  // merely installing schedule support cannot make an untouched STATUS stale.
+  if (schemaVersion === 2) {
+    task.scheduled_start = record.raw.scheduled_start ?? null;
+    task.scheduled_end = record.raw.scheduled_end ?? null;
+  }
   assert(TASK_STATUSES.includes(task.status), 'TASK_STATUS', filePath, `Task ${task.id} has invalid status`, project);
   assert(PRIORITIES.includes(task.priority), 'TASK_PRIORITY', filePath, `Task ${task.id} has invalid priority`, project);
   assert(task.milestone === null || namespacedId(task.milestone, 'M-'), 'TASK_MILESTONE', filePath, `Task ${task.id} has invalid milestone`, project);
@@ -240,6 +250,12 @@ function normalizeTask(record, project, filePath) {
   assert(typeof task.critical === 'boolean', 'TASK_CRITICAL', filePath, `Task ${task.id} critical must be boolean`, project);
   assert(task.active_contract === null || /^tc-[a-f0-9]{64}$/.test(task.active_contract), 'TASK_CONTRACT', filePath, `Task ${task.id} active contract is invalid`, project);
   assert(task.last_manifest === null || /^em-[a-f0-9]{64}$/.test(task.last_manifest), 'TASK_MANIFEST', filePath, `Task ${task.id} last manifest is invalid`, project);
+  const scheduleKeys = ['scheduled_start', 'scheduled_end'].filter((key) => Object.hasOwn(record.raw, key));
+  assert(scheduleKeys.length === 0 || scheduleKeys.length === 2, 'TASK_SCHEDULE', filePath, `Task ${task.id} schedule must contain both scheduled_start and scheduled_end`, project);
+  if (scheduleKeys.length === 2) {
+    assert(validDate(task.scheduled_start) && validDate(task.scheduled_end), 'TASK_SCHEDULE', filePath, `Task ${task.id} schedule dates are invalid`, project);
+    assert(task.scheduled_start <= task.scheduled_end, 'TASK_SCHEDULE', filePath, `Task ${task.id} scheduled_start must not be after scheduled_end`, project);
+  }
   assert(task.created === null || validDate(task.created), 'INVALID_DATE', filePath, `Task ${task.id} created is invalid`, project);
   assert(task.updated === null || validDate(task.updated), 'INVALID_DATE', filePath, `Task ${task.id} updated is invalid`, project);
   assert(task.external_refs && typeof task.external_refs === 'object' && !Array.isArray(task.external_refs), 'TASK_EXTERNAL_REFS', filePath, `Task ${task.id} external_refs must be an object`, project);
@@ -501,7 +517,8 @@ function loadProject(folder, options = {}) {
   const logicalRoot = options.logicalRoot ?? root;
   if (!path.isAbsolute(logicalRoot)) fail('path', 'INVALID_LOGICAL_ROOT', logicalRoot, 'Logical project root must be absolute');
   const project = parseProject(texts['PROJECT.md'], path.join(root, 'PROJECT.md'), logicalRoot);
-  const tasks = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md')).map((record) => normalizeTask(record, project, path.join(root, 'TASKS.md')));
+  const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2] });
+  const tasks = taskRecords.map((record) => normalizeTask(record, project, path.join(root, 'TASKS.md'), taskRecords.schema_version));
   function module(name, kind) {
     const text = texts[name];
     if (text === null) return { configured: false, items: [] };
@@ -509,7 +526,7 @@ function loadProject(folder, options = {}) {
     return { configured: true, items };
   }
   const state = {
-    root, project, tasks,
+    root, project, tasks, tasks_schema_version: taskRecords.schema_version,
     milestones: module('MILESTONES.md', 'milestones'), risks: module('RISKS.md', 'risks'),
     decisions: module('DECISIONS.md', 'decisions'), sources: module('SOURCES.md', 'sources'),
     changes: module('CHANGES.md', 'changes'),
@@ -651,6 +668,14 @@ function taskEditEligibility(state, task) {
   return { editable: true, reason: null };
 }
 
+function scheduleEditEligibility(state, task) {
+  if (state.project.status === 'complete') return { editable: false, reason: 'Completed projects cannot be rescheduled in Studio.' };
+  const milestone = task.milestone === null ? null : state.milestones.items.find((item) => item.id === task.milestone);
+  if (milestone?.status === 'complete') return { editable: false, reason: 'Tasks in completed milestones cannot be rescheduled in Studio.' };
+  if (task.status === 'done') return { editable: false, reason: 'Completed tasks cannot be rescheduled in Studio.' };
+  return { editable: true, reason: null };
+}
+
 function kanbanData(state, mutationRevision = null) {
   const status = statusData(state);
   const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
@@ -659,6 +684,12 @@ function kanbanData(state, mutationRevision = null) {
   const tasks = state.tasks.map((task) => {
     const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
     const eligibility = taskEditEligibility(state, task);
+    const scheduleEligibility = scheduleEditEligibility(state, task);
+    const scheduleConflicts = task.depends_on.flatMap((dependencyId) => {
+      const dependency = state.tasks.find((item) => item.id === dependencyId);
+      if (!dependency?.scheduled_end || !task.scheduled_start || task.scheduled_start > dependency.scheduled_end) return [];
+      return [{ dependency_id: dependencyId, dependency_end: dependency.scheduled_end, task_start: task.scheduled_start }];
+    });
     return {
       id: task.id,
       title: task.title,
@@ -679,12 +710,17 @@ function kanbanData(state, mutationRevision = null) {
       critical: task.critical,
       active_contract: task.active_contract,
       last_manifest: task.last_manifest,
+      scheduled_start: task.scheduled_start ?? null,
+      scheduled_end: task.scheduled_end ?? null,
+      schedule_conflicts: scheduleConflicts,
       created: task.created,
       updated: task.updated,
       task_revision: task.spec_sha256,
       next_rank: nextRank.get(task.id) ?? null,
       editable: eligibility.editable,
       edit_reason: eligibility.reason,
+      schedule_editable: scheduleEligibility.editable,
+      schedule_edit_reason: scheduleEligibility.reason,
     };
   });
   const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
@@ -699,6 +735,7 @@ function kanbanData(state, mutationRevision = null) {
       status: state.project.status,
       owner: state.project.owner,
       objective: state.project.objective,
+      start_date: state.project.start_date,
       target_date: state.project.target_date,
       current_milestone: state.project.current_milestone,
       profile: state.project.profile,
@@ -712,6 +749,7 @@ function kanbanData(state, mutationRevision = null) {
       owner_gaps: tasks.filter((task) => task.owner === null).length,
     },
     warnings: state.status_stale ? [{ code: 'STATUS_STALE', message: 'STATUS.md is stale; the board is showing validated authoritative state.' }] : [],
+    milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, forecast_updated: item.forecast_updated, critical: item.critical })),
     options: {
       owners: ownerOptions,
       priorities: PRIORITIES,
@@ -720,6 +758,7 @@ function kanbanData(state, mutationRevision = null) {
       tasks: tasks.map((task) => ({ id: task.id, title: task.title })),
     },
     next,
+    tasks,
     lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.statuses.includes(task.status)) })),
   };
 }
@@ -736,4 +775,4 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
   return loadProject(state.root, options);
 }
 
-module.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
+module.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };

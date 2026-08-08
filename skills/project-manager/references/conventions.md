@@ -1,6 +1,8 @@
 # Project State Contract
 
-This reference is the v1 machine contract. Scripts fail closed on unsupported versions, unknown fields, malformed records, escaping paths, and inconsistent lifecycle.
+This reference defines the v1 project/optional-module contract and v1/v2 task collection contracts.
+Scripts fail closed on unsupported versions, unknown fields, malformed records, escaping paths, and
+inconsistent lifecycle.
 
 ## Project boundary
 
@@ -18,7 +20,7 @@ Project and task IDs match `^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$` (2–64 characte
 
 Required: non-empty `outcome` and unique non-empty `acceptance` strings.
 
-Defaults: planned, P2, human executor, null owner/milestone/dates/pointers, false critical, and empty dependencies, blockers, sources, success mappings, constraints, and tracker refs. Exact field rules are enforced by `project-state.js`.
+Defaults: planned, P2, human executor, null owner/milestone/schedule/audit dates/pointers, false critical, and empty dependencies, blockers, sources, success mappings, constraints, and tracker refs. Exact field rules are enforced by `project-state.js`.
 
 ## Lifecycle
 
@@ -52,11 +54,23 @@ See each script's output and `--help` for the locked envelope. Optional modules 
 
 Follow it with non-empty `## Objective` and `## Success Criteria`; every non-blank criterion line is exactly `- [SC-ID] text` and IDs are unique.
 
-Task metadata permits only `outcome`, `acceptance`, `status`, `priority`, `milestone`, `owner`, `executor`, `depends_on`, `blocks`, `blocked_by`, `sources`, `success_criteria`, `constraints`, `evidence_requirements`, `external_refs`, `critical`, `active_contract`, `last_manifest`, `created`, and `updated`. `outcome` and `acceptance` are required. Executor is `{provider,root,scope}`: human uses null root/scope; external roots use `scope:"absolute"`; a project-contained executor uses `scope:"project"` and a safe relative root. Evidence requirement groups are exactly `{stage:"implemented|verification|verified",any_of:[evidence kinds],minimum:positive integer}` in cumulative stage order.
+`TASKS.md` schema v1 task metadata permits only `outcome`, `acceptance`, `status`, `priority`, `milestone`, `owner`, `executor`, `depends_on`, `blocks`, `blocked_by`, `sources`, `success_criteria`, `constraints`, `evidence_requirements`, `external_refs`, `critical`, `active_contract`, `last_manifest`, `created`, and `updated`.
+
+`TASKS.md` schema v2 permits the same fields plus `scheduled_start` and `scheduled_end`. Both schedule
+keys are absent or both are valid date-only strings, and start must not be after end. Schedule ranges
+are inclusive. Schedule fields are planning metadata excluded from the task specification hash and
+Task Contract. V1 rejects them; v2 rejects explicit nulls and partial pairs.
+
+For both task schemas, `outcome` and `acceptance` are required. Executor is `{provider,root,scope}`:
+human uses null root/scope; external roots use `scope:"absolute"`; a project-contained executor uses
+`scope:"project"` and a safe relative root. Evidence requirement groups are exactly
+`{stage:"implemented|verification|verified",any_of:[evidence kinds],minimum:positive integer}` in
+cumulative stage order.
 
 ## Exact optional schemas
 
-All optional record files use collection frontmatter `schema_version: 1`.
+All optional record files remain collection frontmatter `schema_version: 1`; task schema v2 is valid
+only for `TASKS.md`.
 
 - Milestone: `{status:"planned|active|complete",target_date:null|date,forecast_date:null|date,forecast_updated:null|date,forecast_evidence:[evidence records],critical:boolean}`. Forecast fields are all absent/null or all populated.
 - Risk: `{status:"open|mitigated|accepted|closed",probability:"low|medium|high",impact:"low|medium|high",mitigation:string,owner:null|string,milestone:null|M-ID}`.

@@ -1,5 +1,5 @@
-// Accessible task inspection and edit dialog. Never-started tasks get a
-// structured editor; historical/evidence-backed tasks remain truthful read-only.
+// Accessible task inspection and edit dialog. Specification/status authority is
+// limited to never-started tasks; eligible unfinished work can be rescheduled.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEdit, TaskEditRequest } from '../../shared/api';
 
@@ -8,12 +8,19 @@ function valueOrDash(value: string | null): string { return value ?? 'Not set'; 
 
 interface Props { data: KanbanData; task: KanbanTask; opener: HTMLElement | null; onClose: () => void; onSaved: (data: KanbanData) => void }
 
-export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
-  const [edit, setEdit] = useState<TaskEdit>({
+function initialEdit(task: KanbanTask): TaskEdit {
+  const schedule = task.schedule_editable ? { scheduled_start: task.scheduled_start, scheduled_end: task.scheduled_end } : {};
+  if (!task.editable) return schedule;
+  return {
     title: task.title, outcome: task.outcome, acceptance: task.acceptance, status: task.status as 'planned' | 'ready',
     priority: task.priority, milestone: task.milestone, owner: task.owner, depends_on: task.depends_on,
     blocked_by: task.blocked_by, success_criteria: task.success_criteria, constraints: task.constraints, critical: task.critical,
-  });
+    ...schedule,
+  };
+}
+
+export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
+  const [edit, setEdit] = useState<TaskEdit>(() => initialEdit(task));
   const [busy, setBusy] = useState<'check' | 'save' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [errors, setErrors] = useState<ApiError[]>([]);
@@ -78,7 +85,8 @@ export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
           <span>{valueOrDash(task.owner)}</span>
           {task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}
         </div>
-        {!task.editable && <div className="read-only-note"><strong>Read-only in Studio</strong><p>{task.edit_reason}</p></div>}
+        {!task.editable && <div className="read-only-note"><strong>Specification and status are read-only</strong><p>{task.edit_reason}</p></div>}
+        {!task.schedule_editable && <div className="read-only-note"><strong>Schedule is read-only</strong><p>{task.schedule_edit_reason}</p></div>}
         <div className="dialog-grid">
           <div className="editor-column">
             {task.editable ? <>
@@ -99,6 +107,7 @@ export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
               <label className="field"><span>Explicit blockers <small>One per line</small></span><textarea rows={3} value={(edit.blocked_by ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, blocked_by: lines(e.target.value).sort() })} /></label>
               <label className="field"><span>Constraints <small>One per line</small></span><textarea rows={3} value={(edit.constraints ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, constraints: lines(e.target.value) })} /></label>
             </> : <ReadOnlyTask task={task} />}
+            {task.schedule_editable ? <section className="schedule-editor" aria-labelledby="schedule-editor-title"><div className="section-heading"><div><span className="eyebrow">Planning metadata</span><h3 id="schedule-editor-title">Schedule</h3></div><button className="clear-button" type="button" onClick={() => setEdit({ ...edit, scheduled_start: null, scheduled_end: null })}>Clear dates</button></div><div className="field-row"><label className="field"><span>Scheduled start</span><input type="date" value={edit.scheduled_start ?? ''} onChange={(e) => setEdit({ ...edit, scheduled_start: e.target.value || null })} /></label><label className="field"><span>Scheduled end</span><input type="date" value={edit.scheduled_end ?? ''} onChange={(e) => setEdit({ ...edit, scheduled_end: e.target.value || null })} /></label></div><p>Scheduled dates are editable planning metadata. Actual execution dates come from evidence.</p></section> : <div className="read-only-content"><h3>Schedule</h3><p>{task.scheduled_start && task.scheduled_end ? `${task.scheduled_start} → ${task.scheduled_end}` : 'Unscheduled'}</p></div>}
           </div>
           <aside className="evidence-column">
             <h3>Execution context</h3>
@@ -109,6 +118,8 @@ export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
             <Definition label="Explicit blockers" value={task.blocked_by.join(', ') || 'None'} />
             <Definition label="Active contract" value={valueOrDash(task.active_contract)} mono />
             <Definition label="Latest manifest" value={valueOrDash(task.last_manifest)} mono />
+            <Definition label="Scheduled start" value={valueOrDash(task.scheduled_start)} />
+            <Definition label="Scheduled end" value={valueOrDash(task.scheduled_end)} />
             <Definition label="Updated" value={valueOrDash(task.updated)} />
             <button className="secondary-button full" onClick={copyReview}>Copy LLM review command</button>
             <code className="review-command">{reviewCommand}</code>
@@ -119,7 +130,7 @@ export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
       </div>
       <footer className="dialog-actions">
         <button className="secondary-button" onClick={onClose}>Close</button>
-        {task.editable && <><button className="secondary-button" disabled={busy !== null} onClick={() => invoke('check')}>{busy === 'check' ? 'Checking…' : 'Check changes'}</button><button className="primary-button" disabled={busy !== null} onClick={() => invoke('save')}>{busy === 'save' ? 'Saving…' : 'Save task'}</button></>}
+        {(task.editable || task.schedule_editable) && <><button className="secondary-button" disabled={busy !== null} onClick={() => invoke('check')}>{busy === 'check' ? 'Checking…' : 'Check changes'}</button><button className="primary-button" disabled={busy !== null} onClick={() => invoke('save')}>{busy === 'save' ? 'Saving…' : 'Save task'}</button></>}
       </footer>
     </section>
   </div>;

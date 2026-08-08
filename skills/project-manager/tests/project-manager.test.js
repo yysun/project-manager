@@ -2,7 +2,7 @@
  * Responsibility: executable contract tests for folder isolation, deterministic
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
  * Invariants: temporary fixtures only; no repository mutation. Recent change:
- * cover the Kanban projection without weakening the core engine suite.
+ * cover exact TASKS v2 schedules and shared Kanban/Timeline projection facts.
  */
 'use strict';
 
@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, regenerateStatus,
+  loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, regenerateStatus,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
@@ -36,8 +36,8 @@ function projectText(id, overrides = {}) {
   return `${frontmatter(data)}\n## Objective\n\nDeliver ${id}.\n\n## Success Criteria\n\n- [SC-OUTCOME] The outcome is accepted.\n`;
 }
 
-function collection(records = []) {
-  return `${frontmatter({ schema_version: 1 })}${records.map((record) => `\n## ${record.id} - ${record.title}\n\n\`\`\`json\n${JSON.stringify(record.data)}\n\`\`\`\n`).join('')}`;
+function collection(records = [], schemaVersion = 1) {
+  return `${frontmatter({ schema_version: schemaVersion })}${records.map((record) => `\n## ${record.id} - ${record.title}\n\n\`\`\`json\n${JSON.stringify(record.data)}\n\`\`\`\n`).join('')}`;
 }
 
 function createProject(base, id, records = [], projectOverrides = {}) {
@@ -100,6 +100,58 @@ test('Kanban projection groups exact lifecycle state and exposes truthful edit e
   assert.deepEqual(board.lanes.map((lane) => [lane.id, lane.tasks.length]), [['planned', 1], ['ready', 1], ['active', 0], ['verified', 0], ['done', 0]]);
   assert.equal(board.lanes[0].tasks[0].status, 'planned'); assert.equal(board.lanes[0].tasks[0].editable, true);
   assert.equal(board.summary.owner_gaps, 1); assert.equal(board.summary.coverage.configured, false);
+});
+
+test('v1 schedule support preserves legacy source hashes and schedule denial boundaries stay independent', () => {
+  const base = temp(); const root = createProject(base, 'LEGACY-SCHEDULE', [task('TASK-PLAN', 'Plan', 'Plan it.', ['Plan accepted.'])]);
+  const state = loadProject(root);
+  const legacyTasks = state.tasks.map(({ scheduled_start, scheduled_end, ...item }) => item);
+  const legacyHash = sha256({ project: { ...state.project, root: undefined }, tasks: legacyTasks, milestones: state.milestones.items, risks: state.risks.items, decisions: state.decisions.items, sources: state.sources.items, traceability: state.traceability, changes: state.changes.items });
+  fs.writeFileSync(path.join(root, 'STATUS.md'), `${frontmatter({ schema_version: 1, project_id: state.project.id, generated_at: '2026-08-08T00:00:00Z', source_sha256: legacyHash })}\nLegacy cache.\n`);
+  assert.equal(loadProject(root).status_stale, false);
+
+  const activeProject = { project: { status: 'active' }, milestones: { items: [] } };
+  assert.deepEqual(scheduleEditEligibility(activeProject, { status: 'done', milestone: null }), { editable: false, reason: 'Completed tasks cannot be rescheduled in Studio.' });
+  assert.deepEqual(scheduleEditEligibility({ project: { status: 'active' }, milestones: { items: [{ id: 'M-DONE', status: 'complete' }] } }, { status: 'in_progress', milestone: 'M-DONE' }), { editable: false, reason: 'Tasks in completed milestones cannot be rescheduled in Studio.' });
+  assert.deepEqual(scheduleEditEligibility({ project: { status: 'complete' }, milestones: { items: [] } }, { status: 'in_progress', milestone: null }), { editable: false, reason: 'Completed projects cannot be rescheduled in Studio.' });
+});
+
+test('TASKS v2 schedules are exact while v1 and optional collections remain fail closed', () => {
+  const base = temp(); const root = createProject(base, 'SCHEDULE', []);
+  const scheduled = task('TASK-DATED', 'Dated', 'Dated outcome.', ['Dated accepted.'], { scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' });
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([scheduled]));
+  assert.throws(() => loadProject(root), /unknown fields/);
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([scheduled], 2));
+  assert.equal(loadProject(root).tasks[0].scheduled_end, '2026-08-12');
+  const partial = structuredClone(scheduled); delete partial.data.scheduled_end;
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([partial], 2));
+  assert.throws(() => loadProject(root), /must contain both/);
+  const nulled = structuredClone(scheduled); nulled.data.scheduled_start = null; nulled.data.scheduled_end = null;
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([nulled], 2));
+  assert.throws(() => loadProject(root), /schedule dates are invalid/);
+  const reversed = structuredClone(scheduled); reversed.data.scheduled_start = '2026-08-13';
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([reversed], 2));
+  assert.throws(() => loadProject(root), /must not be after/);
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([], 2));
+  fs.writeFileSync(path.join(root, 'MILESTONES.md'), collection([], 2));
+  assert.throws(() => loadProject(root), /Unsupported schema_version/);
+});
+
+test('Timeline projection exposes schedules and isolates date conflicts from lifecycle facts', () => {
+  const base = temp(); const root = createProject(base, 'TIMELINE', [
+    task('TASK-FIRST', 'First', 'First outcome.', ['First accepted.'], { status: 'ready', scheduled_start: '2026-08-10', scheduled_end: '2026-08-12', blocks: ['TASK-SECOND'] }),
+    task('TASK-SECOND', 'Second', 'Second outcome.', ['Second accepted.'], { status: 'planned', scheduled_start: '2026-08-12', scheduled_end: '2026-08-14', depends_on: ['TASK-FIRST'] }),
+  ], {});
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([
+    task('TASK-FIRST', 'First', 'First outcome.', ['First accepted.'], { status: 'ready', scheduled_start: '2026-08-10', scheduled_end: '2026-08-12', blocks: ['TASK-SECOND'] }),
+    task('TASK-SECOND', 'Second', 'Second outcome.', ['Second accepted.'], { status: 'planned', scheduled_start: '2026-08-12', scheduled_end: '2026-08-14', depends_on: ['TASK-FIRST'] }),
+  ], 2));
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  const data = kanbanData(loadProject(root)); const second = data.tasks.find((item) => item.id === 'TASK-SECOND');
+  assert.deepEqual(second.schedule_conflicts, [{ dependency_id: 'TASK-FIRST', dependency_end: '2026-08-12', task_start: '2026-08-12' }]);
+  assert.deepEqual(second.blocked_by, []); assert.deepEqual(second.dependency_blockers, ['TASK-FIRST']);
+  assert.equal(data.summary.tasks.blocked, 1); assert.deepEqual(data.next.map((item) => item.id), ['TASK-FIRST']);
+  assert.equal(data.tasks.filter((item) => item.blocked_by.length || item.dependency_blockers.length).map((item) => item.id).join(','), 'TASK-SECOND');
 });
 
 test('ID bounds, trailing hyphens, and duplicate success criteria are rejected exactly', () => {

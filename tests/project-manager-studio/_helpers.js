@@ -1,4 +1,4 @@
-/* Shared Studio tests: isolated valid project fixtures and real built-server
+/* Shared Studio tests: isolated v1/v2 project fixtures and real built-server
    process control. Fixtures never mutate repository state. */
 'use strict';
 const fs = require('node:fs');
@@ -9,7 +9,7 @@ const { regenerateStatus } = require('../../skills/project-manager/scripts/lib/p
 
 const builtServerPath = path.resolve(__dirname, '../../skills/project-manager/scripts/project-manager-studio.js');
 function frontmatter(data) { return `---\n${Object.entries(data).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n`; }
-function collection(records) { return `${frontmatter({ schema_version: 1 })}${records.map((record) => `\n## ${record.id} - ${record.title}\n\n\`\`\`json\n${JSON.stringify(record.data)}\n\`\`\`\n\n${record.narrative ?? ''}\n`).join('')}`; }
+function collection(records, schemaVersion = 1) { return `${frontmatter({ schema_version: schemaVersion })}${records.map((record) => `\n## ${record.id} - ${record.title}\n\n\`\`\`json\n${JSON.stringify(record.data)}\n\`\`\`\n\n${record.narrative ?? ''}\n`).join('')}`; }
 function makeProject(records = null, id = 'STUDIO') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-studio-'));
   fs.writeFileSync(path.join(root, 'PROJECT.md'), `${frontmatter({ schema_version: 1, id, name: 'Studio Delivery', status: 'active', owner: 'Maya', start_date: '2026-08-08', target_date: null, current_milestone: null, profile: 'minimal', adapters: ['human'], created: '2026-08-08', updated: '2026-08-08' })}\n## Objective\n\nShip a clear project outcome.\n\n## Success Criteria\n\n- [SC-OUTCOME] The outcome is accepted.\n`);

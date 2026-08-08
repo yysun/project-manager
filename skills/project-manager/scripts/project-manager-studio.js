@@ -24498,10 +24498,11 @@ var require_project_state = __commonJS({
       }
       return { data, body: lines.slice(end + 1).join("\n") };
     }
-    function parseCollection(text, filePath) {
+    function parseCollection(text, filePath, options = {}) {
       const parsed = parseFrontmatter(text, filePath);
       exactKeys(parsed.data, ["schema_version"], filePath, "collection frontmatter");
-      if (parsed.data.schema_version !== 1) fail("grammar", "SCHEMA_VERSION", filePath, "Unsupported schema_version");
+      const schemaVersions = options.schemaVersions ?? [1];
+      if (!schemaVersions.includes(parsed.data.schema_version)) fail("grammar", "SCHEMA_VERSION", filePath, "Unsupported schema_version");
       const heading = /^## ([A-Z][A-Z0-9-]{1,63}) - (.+)$/gm;
       const matches = [...parsed.body.matchAll(heading)];
       const allHeadings = [...parsed.body.matchAll(/^##(?:[ \t].*)?$/gm)];
@@ -24526,6 +24527,7 @@ var require_project_state = __commonJS({
       }
       const ids = records.map((record) => record.id.toLowerCase());
       if (new Set(ids).size !== ids.length) fail("semantic", "DUPLICATE_ID", filePath, "Record IDs must be unique case-insensitively");
+      Object.defineProperty(records, "schema_version", { value: parsed.data.schema_version, enumerable: false });
       return records;
     }
     function parseAttempt(text, filePath, type) {
@@ -24614,8 +24616,9 @@ var require_project_state = __commonJS({
       assert(new Set(success.map((item) => item.id.toLowerCase())).size === success.length, "DUPLICATE_SUCCESS", filePath, "Success criteria must be unique case-insensitively");
       return { ...data, root, objective, success_criteria_items: success };
     }
-    function normalizeTask(record, project, filePath) {
+    function normalizeTask(record, project, filePath, schemaVersion = 1) {
       const allowed = ["outcome", "acceptance", "status", "priority", "milestone", "owner", "executor", "depends_on", "blocks", "blocked_by", "sources", "success_criteria", "constraints", "evidence_requirements", "external_refs", "critical", "active_contract", "last_manifest", "created", "updated"];
+      if (schemaVersion === 2) allowed.push("scheduled_start", "scheduled_end");
       exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
       assert(nonEmpty(record.raw.outcome), "TASK_OUTCOME", filePath, `Task ${record.id} requires outcome`, project);
       uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
@@ -24667,6 +24670,10 @@ var require_project_state = __commonJS({
         created: record.raw.created ?? null,
         updated: record.raw.updated ?? null
       };
+      if (schemaVersion === 2) {
+        task.scheduled_start = record.raw.scheduled_start ?? null;
+        task.scheduled_end = record.raw.scheduled_end ?? null;
+      }
       assert(TASK_STATUSES.includes(task.status), "TASK_STATUS", filePath, `Task ${task.id} has invalid status`, project);
       assert(PRIORITIES.includes(task.priority), "TASK_PRIORITY", filePath, `Task ${task.id} has invalid priority`, project);
       assert(task.milestone === null || namespacedId(task.milestone, "M-"), "TASK_MILESTONE", filePath, `Task ${task.id} has invalid milestone`, project);
@@ -24675,6 +24682,12 @@ var require_project_state = __commonJS({
       assert(typeof task.critical === "boolean", "TASK_CRITICAL", filePath, `Task ${task.id} critical must be boolean`, project);
       assert(task.active_contract === null || /^tc-[a-f0-9]{64}$/.test(task.active_contract), "TASK_CONTRACT", filePath, `Task ${task.id} active contract is invalid`, project);
       assert(task.last_manifest === null || /^em-[a-f0-9]{64}$/.test(task.last_manifest), "TASK_MANIFEST", filePath, `Task ${task.id} last manifest is invalid`, project);
+      const scheduleKeys = ["scheduled_start", "scheduled_end"].filter((key) => Object.hasOwn(record.raw, key));
+      assert(scheduleKeys.length === 0 || scheduleKeys.length === 2, "TASK_SCHEDULE", filePath, `Task ${task.id} schedule must contain both scheduled_start and scheduled_end`, project);
+      if (scheduleKeys.length === 2) {
+        assert(validDate(task.scheduled_start) && validDate(task.scheduled_end), "TASK_SCHEDULE", filePath, `Task ${task.id} schedule dates are invalid`, project);
+        assert(task.scheduled_start <= task.scheduled_end, "TASK_SCHEDULE", filePath, `Task ${task.id} scheduled_start must not be after scheduled_end`, project);
+      }
       assert(task.created === null || validDate(task.created), "INVALID_DATE", filePath, `Task ${task.id} created is invalid`, project);
       assert(task.updated === null || validDate(task.updated), "INVALID_DATE", filePath, `Task ${task.id} updated is invalid`, project);
       assert(task.external_refs && typeof task.external_refs === "object" && !Array.isArray(task.external_refs), "TASK_EXTERNAL_REFS", filePath, `Task ${task.id} external_refs must be an object`, project);
@@ -24970,7 +24983,8 @@ var require_project_state = __commonJS({
       const logicalRoot = options.logicalRoot ?? root;
       if (!path2.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
       const project = parseProject(texts["PROJECT.md"], path2.join(root, "PROJECT.md"), logicalRoot);
-      const tasks = parseCollection(texts["TASKS.md"], path2.join(root, "TASKS.md")).map((record) => normalizeTask(record, project, path2.join(root, "TASKS.md")));
+      const taskRecords = parseCollection(texts["TASKS.md"], path2.join(root, "TASKS.md"), { schemaVersions: [1, 2] });
+      const tasks = taskRecords.map((record) => normalizeTask(record, project, path2.join(root, "TASKS.md"), taskRecords.schema_version));
       function module3(name, kind) {
         const text = texts[name];
         if (text === null) return { configured: false, items: [] };
@@ -24981,6 +24995,7 @@ var require_project_state = __commonJS({
         root,
         project,
         tasks,
+        tasks_schema_version: taskRecords.schema_version,
         milestones: module3("MILESTONES.md", "milestones"),
         risks: module3("RISKS.md", "risks"),
         decisions: module3("DECISIONS.md", "decisions"),
@@ -25118,6 +25133,13 @@ var require_project_state = __commonJS({
       if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: "This task is governed by re-verification state and must be changed through project update." };
       return { editable: true, reason: null };
     }
+    function scheduleEditEligibility(state, task) {
+      if (state.project.status === "complete") return { editable: false, reason: "Completed projects cannot be rescheduled in Studio." };
+      const milestone = task.milestone === null ? null : state.milestones.items.find((item) => item.id === task.milestone);
+      if (milestone?.status === "complete") return { editable: false, reason: "Tasks in completed milestones cannot be rescheduled in Studio." };
+      if (task.status === "done") return { editable: false, reason: "Completed tasks cannot be rescheduled in Studio." };
+      return { editable: true, reason: null };
+    }
     function kanbanData(state, mutationRevision = null) {
       const status = statusData(state);
       const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
@@ -25126,6 +25148,12 @@ var require_project_state = __commonJS({
       const tasks = state.tasks.map((task) => {
         const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
         const eligibility = taskEditEligibility(state, task);
+        const scheduleEligibility = scheduleEditEligibility(state, task);
+        const scheduleConflicts = task.depends_on.flatMap((dependencyId) => {
+          const dependency = state.tasks.find((item) => item.id === dependencyId);
+          if (!dependency?.scheduled_end || !task.scheduled_start || task.scheduled_start > dependency.scheduled_end) return [];
+          return [{ dependency_id: dependencyId, dependency_end: dependency.scheduled_end, task_start: task.scheduled_start }];
+        });
         return {
           id: task.id,
           title: task.title,
@@ -25146,12 +25174,17 @@ var require_project_state = __commonJS({
           critical: task.critical,
           active_contract: task.active_contract,
           last_manifest: task.last_manifest,
+          scheduled_start: task.scheduled_start ?? null,
+          scheduled_end: task.scheduled_end ?? null,
+          schedule_conflicts: scheduleConflicts,
           created: task.created,
           updated: task.updated,
           task_revision: task.spec_sha256,
           next_rank: nextRank.get(task.id) ?? null,
           editable: eligibility.editable,
-          edit_reason: eligibility.reason
+          edit_reason: eligibility.reason,
+          schedule_editable: scheduleEligibility.editable,
+          schedule_edit_reason: scheduleEligibility.reason
         };
       });
       const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
@@ -25166,6 +25199,7 @@ var require_project_state = __commonJS({
           status: state.project.status,
           owner: state.project.owner,
           objective: state.project.objective,
+          start_date: state.project.start_date,
           target_date: state.project.target_date,
           current_milestone: state.project.current_milestone,
           profile: state.project.profile
@@ -25179,6 +25213,7 @@ var require_project_state = __commonJS({
           owner_gaps: tasks.filter((task) => task.owner === null).length
         },
         warnings: state.status_stale ? [{ code: "STATUS_STALE", message: "STATUS.md is stale; the board is showing validated authoritative state." }] : [],
+        milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, forecast_updated: item.forecast_updated, critical: item.critical })),
         options: {
           owners: ownerOptions,
           priorities: PRIORITIES,
@@ -25187,6 +25222,7 @@ var require_project_state = __commonJS({
           tasks: tasks.map((task) => ({ id: task.id, title: task.title }))
         },
         next,
+        tasks,
         lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.statuses.includes(task.status)) }))
       };
     }
@@ -25210,7 +25246,7 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
       fs.writeFileSync(path2.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
       return loadProject(state.root, options);
     }
-    module2.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
+    module2.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
   }
 });
 
@@ -25434,9 +25470,9 @@ var require_task_editor = __commonJS({
     "use strict";
     var fs = require("node:fs");
     var path2 = require("node:path");
-    var { loadProject, kanbanData, regenerateStatus, taskEditEligibility } = require_project_state();
+    var { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility } = require_project_state();
     var { atomicProjectMutation, mutationRevision, MutationConflictError } = require_mutations();
-    var EDITABLE_FIELDS = [
+    var PLANNING_FIELDS = [
       "title",
       "outcome",
       "acceptance",
@@ -25450,6 +25486,8 @@ var require_task_editor = __commonJS({
       "constraints",
       "critical"
     ];
+    var SCHEDULE_FIELDS = ["scheduled_start", "scheduled_end"];
+    var EDITABLE_FIELDS = [...PLANNING_FIELDS, ...SCHEDULE_FIELDS];
     var TaskEditError2 = class extends Error {
       constructor(code, message, details = {}) {
         super(message);
@@ -25492,8 +25530,17 @@ var require_task_editor = __commonJS({
         if (typeof edit.title !== "string" || edit.title.trim() === "") throw new TaskEditError2("INVALID_REQUEST", "title must be non-empty");
         target.title = edit.title.trim();
       }
-      for (const key of EDITABLE_FIELDS.filter((field) => field !== "title")) {
+      for (const key of PLANNING_FIELDS.filter((field) => field !== "title")) {
         if (Object.hasOwn(edit, key)) target.raw[key] = edit[key];
+      }
+      if (SCHEDULE_FIELDS.every((key) => Object.hasOwn(edit, key))) {
+        if (edit.scheduled_start === null && edit.scheduled_end === null) {
+          delete target.raw.scheduled_start;
+          delete target.raw.scheduled_end;
+        } else {
+          target.raw.scheduled_start = edit.scheduled_start;
+          target.raw.scheduled_end = edit.scheduled_end;
+        }
       }
       target.raw.updated = date;
       const dependencies = new Map(records.map((record) => [record.id, Array.isArray(record.raw.depends_on) ? record.raw.depends_on : []]));
@@ -25507,6 +25554,8 @@ var require_task_editor = __commonJS({
         const changed = record.id === taskId || JSON.stringify(record.raw.blocks ?? []) !== JSON.stringify(record.originalBlocks);
         if (changed) output = `${output.slice(0, record.start)}${renderRecord(record)}${output.slice(record.end)}`;
       }
+      const hasSchedule = SCHEDULE_FIELDS.every((key) => Object.hasOwn(edit, key)) && edit.scheduled_start !== null;
+      if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
       return output;
     }
     function loadRevisionedProject3(root, attempts = 3) {
@@ -25532,9 +25581,25 @@ var require_task_editor = __commonJS({
       const task = snapshot.state.tasks.find((item) => item.id === taskId);
       if (!task) throw new TaskEditError2("TASK_NOT_FOUND", `Unknown task: ${taskId}`);
       if (task.spec_sha256 !== request.taskRevision) throw new TaskEditError2("TASK_CONFLICT", "Task specification changed since it was loaded", { currentTaskRevision: task.spec_sha256, currentRevision: snapshot.mutation_revision });
-      const eligibility = taskEditEligibility(snapshot.state, task);
-      if (!eligibility.editable) throw new TaskEditError2("TASK_READ_ONLY", eligibility.reason);
       assertExactKeys(request.edit, EDITABLE_FIELDS, "edit");
+      const keys = Object.keys(request.edit);
+      if (keys.length === 0) throw new TaskEditError2("INVALID_REQUEST", "edit must change at least one field");
+      const planning = keys.some((key) => PLANNING_FIELDS.includes(key));
+      const schedule = keys.some((key) => SCHEDULE_FIELDS.includes(key));
+      if (planning) {
+        const eligibility = taskEditEligibility(snapshot.state, task);
+        if (!eligibility.editable) throw new TaskEditError2("TASK_READ_ONLY", eligibility.reason);
+        if (Object.hasOwn(request.edit, "status") && !["planned", "ready"].includes(request.edit.status)) throw new TaskEditError2("INVALID_REQUEST", "Studio status edits are limited to planned and ready");
+      }
+      if (schedule) {
+        if (!SCHEDULE_FIELDS.every((key) => Object.hasOwn(request.edit, key))) throw new TaskEditError2("INVALID_REQUEST", "scheduled_start and scheduled_end must be edited together");
+        const values = SCHEDULE_FIELDS.map((key) => request.edit[key]);
+        const clearing = values.every((value) => value === null);
+        const dating = values.every((value) => typeof value === "string");
+        if (!clearing && !dating) throw new TaskEditError2("INVALID_REQUEST", "schedule dates must both be date strings or both be null");
+        const eligibility = scheduleEditEligibility(snapshot.state, task);
+        if (!eligibility.editable) throw new TaskEditError2("TASK_SCHEDULE_READ_ONLY", eligibility.reason);
+      }
       return task;
     }
     function applyCandidateEdit(candidate, logicalRoot, taskId, request) {
@@ -25547,16 +25612,17 @@ var require_task_editor = __commonJS({
     function checkTaskEdit2(root, taskId, request) {
       const snapshot = loadRevisionedProject3(root);
       validateEnvelope(snapshot, taskId, request);
-      const parent = path2.dirname(root);
-      const name = path2.basename(root);
+      const canonicalRoot = snapshot.state.root;
+      const parent = path2.dirname(canonicalRoot);
+      const name = path2.basename(canonicalRoot);
       const work = fs.mkdtempSync(path2.join(parent, `.${name}.studio-check-`));
       const candidate = path2.join(work, name);
       try {
-        fs.cpSync(root, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
-        if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError2("MUTATION_CONFLICT", "Candidate copy did not match the loaded project", { currentRevision: mutationRevision(root) });
-        const state = applyCandidateEdit(candidate, root, taskId, request);
+        fs.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+        if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError2("MUTATION_CONFLICT", "Candidate copy did not match the loaded project", { currentRevision: mutationRevision(canonicalRoot) });
+        const state = applyCandidateEdit(candidate, canonicalRoot, taskId, request);
         const task = state.tasks.find((item) => item.id === taskId);
-        return { valid: true, task: kanbanData(state).lanes.flatMap((lane) => lane.tasks).find((item) => item.id === task.id) };
+        return { valid: true, task: kanbanData(state).tasks.find((item) => item.id === task.id) };
       } finally {
         fs.rmSync(work, { recursive: true, force: true });
       }
@@ -25564,8 +25630,9 @@ var require_task_editor = __commonJS({
     function saveTaskEdit2(root, taskId, request, options = {}) {
       const snapshot = loadRevisionedProject3(root);
       validateEnvelope(snapshot, taskId, request);
+      const canonicalRoot = snapshot.state.root;
       try {
-        atomicProjectMutation(root, (candidate, context) => {
+        atomicProjectMutation(canonicalRoot, (candidate, context) => {
           applyCandidateEdit(candidate, context.logicalRoot, taskId, request);
         }, loadProject, {
           validateLive: loadProject,
@@ -25577,10 +25644,12 @@ var require_task_editor = __commonJS({
         if (error instanceof MutationConflictError) throw new TaskEditError2("MUTATION_CONFLICT", error.message, { currentRevision: error.currentRevision });
         throw error;
       }
-      return loadRevisionedProject3(root).data;
+      return loadRevisionedProject3(canonicalRoot).data;
     }
     module2.exports = {
       EDITABLE_FIELDS,
+      PLANNING_FIELDS,
+      SCHEDULE_FIELDS,
       TaskEditError: TaskEditError2,
       transformTaskDocument,
       loadRevisionedProject: loadRevisionedProject3,

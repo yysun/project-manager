@@ -23,6 +23,28 @@ Providers:
 
 External tracker identifiers belong in `external_refs`. They are display-only and cannot participate in dependencies, lifecycle, or identity.
 
+## Scheduling
+
+Task schedules are optional planning metadata in `TASKS.md` schema v2:
+
+```json
+{"outcome":"All move-day vendors are confirmed.","acceptance":["Every vendor has acknowledged the schedule."],"scheduled_start":"2026-09-01","scheduled_end":"2026-09-03"}
+```
+
+Both schedule keys must be absent or both must contain valid date-only values, with start no later
+than end. Ranges are inclusive. Clearing a schedule deletes both keys. Schedule is not actual
+execution time, effort, progress, evidence, or forecast, and is excluded from the task specification
+hash and immutable Task Contract.
+
+The first persisted schedule upgrades `TASKS.md` from schema v1 to v2. V1 remains exact and rejects
+schedule keys. V2 is not silently downgraded after schedules are cleared. To use an older v1 reader,
+clear every schedule with the current reader, verify no schedule keys remain, change only the
+`TASKS.md` frontmatter version to 1, validate the project, and regenerate `STATUS.md`.
+
+Studio may reschedule non-completed work unless the project or assigned milestone is complete.
+Specification and status authority remains separate: only genuinely never-started tasks may edit
+execution-defining fields or switch between `planned` and `ready`.
+
 ## LLM task-quality validation
 
 For `project validate-task <folder> <task-id>`, validate the selected project first, then review the

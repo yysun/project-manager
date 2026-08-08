@@ -1,8 +1,12 @@
-// Project Manager Studio shell: truthful summaries, filterable Kanban lanes,
-// coherent refresh, and accessible task inspection/editing.
+// Project Manager Studio shell: shared validated project state, URL-addressable
+// Kanban/Timeline views, coherent filters, refresh, and task editing.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { KanbanData, KanbanTask, Priority } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
+import { Timeline } from './components/Timeline';
+
+type StudioView = 'kanban' | 'timeline';
+function viewFromUrl(): StudioView { return new URLSearchParams(window.location.search).get('view') === 'timeline' ? 'timeline' : 'kanban'; }
 
 export function App() {
   const [data, setData] = useState<KanbanData | null>(null);
@@ -12,6 +16,7 @@ export function App() {
   const [priority, setPriority] = useState<Priority | 'all'>('all');
   const [owner, setOwner] = useState('all');
   const [blockedOnly, setBlockedOnly] = useState(false);
+  const [view, setViewState] = useState<StudioView>(viewFromUrl);
   const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -22,7 +27,7 @@ export function App() {
       setData(body.data);
       setSelected((current) => {
         if (!current) return null;
-        const task = (body.data as KanbanData).lanes.flatMap((lane) => lane.tasks).find((item) => item.id === current.task.id);
+        const task = (body.data as KanbanData).tasks.find((item) => item.id === current.task.id);
         return task ? { ...current, task, formRevision: (body.data as KanbanData).mutation_revision } : null;
       });
     } catch (value) {
@@ -33,18 +38,26 @@ export function App() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const sync = () => setViewState(viewFromUrl()); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync); }, []);
+
+  function setView(next: StudioView) {
+    const url = new URL(window.location.href);
+    if (next === 'timeline') url.searchParams.set('view', 'timeline'); else url.searchParams.delete('view');
+    window.history.pushState({}, '', url); setViewState(next);
+  }
 
   const filtered = useMemo(() => {
-    if (!data) return new Map<string, KanbanTask[]>();
+    if (!data) return [];
     const query = search.trim().toLowerCase();
-    return new Map(data.lanes.map((lane) => [lane.id, lane.tasks.filter((task) => {
+    return data.tasks.filter((task) => {
       const matchesSearch = !query || `${task.id} ${task.title} ${task.outcome} ${task.owner ?? ''}`.toLowerCase().includes(query);
       const matchesPriority = priority === 'all' || task.priority === priority;
       const matchesOwner = owner === 'all' || (owner === 'unassigned' ? task.owner === null : task.owner === owner);
       const matchesBlocked = !blockedOnly || task.blocked_by.length > 0 || task.dependency_blockers.length > 0;
       return matchesSearch && matchesPriority && matchesOwner && matchesBlocked;
-    })]));
+    });
   }, [data, search, priority, owner, blockedOnly]);
+  const filteredIds = useMemo(() => new Set(filtered.map((task) => task.id)), [filtered]);
 
   if (loading && !data) return <div className="loading-screen"><div className="mark">PM</div><p>Loading validated project state…</p></div>;
   if (!data) return <div className="loading-screen error-screen"><div className="mark">!</div><h1>Project could not be loaded</h1><p>{error}</p><button className="primary-button" onClick={load}>Try again</button></div>;
@@ -64,21 +77,22 @@ export function App() {
       <Metric label="Owner gaps" value={data.summary.owner_gaps} detail="tasks need an owner" tone={data.summary.owner_gaps ? 'warn' : 'good'} />
       <Metric label="Target" value={data.project.target_date ?? 'Unknown'} detail={data.project.current_milestone ?? 'No active milestone'} compact />
     </section>
-    <section className="toolbar" aria-label="Board filters">
+    <nav className="view-switcher" aria-label="Project views"><button aria-current={view === 'kanban' ? 'page' : undefined} onClick={() => setView('kanban')}>Kanban</button><button aria-current={view === 'timeline' ? 'page' : undefined} onClick={() => setView('timeline')}>Timeline</button></nav>
+    <section className="toolbar" aria-label="Task filters">
       <label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="Search tasks" placeholder="Search ID, title, outcome, owner…" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
       <label><span>Priority</span><select value={priority} onChange={(e) => setPriority(e.target.value as Priority | 'all')}><option value="all">All priorities</option>{data.options.priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label><span>Owner</span><select value={owner} onChange={(e) => setOwner(e.target.value)}><option value="all">All owners</option><option value="unassigned">Unassigned</option>{data.options.owners.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label className="toggle"><input type="checkbox" checked={blockedOnly} onChange={(e) => setBlockedOnly(e.target.checked)} /><span>Blocked only</span></label>
       {(search || priority !== 'all' || owner !== 'all' || blockedOnly) && <button className="clear-button" onClick={() => { setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); }}>Clear filters</button>}
     </section>
-    <section className="board" aria-label="Task Kanban board">
-      {data.lanes.map((lane) => { const tasks = filtered.get(lane.id) ?? []; return <section className={`lane lane--${lane.id}`} key={lane.id} aria-labelledby={`lane-${lane.id}`}>
+    {view === 'kanban' ? <section className="board" aria-label="Task Kanban board">
+      {data.lanes.map((lane) => { const tasks = lane.tasks.filter((task) => filteredIds.has(task.id)); return <section className={`lane lane--${lane.id}`} key={lane.id} aria-labelledby={`lane-${lane.id}`}>
         <header><div><span className="lane-dot" aria-hidden="true" /><h2 id={`lane-${lane.id}`}>{lane.title}</h2></div><span className="lane-count" aria-label={`${tasks.length} tasks`}>{tasks.length}</span></header>
         <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
       </section>; })}
-    </section>
-    <footer className="footer-note"><span>Folder-native state</span><span>·</span><span>Evidence-backed lifecycle</span><span>·</span><span>Studio edits never-started tasks only</span></footer>
-    {selected && <TaskDialog key={`${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} onSaved={(next) => { setData(next); const updated = next.lanes.flatMap((lane) => lane.tasks).find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated }); }} />}
+    </section> : <Timeline data={data} tasks={filtered} onOpen={(task, opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} onSaved={(next) => setData(next)} />}
+    <footer className="footer-note"><span>Folder-native state</span><span>·</span><span>Evidence-backed lifecycle</span><span>·</span><span>Planning/status edits: never-started tasks</span><span>·</span><span>Schedule edits: eligible unfinished work</span></footer>
+    {selected && <TaskDialog key={`${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} onSaved={(next) => { setData(next); const updated = next.tasks.find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated, formRevision: next.mutation_revision }); }} />}
   </main>;
 }
 

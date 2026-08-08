@@ -1,0 +1,14 @@
+/* Type declarations for the Timeline's runtime-tested UTC date geometry. */
+export interface DateRange { start: string; end: string }
+export const DAY_MS: number;
+export function toDay(date: string): number;
+export function fromDay(value: number): string;
+export function addDays(date: string, days: number): string;
+export function dayDiff(start: string, end: string): number;
+export function timelineRange(tasks: Array<{ scheduled_start: string | null; scheduled_end: string | null }>, project: { start_date: string | null; target_date: string | null }, milestones: Array<{ target_date: string | null; forecast_date: string | null }>, padding?: number): DateRange | null;
+export function rangeDays(range: DateRange): number;
+export function datePercent(date: string, range: DateRange): number;
+export function barGeometry(start: string, end: string, range: DateRange): { left: number; width: number };
+export function moveSchedule(start: string, end: string, days: number): DateRange;
+export function resizeSchedule(start: string, end: string, edge: 'start' | 'end', days: number): DateRange;
+export function pixelsToDays(pixels: number, width: number, days: number): number;

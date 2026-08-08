@@ -1,5 +1,5 @@
-/* Built Studio server: loopback/token security, selected-project API, checks,
-   saves, forbidden endpoints, queue recovery, and clean shutdown. */
+/* Built Studio server: loopback/token security, selected-project schedule and
+   planning edits, conflicts, queue recovery, forbidden routes, and shutdown. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -39,6 +39,21 @@ test('check is read-only, save updates state, conflict does not poison queue, an
     const newest = (await (await fetch(`${handle.origin}/api/project`, { headers })).json()).data; const newestTask = newest.lanes.flatMap((lane) => lane.tasks).find((item) => item.id === 'TASK-PLAN');
     const valid = await fetch(`${handle.origin}/api/tasks/TASK-PLAN`, { method: 'PUT', headers, body: JSON.stringify({ mutationRevision: newest.mutation_revision, taskRevision: newestTask.task_revision, edit: { owner: 'Lin' } }) }); assert.equal(valid.status, 200);
     for (const [method, route] of [['POST', '/api/shell'], ['POST', '/api/runs'], ['PUT', '/api/contracts/x']]) assert.equal((await fetch(`${handle.origin}${route}`, { method, headers })).status, 404);
+  } finally { await stopStudio(handle); }
+});
+
+test('authenticated API checks and saves paired schedules without widening lifecycle status authority', async () => {
+  const root = makeProject(); const handle = await startStudio(root);
+  try {
+    const { cookie } = await handshake(handle); const headers = { Cookie: cookie, 'Content-Type': 'application/json' };
+    const snapshot = (await (await fetch(`${handle.origin}/api/project`, { headers })).json()).data; const task = snapshot.tasks.find((item) => item.id === 'TASK-PLAN');
+    const before = mutationRevision(root); const body = { mutationRevision: snapshot.mutation_revision, taskRevision: task.task_revision, edit: { scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' } };
+    const checked = await fetch(`${handle.origin}/api/tasks/TASK-PLAN/check`, { method: 'POST', headers, body: JSON.stringify(body) }); assert.equal(checked.status, 200); assert.equal(mutationRevision(root), before);
+    const saved = await fetch(`${handle.origin}/api/tasks/TASK-PLAN`, { method: 'PUT', headers, body: JSON.stringify(body) }); assert.equal(saved.status, 200);
+    const data = (await saved.json()).data; assert.equal(data.tasks.find((item) => item.id === 'TASK-PLAN').scheduled_end, '2026-08-12');
+    const current = data; const currentTask = current.tasks.find((item) => item.id === 'TASK-PLAN');
+    const illegal = await fetch(`${handle.origin}/api/tasks/TASK-PLAN`, { method: 'PUT', headers, body: JSON.stringify({ mutationRevision: current.mutation_revision, taskRevision: currentTask.task_revision, edit: { status: 'in_progress' } }) });
+    assert.equal(illegal.status, 400); assert.match((await illegal.json()).errors[0].message, /planned and ready/);
   } finally { await stopStudio(handle); }
 });
 

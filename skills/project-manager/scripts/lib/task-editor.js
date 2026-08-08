@@ -1,20 +1,22 @@
 /**
  * Responsibility: revision-safe Studio projection, dry-run task checking, and
- * atomic edits for genuinely never-started tasks. Invariants: exact editable
- * field allowlist, coherent snapshots, preserved narrative/history, no live
- * write before full candidate validation. Initial Kanban Studio implementation.
+ * atomic specification and schedule edits. Invariants: separate edit authority,
+ * exact field allowlists, coherent snapshots, preserved narrative/history, and
+ * no live write before full candidate validation. Timeline scheduling support.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadProject, kanbanData, regenerateStatus, taskEditEligibility } = require('./project-state');
+const { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility } = require('./project-state');
 const { atomicProjectMutation, mutationRevision, MutationConflictError } = require('./mutations');
 
-const EDITABLE_FIELDS = [
+const PLANNING_FIELDS = [
   'title', 'outcome', 'acceptance', 'status', 'priority', 'milestone', 'owner',
   'depends_on', 'blocked_by', 'success_criteria', 'constraints', 'critical',
 ];
+const SCHEDULE_FIELDS = ['scheduled_start', 'scheduled_end'];
+const EDITABLE_FIELDS = [...PLANNING_FIELDS, ...SCHEDULE_FIELDS];
 
 class TaskEditError extends Error {
   constructor(code, message, details = {}) {
@@ -59,8 +61,15 @@ function transformTaskDocument(text, taskId, edit, date) {
     if (typeof edit.title !== 'string' || edit.title.trim() === '') throw new TaskEditError('INVALID_REQUEST', 'title must be non-empty');
     target.title = edit.title.trim();
   }
-  for (const key of EDITABLE_FIELDS.filter((field) => field !== 'title')) {
+  for (const key of PLANNING_FIELDS.filter((field) => field !== 'title')) {
     if (Object.hasOwn(edit, key)) target.raw[key] = edit[key];
+  }
+  if (SCHEDULE_FIELDS.every((key) => Object.hasOwn(edit, key))) {
+    if (edit.scheduled_start === null && edit.scheduled_end === null) {
+      delete target.raw.scheduled_start; delete target.raw.scheduled_end;
+    } else {
+      target.raw.scheduled_start = edit.scheduled_start; target.raw.scheduled_end = edit.scheduled_end;
+    }
   }
   target.raw.updated = date;
   const dependencies = new Map(records.map((record) => [record.id, Array.isArray(record.raw.depends_on) ? record.raw.depends_on : []]));
@@ -74,6 +83,8 @@ function transformTaskDocument(text, taskId, edit, date) {
     const changed = record.id === taskId || JSON.stringify(record.raw.blocks ?? []) !== JSON.stringify(record.originalBlocks);
     if (changed) output = `${output.slice(0, record.start)}${renderRecord(record)}${output.slice(record.end)}`;
   }
+  const hasSchedule = SCHEDULE_FIELDS.every((key) => Object.hasOwn(edit, key)) && edit.scheduled_start !== null;
+  if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
   return output;
 }
 
@@ -101,9 +112,25 @@ function validateEnvelope(snapshot, taskId, request) {
   const task = snapshot.state.tasks.find((item) => item.id === taskId);
   if (!task) throw new TaskEditError('TASK_NOT_FOUND', `Unknown task: ${taskId}`);
   if (task.spec_sha256 !== request.taskRevision) throw new TaskEditError('TASK_CONFLICT', 'Task specification changed since it was loaded', { currentTaskRevision: task.spec_sha256, currentRevision: snapshot.mutation_revision });
-  const eligibility = taskEditEligibility(snapshot.state, task);
-  if (!eligibility.editable) throw new TaskEditError('TASK_READ_ONLY', eligibility.reason);
   assertExactKeys(request.edit, EDITABLE_FIELDS, 'edit');
+  const keys = Object.keys(request.edit);
+  if (keys.length === 0) throw new TaskEditError('INVALID_REQUEST', 'edit must change at least one field');
+  const planning = keys.some((key) => PLANNING_FIELDS.includes(key));
+  const schedule = keys.some((key) => SCHEDULE_FIELDS.includes(key));
+  if (planning) {
+    const eligibility = taskEditEligibility(snapshot.state, task);
+    if (!eligibility.editable) throw new TaskEditError('TASK_READ_ONLY', eligibility.reason);
+    if (Object.hasOwn(request.edit, 'status') && !['planned', 'ready'].includes(request.edit.status)) throw new TaskEditError('INVALID_REQUEST', 'Studio status edits are limited to planned and ready');
+  }
+  if (schedule) {
+    if (!SCHEDULE_FIELDS.every((key) => Object.hasOwn(request.edit, key))) throw new TaskEditError('INVALID_REQUEST', 'scheduled_start and scheduled_end must be edited together');
+    const values = SCHEDULE_FIELDS.map((key) => request.edit[key]);
+    const clearing = values.every((value) => value === null);
+    const dating = values.every((value) => typeof value === 'string');
+    if (!clearing && !dating) throw new TaskEditError('INVALID_REQUEST', 'schedule dates must both be date strings or both be null');
+    const eligibility = scheduleEditEligibility(snapshot.state, task);
+    if (!eligibility.editable) throw new TaskEditError('TASK_SCHEDULE_READ_ONLY', eligibility.reason);
+  }
   return task;
 }
 
@@ -118,15 +145,16 @@ function applyCandidateEdit(candidate, logicalRoot, taskId, request) {
 function checkTaskEdit(root, taskId, request) {
   const snapshot = loadRevisionedProject(root);
   validateEnvelope(snapshot, taskId, request);
-  const parent = path.dirname(root); const name = path.basename(root);
+  const canonicalRoot = snapshot.state.root;
+  const parent = path.dirname(canonicalRoot); const name = path.basename(canonicalRoot);
   const work = fs.mkdtempSync(path.join(parent, `.${name}.studio-check-`));
   const candidate = path.join(work, name);
   try {
-    fs.cpSync(root, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
-    if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError('MUTATION_CONFLICT', 'Candidate copy did not match the loaded project', { currentRevision: mutationRevision(root) });
-    const state = applyCandidateEdit(candidate, root, taskId, request);
+    fs.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+    if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError('MUTATION_CONFLICT', 'Candidate copy did not match the loaded project', { currentRevision: mutationRevision(canonicalRoot) });
+    const state = applyCandidateEdit(candidate, canonicalRoot, taskId, request);
     const task = state.tasks.find((item) => item.id === taskId);
-    return { valid: true, task: kanbanData(state).lanes.flatMap((lane) => lane.tasks).find((item) => item.id === task.id) };
+    return { valid: true, task: kanbanData(state).tasks.find((item) => item.id === task.id) };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
@@ -135,8 +163,9 @@ function checkTaskEdit(root, taskId, request) {
 function saveTaskEdit(root, taskId, request, options = {}) {
   const snapshot = loadRevisionedProject(root);
   validateEnvelope(snapshot, taskId, request);
+  const canonicalRoot = snapshot.state.root;
   try {
-    atomicProjectMutation(root, (candidate, context) => {
+    atomicProjectMutation(canonicalRoot, (candidate, context) => {
       applyCandidateEdit(candidate, context.logicalRoot, taskId, request);
     }, loadProject, {
       validateLive: loadProject,
@@ -148,10 +177,10 @@ function saveTaskEdit(root, taskId, request, options = {}) {
     if (error instanceof MutationConflictError) throw new TaskEditError('MUTATION_CONFLICT', error.message, { currentRevision: error.currentRevision });
     throw error;
   }
-  return loadRevisionedProject(root).data;
+  return loadRevisionedProject(canonicalRoot).data;
 }
 
 module.exports = {
-  EDITABLE_FIELDS, TaskEditError, transformTaskDocument, loadRevisionedProject,
+  EDITABLE_FIELDS, PLANNING_FIELDS, SCHEDULE_FIELDS, TaskEditError, transformTaskDocument, loadRevisionedProject,
   checkTaskEdit, saveTaskEdit,
 };

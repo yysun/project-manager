@@ -1,5 +1,5 @@
-/* Task-editor contracts: exact revisions, no-mutation checks, controlled saves,
-   protected history, copy fidelity, conflicts, and rollback. */
+/* Task-editor contracts: exact revisions, split planning/schedule authority,
+   v1-to-v2 migration, protected history, conflicts, copy fidelity, and rollback. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -7,7 +7,8 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { spawnSync } = require('node:child_process');
-const { loadProject } = require('../../skills/project-manager/scripts/lib/project-state');
+const { loadProject, regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
+const { buildTaskContract, formatTaskContract, taskSpecHash, sha256 } = require('../../skills/project-manager/scripts/lib/contracts');
 const { mutationRevision, atomicProjectMutation, UnsupportedProjectEntryError } = require('../../skills/project-manager/scripts/lib/mutations');
 const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../skills/project-manager/scripts/lib/task-editor');
 const { makeProject, collection } = require('./_helpers');
@@ -22,7 +23,46 @@ test('check is byte-invariant and save supports every editable field while prese
   const data = saveTaskEdit(root, 'TASK-PLAN', body); const task = data.lanes.flatMap((lane) => lane.tasks).find((item) => item.id === 'TASK-PLAN');
   assert.equal(task.title, edit.title); assert.equal(task.owner, 'Ari'); assert.equal(task.critical, true);
   assert.match(fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'), /Human note stays here\./);
+  assert.match(fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'), /schema_version: 1/);
   assert.equal(loadProject(root).status_stale, false);
+});
+
+test('schedule edits migrate v1 to v2, clear canonically, and preserve task identity', () => {
+  const root = makeProject(); const beforeTask = loadProject(root).tasks.find((item) => item.id === 'TASK-PLAN');
+  const beforeHash = beforeTask.spec_sha256;
+  const scheduled = saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' }));
+  const task = scheduled.tasks.find((item) => item.id === 'TASK-PLAN');
+  assert.equal(task.scheduled_start, '2026-08-10'); assert.equal(task.scheduled_end, '2026-08-12'); assert.equal(task.task_revision, beforeHash);
+  let text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'); assert.match(text, /schema_version: 2/); assert.match(text, /"scheduled_start":"2026-08-10"/); assert.match(text, /Human note stays here\./);
+  saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: null, scheduled_end: null }));
+  text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'); assert.match(text, /schema_version: 2/); assert.doesNotMatch(text, /scheduled_start|scheduled_end/); assert.equal(loadProject(root).tasks[0].spec_sha256, beforeHash);
+});
+
+test('partial, mixed, reversed, and stale schedules fail without live mutation', () => {
+  const root = makeProject(); const before = mutationRevision(root);
+  assert.throws(() => checkTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: '2026-08-10' })), /must be edited together/);
+  assert.throws(() => checkTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: null, scheduled_end: '2026-08-12' })), /both be date strings or both be null/);
+  assert.throws(() => checkTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: '2026-08-13', scheduled_end: '2026-08-12' })), /must not be after/);
+  assert.equal(mutationRevision(root), before);
+  const stale = request(root, 'TASK-PLAN', { scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' }); fs.appendFileSync(path.join(root, 'TASKS.md'), '\nConcurrent schedule note.\n'); const concurrent = mutationRevision(root);
+  assert.throws(() => saveTaskEdit(root, 'TASK-PLAN', stale), (error) => error.code === 'MUTATION_CONFLICT'); assert.equal(mutationRevision(root), concurrent);
+});
+
+test('active work can be rescheduled without changing contract identity or lifecycle authority', () => {
+  const records = [{ id: 'TASK-ACTIVE', title: 'Active work', data: { outcome: 'Active work ships.', acceptance: ['Active work is accepted.'], status: 'planned', priority: 'P1' } }];
+  const root = makeProject(records, 'ACTIVE-SCHEDULE'); const state = loadProject(root); const original = state.tasks[0];
+  const contract = buildTaskContract(state.project, original, [], '2026-08-08T00:00:00Z');
+  const attempt = path.join(root, 'handoffs', original.id, contract.contract_id); fs.mkdirSync(attempt, { recursive: true });
+  const contractPath = path.join(attempt, 'TASK-CONTRACT.md'); fs.writeFileSync(contractPath, formatTaskContract(contract, { story: null, executor_prompt: null, executor_prompt_sha256: null }));
+  records[0].data.status = 'in_progress'; records[0].data.active_contract = contract.contract_id;
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records)); regenerateStatus(root, '2026-08-08T00:00:01Z');
+  const beforeContract = sha256(fs.readFileSync(contractPath)); const beforeSpec = loadProject(root).tasks[0].spec_sha256;
+  assert.equal(beforeSpec, taskSpecHash(original));
+  const data = saveTaskEdit(root, 'TASK-ACTIVE', request(root, 'TASK-ACTIVE', { scheduled_start: '2026-08-11', scheduled_end: '2026-08-15' }));
+  const active = data.tasks.find((item) => item.id === 'TASK-ACTIVE');
+  assert.equal(active.status, 'in_progress'); assert.equal(active.scheduled_end, '2026-08-15'); assert.equal(active.task_revision, beforeSpec); assert.equal(sha256(fs.readFileSync(contractPath)), beforeContract);
+  assert.doesNotThrow(() => loadProject(root));
+  assert.throws(() => checkTaskEdit(root, 'TASK-ACTIVE', request(root, 'TASK-ACTIVE', { status: 'ready' })), (error) => error.code === 'TASK_READ_ONLY');
 });
 
 test('protected fields, invalid graphs, historical tasks, and stale revisions fail without mutation', () => {

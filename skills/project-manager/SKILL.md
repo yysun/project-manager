@@ -28,7 +28,8 @@ Use these nine user-facing routes. Natural language is preferred; do not force a
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
 7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage.
 8. `project validate-task <folder> <task-id>` — validate the folder, then use LLM judgment to review task quality. Read [tasks.md](references/tasks.md).
-9. `project studio <folder>` — launch the local Kanban Studio for the explicitly selected folder.
+9. `project studio <folder>` — launch local Project Manager Studio with Kanban and Timeline views
+   for the explicitly selected folder.
 
 For source or scope changes, read [impact.md](references/impact.md). For exact schemas, lifecycle rules, and output contracts, read [conventions.md](references/conventions.md).
 
@@ -109,10 +110,13 @@ revisions.
 
 ## Studio
 
-Studio is a local Kanban operating view and controlled editor for genuinely never-started tasks. It
-does not execute work or edit task IDs, evidence, attempts, or re-verification state. “Check changes”
-is deterministic whole-project validation; “Copy LLM review command” only copies the semantic route
-above and does not call a model.
+Studio is one local operating surface with sibling Kanban and Timeline views. Specification and
+`planned|ready` status edits remain limited to genuinely never-started tasks. Timeline schedules use
+explicit `scheduled_start`/`scheduled_end` planning metadata and may be edited for eligible
+non-completed work, including active evidence-backed tasks, without changing Task Contract identity.
+Studio does not edit actual execution dates, task IDs, evidence, attempts, or re-verification state.
+“Check changes” is deterministic whole-project validation; “Copy LLM review command” only copies the
+semantic route above and does not call a model.
 
 Resolve this skill's absolute directory, then launch the packaged runtime with the selected folder:
 
