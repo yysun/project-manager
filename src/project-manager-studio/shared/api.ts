@@ -1,6 +1,6 @@
 // Shared Project Manager Studio API contract. The server owns validated
-// project, lifecycle, schedule, and edit-authority facts; the client owns only
-// transient view, filtering, dialog, and schedule-draft state.
+// project catalog, lifecycle, schedule, and edit-authority facts; the client
+// owns only tab-local selection, view, filtering, dialog, and draft state.
 export type TaskStatus = 'planned' | 'ready' | 'in_progress' | 'implemented' | 'verification' | 'verified' | 'done';
 export type Priority = 'P0' | 'P1' | 'P2' | 'P3';
 
@@ -21,7 +21,7 @@ export interface KanbanTask {
 export interface KanbanLane { id: string; title: string; statuses: TaskStatus[]; tasks: KanbanTask[] }
 export interface KanbanData {
   schema_version: 1; mutation_revision: string; semantic_revision: string;
-  project: { id: string; name: string; root: string; status: string; owner: string | null; objective: string; start_date: string | null; target_date: string | null; current_milestone: string | null; profile: string };
+  project: { key: string; id: string; name: string; root: string; status: string; owner: string | null; objective: string; start_date: string | null; target_date: string | null; current_milestone: string | null; profile: string };
   summary: { tasks: { total: number; by_status: Record<TaskStatus, number>; actionable: number; blocked: number }; success: { total: number; covered: number; verified: number }; coverage: { configured: boolean; total?: number; covered?: number; verified?: number }; risks: { configured: boolean; open?: number; high?: number }; decisions: { configured: boolean; proposed?: number }; owner_gaps: number };
   warnings: Array<{ code: string; message: string }>;
   milestones: Array<{ id: string; title: string; status: 'planned' | 'active' | 'complete'; target_date: string | null; forecast_date: string | null; forecast_updated: string | null; critical: boolean }>;
@@ -31,11 +31,14 @@ export interface KanbanData {
   lanes: KanbanLane[];
 }
 
+export interface ProjectOption { key: string; id: string; name: string }
+export interface ProjectCatalogData { schema_version: 1; initial_project_key: string; projects: ProjectOption[] }
+
 export interface TaskEdit {
   title?: string; outcome?: string; acceptance?: string[]; status?: 'planned' | 'ready';
   priority?: Priority; milestone?: string | null; owner?: string | null; depends_on?: string[];
   blocked_by?: string[]; success_criteria?: string[]; constraints?: string[]; critical?: boolean;
   scheduled_start?: string | null; scheduled_end?: string | null;
 }
-export interface TaskEditRequest { mutationRevision: string; taskRevision: string; edit: TaskEdit }
+export interface TaskEditRequest { projectKey: string; mutationRevision: string; taskRevision: string; edit: TaskEdit }
 export interface ApiError { code: string; message: string; fields?: string[]; currentRevision?: string; currentTaskRevision?: string }

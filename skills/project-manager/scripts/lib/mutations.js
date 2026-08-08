@@ -2,7 +2,8 @@
  * Responsibility: same-filesystem candidate/backup transactions for skill-led
  * project initialization and updates. Invariants: validate before exposure and
  * restore exact prior bytes after any failed replacement. Recent change: exact
- * tree revisions and verbatim candidate copies prevent stale whole-folder swaps.
+ * tree revisions, verbatim candidate copies, and an isolated sibling work area
+ * prevent stale swaps and catalog poisoning after interrupted transactions.
  */
 'use strict';
 
@@ -10,6 +11,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { canonicalJson } = require('./contracts');
+const PROJECT_WORK_PREFIX = '.project-manager-work-';
+const PROJECT_WORK_MARKER = '.rpd-project-manager-work-v1';
+const PROJECT_WORK_MARKER_TEXT = 'RPD Project Manager work area v1\n';
 
 class MutationConflictError extends Error {
   constructor(message, currentRevision = null) {
@@ -71,6 +75,34 @@ function mutationRevision(root) {
 
 function isEmptyDirectory(target) {
   return fs.existsSync(target) && fs.lstatSync(target).isDirectory() && fs.readdirSync(target).length === 0;
+}
+
+function createProjectWork(parent, prefix, excludedTarget = null) {
+  for (let attempt = 0; attempt < 128; attempt += 1) {
+    const area = path.join(parent, `${PROJECT_WORK_PREFIX}${crypto.randomBytes(12).toString('hex')}`);
+    try { fs.mkdirSync(area, { mode: 0o700 }); }
+    catch (error) { if (error.code === 'EEXIST') continue; throw error; }
+    try {
+      if (excludedTarget && fs.existsSync(excludedTarget) && fs.realpathSync(excludedTarget) === fs.realpathSync(area)) {
+        fs.rmdirSync(area);
+        continue;
+      }
+      fs.writeFileSync(path.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: 'wx', mode: 0o600 });
+      return fs.mkdtempSync(path.join(area, prefix));
+    } catch (error) {
+      fs.rmSync(area, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  throw Object.assign(new Error(`Could not allocate an isolated project work area under ${parent}`), { code: 'WORK_AREA_EXHAUSTED' });
+}
+
+function cleanupProjectWork(work) {
+  const area = path.dirname(work);
+  if (fs.existsSync(work)) fs.rmSync(work, { recursive: true, force: true });
+  const marker = path.join(area, PROJECT_WORK_MARKER);
+  if (fs.existsSync(marker)) fs.unlinkSync(marker);
+  try { fs.rmdirSync(area); } catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error; }
 }
 
 function immutableInventory(root) {
@@ -154,7 +186,7 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
     if (currentRevision !== expectedRevision) throw new MutationConflictError('Project changed before mutation started', currentRevision);
   }
   const beforeState = exists && !initializing ? validateCandidate(target, { logicalRoot: target }) : null;
-  const work = fs.mkdtempSync(path.join(parent, `.${name}.transaction-`));
+  const work = createProjectWork(parent, `${name}.transaction-`, target);
   const candidate = path.join(work, name); const backup = path.join(work, `${name}.backup`);
   let targetMoved = false; let candidateMoved = false; let committed = false;
   try {
@@ -179,7 +211,7 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
     options.validateLive?.(target, { logicalRoot: target });
     committed = true;
     if (targetMoved) { try { fs.rmSync(backup, { recursive: true, force: true }); } catch {} }
-    try { fs.rmSync(work, { recursive: true, force: true }); } catch {}
+    try { cleanupProjectWork(work); } catch {}
     return target;
   } catch (error) {
     if (committed) return target;
@@ -196,9 +228,9 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
       failure.recoveryPath = recoveryPath;
       throw failure;
     }
-    if (restored && fs.existsSync(work)) fs.rmSync(work, { recursive: true, force: true });
+    if (restored && fs.existsSync(work)) cleanupProjectWork(work);
     throw error;
   }
 }
 
-module.exports = { atomicProjectMutation, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };
+module.exports = { atomicProjectMutation, createProjectWork, cleanupProjectWork, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };

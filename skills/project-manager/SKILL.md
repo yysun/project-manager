@@ -5,9 +5,15 @@ description: Plan, coordinate, track, review, and report folder-native projects.
 
 # Project Manager
 
+**Version:** `1.0.0`
+**Repository:** https://github.com/yysun/rpd
+**Source:** https://github.com/yysun/rpd/tree/main/skills/project-manager
+
 Manage the selected project through `plan → coordinate → track → report`.
 
-Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. Require the user or calling context to select the project folder explicitly. Multiple project folders may live in one repository or workspace; read and write only the selected one.
+Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. Require the user or calling context to select the project folder explicitly, except that Studio may select from a validated projects root. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
+
+Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblings for same-filesystem atomic work and crash recovery. They are internal recovery roots, not projects; valid explicitly selected projects are never rejected merely for a similar basename.
 
 ## Operating boundary
 
@@ -28,8 +34,8 @@ Use these nine user-facing routes. Natural language is preferred; do not force a
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
 7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage.
 8. `project validate-task <folder> <task-id>` — validate the folder, then use LLM judgment to review task quality. Read [tasks.md](references/tasks.md).
-9. `project studio <folder>` — launch local Project Manager Studio with Kanban and Timeline views
-   for the explicitly selected folder.
+9. `project studio [folder]` — launch local Project Manager Studio with Kanban and Timeline views;
+   an explicit folder is isolated, while no folder uses selectable direct children of `.projects`.
 
 For source or scope changes, read [impact.md](references/impact.md). For exact schemas, lifecycle rules, and output contracts, read [conventions.md](references/conventions.md).
 
@@ -118,15 +124,27 @@ Studio does not edit actual execution dates, task IDs, evidence, attempts, or re
 “Check changes” is deterministic whole-project validation; “Copy LLM review command” only copies the
 semantic route above and does not call a model.
 
-Resolve this skill's absolute directory, then launch the packaged runtime with the selected folder:
+Resolve this skill's absolute directory. With no selector, Studio discovers valid direct-child projects
+under `.projects` in the launch working directory and lets the operator switch between them:
+
+```bash
+node <absolute-skill-dir>/scripts/project-manager-studio.js
+```
+
+Use an explicit project for isolated single-project mode, an explicit root for a selectable catalog,
+or both to choose the initial direct-child project:
 
 ```bash
 node <absolute-skill-dir>/scripts/project-manager-studio.js --project <folder>
+node <absolute-skill-dir>/scripts/project-manager-studio.js --projects-root <folder>
+node <absolute-skill-dir>/scripts/project-manager-studio.js --projects-root <folder> --project <direct-child-folder>
 ```
 
 The command prints a tokenized loopback URL. Report it to the user. Use `--no-open` only for automated
-verification; `--port` accepts an explicit local port. Never substitute the current repository for the
-user-selected project folder.
+verification; `--port` accepts an explicit local port. Catalog discovery is non-recursive, rejects
+symlinked or invalid project children and duplicate project IDs, and never falls back to `projects`.
+Marker-bound `.project-manager-work-<24-hex>` recovery roots are excluded from discovery; similarly
+named valid projects remain selectable. Never substitute the current repository for an explicit project folder.
 
 ## Mutate atomically
 

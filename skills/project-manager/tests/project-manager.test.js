@@ -1,8 +1,8 @@
 /**
  * Responsibility: executable contract tests for folder isolation, deterministic
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
- * Invariants: temporary fixtures only; no repository mutation. Recent change:
- * cover exact TASKS v2 schedules and shared Kanban/Timeline projection facts.
+ * Invariants: temporary fixtures only; no repository mutation. Recent changes:
+ * cover TASKS v2 schedules, Studio projection, and strict projects-root discovery.
  */
 'use strict';
 
@@ -13,13 +13,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, regenerateStatus,
+  loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, regenerateStatus,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
   renderRpdPrompt, validateManifest, validateEvidenceRequirements, validateTaskContract, formatTaskContract, formatEvidenceManifest, snapshotRpdEvidence,
 } = require('../scripts/lib/contracts');
-const { atomicProjectMutation } = require('../scripts/lib/mutations');
+const { atomicProjectMutation, createProjectWork, cleanupProjectWork } = require('../scripts/lib/mutations');
 
 const SCRIPT_ROOT = path.join(__dirname, '..', 'scripts');
 
@@ -209,6 +209,52 @@ test('discovery index finds multiple projects but rejects duplicate, stale, mism
   fs.symlinkSync(path.join(base, 'first'), path.join(base, 'linked'));
   fs.writeFileSync(indexPath, collection([{ id: 'FIRST', title: 'First', data: { path: 'linked' } }]));
   assert.throws(() => loadProjectIndex(indexPath), /symlink/);
+});
+
+test('projects-root discovery is direct, deterministic, and rejects invalid catalogs', () => {
+  const base = temp(); const root = path.join(base, '.projects'); fs.mkdirSync(root);
+  createProject(root, 'SECOND', []); createProject(root, 'FIRST', []); fs.writeFileSync(path.join(root, '.DS_Store'), 'ignored');
+  assert.deepEqual(loadProjectsRoot(root).projects.map((item) => [item.id, item.child]), [['FIRST', 'first'], ['SECOND', 'second']]);
+  const interrupted = path.join(root, `.project-manager-work-${'a'.repeat(24)}`); fs.mkdirSync(interrupted);
+  assert.deepEqual(loadProjectsRoot(root).projects.map((item) => item.id), ['FIRST', 'SECOND']);
+  fs.writeFileSync(path.join(interrupted, 'unexpected'), 'not a valid pre-marker root');
+  assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.unlinkSync(path.join(interrupted, 'unexpected'));
+  fs.writeFileSync(path.join(interrupted, '.rpd-project-manager-work-v1'), 'wrong marker\n');
+  assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.rmSync(interrupted, { recursive: true });
+  const marked = path.join(root, `.project-manager-work-${'b'.repeat(24)}`); fs.mkdirSync(marked); fs.writeFileSync(path.join(marked, '.rpd-project-manager-work-v1'), 'RPD Project Manager work area v1\n');
+  assert.deepEqual(loadProjectsRoot(root).projects.map((item) => item.id), ['FIRST', 'SECOND']);
+  if (process.platform !== 'win32') {
+    const unsafe = path.join(root, `.project-manager-work-${'c'.repeat(24)}`); fs.mkdirSync(unsafe); fs.symlinkSync(path.join(unsafe, 'missing'), path.join(unsafe, '.rpd-project-manager-work-v1'));
+    assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.rmSync(unsafe, { recursive: true });
+  }
+  const uppercaseAlias = path.join(root, `.PROJECT-MANAGER-WORK-${'d'.repeat(24)}`); fs.mkdirSync(uppercaseAlias);
+  assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.rmSync(uppercaseAlias, { recursive: true });
+
+  const malformed = path.join(root, 'malformed'); fs.mkdirSync(malformed); fs.writeFileSync(path.join(malformed, 'PROJECT.md'), 'bad');
+  assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.rmSync(malformed, { recursive: true });
+  if (process.platform !== 'win32') {
+    fs.symlinkSync(path.join(root, 'first'), path.join(root, 'linked'));
+    assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.unlinkSync(path.join(root, 'linked'));
+  }
+
+  const copy = createProject(root, 'COPY', []);
+  fs.writeFileSync(path.join(copy, 'PROJECT.md'), projectText('FIRST'));
+  fs.writeFileSync(path.join(copy, 'STATUS.md'), `${frontmatter({ schema_version: 1, project_id: 'FIRST', generated_at: '2026-08-08T00:00:00Z', source_sha256: '0'.repeat(64) })}\n`);
+  regenerateStatus(copy, '2026-08-08T00:00:00Z');
+  assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_ID_DUPLICATE');
+});
+
+test('projects-root discovery distinguishes missing, invalid, symlinked, and empty roots', () => {
+  const base = temp(); const missing = path.join(base, 'missing');
+  assert.throws(() => loadProjectsRoot(missing), (error) => error.code === 'PROJECTS_ROOT_MISSING');
+  const file = path.join(base, 'file'); fs.writeFileSync(file, 'not a directory');
+  assert.throws(() => loadProjectsRoot(file), (error) => error.code === 'PROJECTS_ROOT_INVALID');
+  const empty = path.join(base, 'empty'); fs.mkdirSync(empty);
+  assert.throws(() => loadProjectsRoot(empty), (error) => error.code === 'PROJECTS_ROOT_EMPTY');
+  if (process.platform !== 'win32') {
+    const linked = path.join(base, 'linked'); fs.symlinkSync(empty, linked);
+    assert.throws(() => loadProjectsRoot(linked), (error) => error.code === 'PROJECTS_ROOT_INVALID');
+  }
 });
 
 test('next work filters blockers and ranks critical, unlocks, priority, milestone, then ID', () => {
@@ -660,7 +706,7 @@ test('atomic project mutation restores exact prior bytes after validation and re
 });
 
 test('atomic mutation protects immutable history and preserves recovery bytes when rollback fails', () => {
-  const base = temp(); const root = createProject(base, 'IMMUTABLE', []); const absolute = fs.realpathSync(root);
+  const base = temp(); const root = createProject(base, 'IMMUTABLE', []); createProject(base, 'SIBLING', []); const absolute = fs.realpathSync(root);
   const history = path.join(root, 'reports', 'history'); fs.mkdirSync(history, { recursive: true }); fs.writeFileSync(path.join(history, 'report.md'), 'immutable report\n');
   const oldAttempt = path.join(root, 'handoffs', 'TASK-OLD', `tc-${'a'.repeat(64)}`); fs.mkdirSync(oldAttempt, { recursive: true }); fs.writeFileSync(path.join(oldAttempt, 'TASK-CONTRACT.md'), 'immutable contract\n');
   regenerateStatus(absolute, '2026-08-08T00:00:00Z'); const before = treeHash(root);
@@ -677,6 +723,18 @@ test('atomic mutation protects immutable history and preserves recovery bytes wh
     atomicProjectMutation(absolute, (candidate, context) => regenerateStatus(candidate, '2026-08-08T00:00:02Z', context), loadProject, { injectFailureAfterReplace: true, injectRollbackFailure: true });
   } catch (error) { recoveryError = error; }
   assert.match(recoveryError.message, /recovery preserved/); assert.equal(fs.existsSync(recoveryError.recoveryPath), true); assert.equal(fs.existsSync(root), false);
-  const transactionRoot = path.dirname(recoveryError.recoveryPath); fs.renameSync(recoveryError.recoveryPath, root); fs.rmSync(transactionRoot, { recursive: true, force: true });
+  assert.deepEqual(loadProjectsRoot(base).projects.map((item) => item.id), ['SIBLING'], 'an interrupted recovery tree does not poison catalog restart');
+  const transactionRoot = path.dirname(recoveryError.recoveryPath); fs.renameSync(recoveryError.recoveryPath, root); cleanupProjectWork(transactionRoot);
   assert.equal(treeHash(root), before);
+});
+
+test('isolated work roots cannot alias a project and clean independently', () => {
+  const base = temp(); const source = createProject(base, 'WORKNAME', []); const root = path.join(base, `.project-manager-work-${'e'.repeat(24)}`); fs.renameSync(source, root);
+  assert.deepEqual(loadProjectsRoot(base).projects.map((item) => item.id), ['WORKNAME'], 'a valid exact-pattern project wins over recovery-root recognition');
+  atomicProjectMutation(fs.realpathSync(root), (candidate, context) => regenerateStatus(candidate, '2026-08-08T00:00:01Z', context), loadProject);
+  assert.equal(loadProject(root).project.id, 'WORKNAME');
+  const first = createProjectWork(base, 'first-', root); const second = createProjectWork(base, 'second-', root); const secondArea = path.dirname(second);
+  cleanupProjectWork(first); assert.equal(fs.existsSync(secondArea), true, 'one cleanup cannot remove another operation work root');
+  cleanupProjectWork(second);
+  assert.deepEqual(fs.readdirSync(base).filter((name) => /^\.project-manager-work-[a-f0-9]{24}$/.test(name)), [path.basename(root)], 'only the legitimate exact-pattern project remains');
 });

@@ -1,12 +1,13 @@
-// Accessible task inspection and edit dialog. Specification/status authority is
-// limited to never-started tasks; eligible unfinished work can be rescheduled.
+// Accessible key-bound task inspection and edit dialog. Specification/status
+// authority stays limited; eligible unfinished work can be rescheduled.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEdit, TaskEditRequest } from '../../shared/api';
+import type { SelectionRequest } from '../selection-guard.mjs';
 
 function lines(value: string): string[] { return value.split('\n').map((item) => item.trim()).filter(Boolean); }
 function valueOrDash(value: string | null): string { return value ?? 'Not set'; }
 
-interface Props { data: KanbanData; task: KanbanTask; opener: HTMLElement | null; onClose: () => void; onSaved: (data: KanbanData) => void }
+interface Props { data: KanbanData; task: KanbanTask; opener: HTMLElement | null; onClose: () => void; beginMutation: () => SelectionRequest | null; finishMutation: (request: SelectionRequest) => void; onSaved: (data: KanbanData, request: SelectionRequest) => void }
 
 function initialEdit(task: KanbanTask): TaskEdit {
   const schedule = task.schedule_editable ? { scheduled_start: task.scheduled_start, scheduled_end: task.scheduled_end } : {};
@@ -19,7 +20,7 @@ function initialEdit(task: KanbanTask): TaskEdit {
   };
 }
 
-export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
+export function TaskDialog({ data, task, opener, onClose, beginMutation, finishMutation, onSaved }: Props) {
   const [edit, setEdit] = useState<TaskEdit>(() => initialEdit(task));
   const [busy, setBusy] = useState<'check' | 'save' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -28,7 +29,7 @@ export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const reviewCommand = `project validate-task ${JSON.stringify(data.project.root)} ${task.id}`;
-  const request = useMemo<TaskEditRequest>(() => ({ mutationRevision: data.mutation_revision, taskRevision: task.task_revision, edit }), [data.mutation_revision, task.task_revision, edit]);
+  const request = useMemo<TaskEditRequest>(() => ({ projectKey: data.project.key, mutationRevision: data.mutation_revision, taskRevision: task.task_revision, edit }), [data.project.key, data.mutation_revision, task.task_revision, edit]);
 
   useEffect(() => {
     const backdrop = backdropRef.current;
@@ -50,16 +51,22 @@ export function TaskDialog({ data, task, opener, onClose, onSaved }: Props) {
 
   async function invoke(kind: 'check' | 'save') {
     setBusy(kind); setErrors([]); setNotice(null);
+    const operation = kind === 'save' ? beginMutation() : null;
+    if (kind === 'save' && !operation) {
+      setErrors([{ code: 'OPERATION_PENDING', message: 'Another project operation is already in progress.' }]);
+      setBusy(null);
+      return;
+    }
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}${kind === 'check' ? '/check' : ''}`, {
         method: kind === 'check' ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
       });
       const body = await response.json();
       if (!response.ok) { setErrors(body.errors ?? [{ code: 'UNKNOWN', message: 'The request failed.' }]); return; }
-      if (kind === 'save') { onSaved(body.data); setNotice('Saved and revalidated.'); }
+      if (kind === 'save') { onSaved(body.data, operation!); setNotice('Saved and revalidated.'); }
       else setNotice('Changes are structurally valid. Save will check again.');
     } catch (error) { setErrors([{ code: 'NETWORK', message: error instanceof Error ? error.message : 'Network error' }]); }
-    finally { setBusy(null); }
+    finally { if (operation) finishMutation(operation); setBusy(null); }
   }
 
   async function copyReview() {

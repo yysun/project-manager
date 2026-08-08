@@ -6,7 +6,9 @@ inconsistent lifecycle.
 
 ## Project boundary
 
-Every command requires an explicit project folder. Resolve it with `realpath`; known state entries must be regular, non-symlink descendants. Never search for a repository or read siblings.
+Every ordinary project command requires an explicit project folder. Resolve it with `realpath`; known state entries must be regular, non-symlink descendants. Never search for a repository or read siblings. Studio is the sole selection exception: without `--project`, it validates selectable direct-child projects under `--projects-root` or the default `<launch-working-directory>/.projects`. It never scans recursively or falls back to `projects`.
+
+Atomic updates and Studio checks allocate unique marker-bound `.project-manager-work-<24-hex>` siblings on the same filesystem. These recovery roots are not projects, never reuse a selected project path, and are removed independently after successful work. A valid project remains selectable even if its basename resembles the work-root pattern.
 
 Minimal files are `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Optional modules are additive.
 
@@ -84,6 +86,12 @@ Evidence records are exactly `{kind:"file|command|review|artifact|approval|note|
 ## Discovery index
 
 Workspace `PROJECTS.md` is optional and non-authoritative. It uses collection grammar; each record metadata is exactly `{"path":"relative/non-escaping/path"}`. Paths are relative to the index folder. Reject absolute, missing, duplicate, symlinked, escaping, or ID-mismatched targets. Ordinary project commands never read this index.
+
+Studio root discovery is separate from `PROJECTS.md`: it validates each real direct-child directory,
+rejects symlinked or malformed children and duplicate project IDs, and issues opaque browser selection
+keys. Browser requests never submit filesystem paths. The default projects root is `.projects`.
+Unique marker-bound `.project-manager-work-<24-hex>` roots keep same-filesystem check/transaction
+recovery artifacts from making the catalog invalid after interruption without reserving a legitimate project basename.
 
 ## Exact Task Contract
 

@@ -1,26 +1,58 @@
-// Packaged Studio entry point: strict explicit-project CLI, validation before
-// listen, loopback-only server, optional browser launch, and clean shutdown.
+// Packaged Studio entry point: .projects-root discovery or explicit project,
+// validation before listen, loopback-only server, browser launch, and shutdown.
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { ProjectCatalog, type ProjectSeed } from './project-catalog.js';
 import { createServer } from './server.js';
 
 const { loadRevisionedProject } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
+const { loadProjectsRoot } = require('../../../skills/project-manager/scripts/lib/project-state.js');
 const SKILL_DIR = path.resolve(__dirname, '..');
 const CLIENT_DIST_DIR = path.join(SKILL_DIR, 'studio', 'dist');
+const USAGE = 'Usage: project-manager-studio.js [--project <folder>] [--projects-root <folder>] [--port <port>] [--no-open]';
 
-function parseArgs(argv: string[]): { project: string; port?: number; open: boolean } {
-  let project: string | undefined; let port: number | undefined; let open = true;
+function valueAfter(argv: string[], index: number, flag: string): string {
+  const value = argv[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${flag} requires a folder value. ${USAGE}`);
+  return value;
+}
+
+function parseArgs(argv: string[]): { project?: string; projectsRoot?: string; port?: number; open: boolean } {
+  let project: string | undefined; let projectsRoot: string | undefined; let port: number | undefined; let open = true;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === '--project' && project === undefined) project = argv[++index];
-    else if (arg === '--port' && port === undefined) port = Number(argv[++index]);
+    if (arg === '--project' && project === undefined) project = valueAfter(argv, index++, arg);
+    else if (arg === '--projects-root' && projectsRoot === undefined) projectsRoot = valueAfter(argv, index++, arg);
+    else if (arg === '--port' && port === undefined) port = Number(valueAfter(argv, index++, arg));
     else if (arg === '--no-open' && open) open = false;
-    else throw new Error(`Unknown or duplicate argument: ${arg}`);
+    else throw new Error(`Unknown or duplicate argument: ${arg}. ${USAGE}`);
   }
-  if (!project) throw new Error('Usage: project-manager-studio.js --project <folder> [--port <port>] [--no-open]');
   if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) throw new Error('--port must be an integer from 0 to 65535');
-  return { project: path.resolve(project), port, open };
+  return { project, projectsRoot, port, open };
+}
+
+function buildCatalog(args: ReturnType<typeof parseArgs>): ProjectCatalog {
+  if (args.project && !args.projectsRoot) {
+    const snapshot = loadRevisionedProject(path.resolve(args.project));
+    const seed: ProjectSeed = { id: snapshot.state.project.id, name: snapshot.state.project.name, root: snapshot.state.root };
+    return new ProjectCatalog([seed], seed.root);
+  }
+  const requestedRoot = path.resolve(args.projectsRoot ?? '.projects');
+  const discovered = loadProjectsRoot(requestedRoot) as { root: string; projects: ProjectSeed[] };
+  let initialRoot = discovered.projects[0].root;
+  if (args.project) {
+    const requestedProject = path.resolve(args.project);
+    let stat;
+    try { stat = fs.lstatSync(requestedProject); } catch { throw new Error('Explicit project must be an existing direct child of --projects-root'); }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('Explicit project must be a real direct child of --projects-root');
+    const real = fs.realpathSync(requestedProject);
+    const selected = discovered.projects.find((project) => project.root === real);
+    if (!selected || path.dirname(real) !== discovered.root) throw new Error('Explicit project must be a direct child of --projects-root');
+    initialRoot = selected.root;
+  }
+  return new ProjectCatalog(discovered.projects, initialRoot);
 }
 
 function openBrowser(url: string): ChildProcess | null {
@@ -38,9 +70,8 @@ function openBrowser(url: string): ChildProcess | null {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const initial = loadRevisionedProject(args.project);
-  const projectRoot = initial.state.root;
-  const { app, sessionToken } = createServer({ projectRoot, clientDistDir: CLIENT_DIST_DIR });
+  const catalog = buildCatalog(args);
+  const { app, sessionToken } = createServer({ catalog, clientDistDir: CLIENT_DIST_DIR });
   const server = http.createServer(app);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -60,4 +91,7 @@ export async function main(argv = process.argv.slice(2)) {
   return { url, close };
 }
 
-if (require.main === module) main().then(({ url }) => console.log(url)).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exit(1); });
+if (require.main === module) main().then(({ url }) => console.log(url)).catch((error) => {
+  const code = error && typeof error === 'object' && 'code' in error ? `${String(error.code)}: ` : '';
+  console.error(`${code}${error instanceof Error ? error.message : error}`); process.exit(1);
+});

@@ -3,7 +3,8 @@
  * then calculate deterministic status, ranking, blockers, coverage, and Studio views.
  * Invariants: read-only operation, selected-root isolation, exact schema versions,
  * and schedule metadata that never changes execution-contract identity.
- * Recent change: add TASKS v2 schedules and a shared Kanban/Timeline projection.
+ * Recent changes: add TASKS v2 schedules, shared Kanban/Timeline projection,
+ * and strict direct-child discovery for Studio project roots.
  */
 'use strict';
 
@@ -20,6 +21,9 @@ const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const HASH = /^[a-f0-9]{64}$/;
+const PROJECT_WORK_NAME = /^\.project-manager-work-[a-f0-9]{24}$/;
+const PROJECT_WORK_MARKER = '.rpd-project-manager-work-v1';
+const PROJECT_WORK_MARKER_TEXT = 'RPD Project Manager work area v1\n';
 
 class ProjectError extends Error {
   constructor(kind, code, filePath, message, project = null) {
@@ -573,6 +577,58 @@ function loadProjectIndex(indexPath) {
   return projects;
 }
 
+function loadProjectsRoot(folder) {
+  let rootStat;
+  try { rootStat = fs.lstatSync(folder); }
+  catch (error) {
+    if (error.code === 'ENOENT') fail('path', 'PROJECTS_ROOT_MISSING', folder, `Projects root does not exist: ${folder}`);
+    throw error;
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) fail('path', 'PROJECTS_ROOT_INVALID', folder, 'Projects root must be a real directory');
+  const root = fs.realpathSync(folder);
+  const projects = [];
+  for (const name of fs.readdirSync(root).sort()) {
+    const target = path.join(root, name); const stat = fs.lstatSync(target);
+    const projectFile = path.join(target, 'PROJECT.md');
+    let hasProjectFile = false;
+    if (stat.isDirectory()) {
+      try { fs.lstatSync(projectFile); hasProjectFile = true; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    if (PROJECT_WORK_NAME.test(name) && stat.isDirectory() && !hasProjectFile) {
+      const marker = path.join(target, PROJECT_WORK_MARKER);
+      let markerStat;
+      try { markerStat = fs.lstatSync(marker); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        if (fs.readdirSync(target).length === 0) continue; // interruption between mkdir and marker write
+        fail('path', 'PROJECT_CATALOG_INVALID', target, 'Markerless project work area must be empty');
+      }
+      if (markerStat.isSymbolicLink() || !markerStat.isFile() || fs.readFileSync(marker, 'utf8') !== PROJECT_WORK_MARKER_TEXT) {
+        fail('path', 'PROJECT_CATALOG_INVALID', target, 'Reserved project work area marker is unsafe');
+      }
+      continue;
+    }
+    if (stat.isSymbolicLink()) fail('path', 'PROJECT_CATALOG_INVALID', target, `Project catalog child cannot be a symlink: ${name}`);
+    if (!stat.isDirectory()) continue;
+    let state;
+    try { state = loadProject(target); }
+    catch (error) {
+      const detail = error instanceof ProjectError ? `${error.code}: ${error.message}` : error.message;
+      fail('semantic', 'PROJECT_CATALOG_INVALID', target, `Invalid project catalog child ${name}: ${detail}`);
+    }
+    projects.push({ id: state.project.id, name: state.project.name, child: name, root: state.root });
+  }
+  if (projects.length === 0) fail('semantic', 'PROJECTS_ROOT_EMPTY', root, 'Projects root contains no valid direct-child projects');
+  const seen = new Set();
+  for (const project of projects) {
+    const key = project.id.toLowerCase();
+    if (seen.has(key)) fail('semantic', 'PROJECT_ID_DUPLICATE', root, `Project ID is duplicated in projects root: ${project.id}`);
+    seen.add(key);
+  }
+  projects.sort((left, right) => left.id.localeCompare(right.id) || left.child.localeCompare(right.child));
+  return { root, projects };
+}
+
 function unfinishedDependencies(task, state) {
   const byId = new Map(state.tasks.map((item) => [item.id, item]));
   return task.depends_on.filter((id) => byId.get(id).status !== 'done');
@@ -775,4 +831,4 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
   return loadProject(state.root, options);
 }
 
-module.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
+module.exports = { ProjectError, loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };

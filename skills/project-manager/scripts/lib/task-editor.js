@@ -2,14 +2,14 @@
  * Responsibility: revision-safe Studio projection, dry-run task checking, and
  * atomic specification and schedule edits. Invariants: separate edit authority,
  * exact field allowlists, coherent snapshots, preserved narrative/history, and
- * no live write before full candidate validation. Timeline scheduling support.
+ * no live write before full candidate validation, and isolated check workspaces.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility } = require('./project-state');
-const { atomicProjectMutation, mutationRevision, MutationConflictError } = require('./mutations');
+const { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require('./mutations');
 
 const PLANNING_FIELDS = [
   'title', 'outcome', 'acceptance', 'status', 'priority', 'milestone', 'owner',
@@ -147,7 +147,7 @@ function checkTaskEdit(root, taskId, request) {
   validateEnvelope(snapshot, taskId, request);
   const canonicalRoot = snapshot.state.root;
   const parent = path.dirname(canonicalRoot); const name = path.basename(canonicalRoot);
-  const work = fs.mkdtempSync(path.join(parent, `.${name}.studio-check-`));
+  const work = createProjectWork(parent, `${name}.studio-check-`, canonicalRoot);
   const candidate = path.join(work, name);
   try {
     fs.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
@@ -156,7 +156,7 @@ function checkTaskEdit(root, taskId, request) {
     const task = state.tasks.find((item) => item.id === taskId);
     return { valid: true, task: kanbanData(state).tasks.find((item) => item.id === task.id) };
   } finally {
-    fs.rmSync(work, { recursive: true, force: true });
+    cleanupProjectWork(work);
   }
 }
 

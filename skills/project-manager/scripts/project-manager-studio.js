@@ -35,6 +35,1372 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// skills/project-manager/scripts/lib/contracts.js
+var require_contracts = __commonJS({
+  "skills/project-manager/scripts/lib/contracts.js"(exports2, module2) {
+    "use strict";
+    var crypto3 = require("node:crypto");
+    var fs3 = require("node:fs");
+    var path3 = require("node:path");
+    var EVIDENCE_KINDS = /* @__PURE__ */ new Set(["file", "command", "review", "artifact", "approval", "note", "commit"]);
+    var MANIFEST_STATUSES = /* @__PURE__ */ new Set(["implemented", "verification", "verified", "blocked"]);
+    var STAGE_ORDER = { implemented: 0, verification: 1, verified: 2 };
+    var DEFAULT_EVIDENCE = Object.freeze({
+      human: [{ stage: "verified", any_of: ["approval"], minimum: 1 }],
+      rpd: [
+        { stage: "implemented", any_of: ["artifact", "file"], minimum: 1 },
+        { stage: "verification", any_of: ["command"], minimum: 1 },
+        { stage: "verified", any_of: ["review"], minimum: 1 }
+      ],
+      agent: [
+        { stage: "implemented", any_of: ["artifact"], minimum: 1 },
+        { stage: "verified", any_of: ["review"], minimum: 1 }
+      ],
+      external: [{ stage: "verified", any_of: ["approval", "artifact"], minimum: 1 }]
+    });
+    function canonicalValue(value) {
+      if (Array.isArray(value)) return value.map(canonicalValue);
+      if (value && typeof value === "object") {
+        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]));
+      }
+      return value;
+    }
+    function canonicalJson(value) {
+      return JSON.stringify(canonicalValue(value));
+    }
+    function sha256(value) {
+      const input = Buffer.isBuffer(value) || value instanceof Uint8Array ? value : typeof value === "string" ? value : canonicalJson(value);
+      return crypto3.createHash("sha256").update(input).digest("hex");
+    }
+    function exactKeys(value, keys, label) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+      const actual = Object.keys(value).sort();
+      const expected = [...keys].sort();
+      if (actual.join("\0") !== expected.join("\0")) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+    }
+    function nonEmptyString(value, label) {
+      if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} must be a non-empty string`);
+    }
+    function validTimestamp(value) {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return false;
+      const parsed = new Date(value);
+      return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === (value.includes(".") ? value : value.replace("Z", ".000Z"));
+    }
+    function uniqueArray(values, label, { sorted = false } = {}) {
+      if (!Array.isArray(values)) throw new Error(`${label} must be an array`);
+      if (new Set(values.map(canonicalJson)).size !== values.length) throw new Error(`${label} must not contain duplicates`);
+      if (sorted && canonicalJson(values) !== canonicalJson([...values].sort())) throw new Error(`${label} must be lexically ordered`);
+    }
+    function validateEvidenceRecord(record, label = "evidence") {
+      exactKeys(record, ["kind", "ref", "result", "sha256"], label);
+      if (!EVIDENCE_KINDS.has(record.kind)) throw new Error(`${label}.kind is unsupported`);
+      nonEmptyString(record.ref, `${label}.ref`);
+      nonEmptyString(record.result, `${label}.result`);
+      if (record.sha256 !== null && !/^[a-f0-9]{64}$/.test(record.sha256)) throw new Error(`${label}.sha256 must be null or lowercase SHA-256`);
+      if ((record.kind === "file" || record.kind === "artifact") && record.sha256 === null) throw new Error(`${label}.sha256 is required for file/artifact evidence`);
+      return record;
+    }
+    function validateEvidenceRequirements(groups, label = "evidence_requirements") {
+      if (!Array.isArray(groups) || groups.length === 0) throw new Error(`${label} must be a non-empty array`);
+      const seen = /* @__PURE__ */ new Set();
+      for (const [index, group] of groups.entries()) {
+        exactKeys(group, ["stage", "any_of", "minimum"], `${label}[${index}]`);
+        if (!(group.stage in STAGE_ORDER)) throw new Error(`${label}[${index}].stage is unsupported`);
+        if (!Array.isArray(group.any_of) || group.any_of.length === 0) throw new Error(`${label}[${index}].any_of must be non-empty`);
+        if (!Number.isInteger(group.minimum) || group.minimum < 1) throw new Error(`${label}[${index}].minimum must be positive`);
+        const sorted = [...group.any_of].sort();
+        if (new Set(sorted).size !== sorted.length || sorted.some((kind) => !EVIDENCE_KINDS.has(kind)) || canonicalJson(sorted) !== canonicalJson(group.any_of)) {
+          throw new Error(`${label}[${index}].any_of must contain unique, sorted evidence kinds`);
+        }
+        const key = `${group.stage}:${sorted.join(",")}`;
+        if (seen.has(key)) throw new Error(`${label} contains a duplicate group`);
+        seen.add(key);
+      }
+      const ordered = [...groups].sort((a, b) => STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage] || canonicalJson(a.any_of).localeCompare(canonicalJson(b.any_of)));
+      if (canonicalJson(ordered) !== canonicalJson(groups)) throw new Error(`${label} groups must be in stable stage/any_of order`);
+      return groups;
+    }
+    function taskSpecPayload(task) {
+      return {
+        id: task.id,
+        title: task.title,
+        outcome: task.outcome,
+        constraints: task.constraints,
+        acceptance: task.acceptance,
+        success_criteria: task.success_criteria,
+        milestone: task.milestone,
+        executor: task.executor,
+        depends_on: task.depends_on,
+        sources: task.sources,
+        evidence_requirements: task.evidence_requirements,
+        critical: task.critical
+      };
+    }
+    function taskSpecHash(task) {
+      return sha256(taskSpecPayload(task));
+    }
+    function contractExecutor(executor, projectRoot) {
+      const scope = executor.scope ?? (executor.root === null ? null : "absolute");
+      const declared = executor.root;
+      const resolved = declared === null ? null : scope === "project" ? path3.resolve(projectRoot, declared) : declared;
+      return { provider: executor.provider, scope, declared_root: declared, root: resolved };
+    }
+    function buildTaskContract(project, task, sourceBindings, createdAt) {
+      const payload = {
+        schema_version: 1,
+        project: { id: project.id, root: project.root },
+        task: {
+          id: task.id,
+          spec_sha256: taskSpecHash(task),
+          title: task.title,
+          outcome: task.outcome,
+          constraints: task.constraints,
+          acceptance: task.acceptance,
+          success_criteria: task.success_criteria,
+          milestone: task.milestone,
+          critical: task.critical,
+          sources: sourceBindings,
+          dependencies: task.depends_on,
+          evidence_requirements: task.evidence_requirements,
+          executor: contractExecutor(task.executor, project.root)
+        },
+        created_at: createdAt
+      };
+      if (!validTimestamp(createdAt)) throw new Error("created_at must be RFC3339 UTC");
+      const digest = sha256(payload);
+      const contract = { payload, payload_sha256: digest, contract_id: `tc-${digest}` };
+      return validateTaskContract(contract);
+    }
+    function validateTaskContract(contract, options = {}) {
+      exactKeys(contract, ["payload", "payload_sha256", "contract_id"], "Task Contract");
+      exactKeys(contract.payload, ["schema_version", "project", "task", "created_at"], "Task Contract payload");
+      if (contract.payload.schema_version !== 1) throw new Error("Unsupported Task Contract schema version");
+      exactKeys(contract.payload.project, ["id", "root"], "Task Contract project");
+      nonEmptyString(contract.payload.project.id, "Task Contract project.id");
+      nonEmptyString(contract.payload.project.root, "Task Contract project.root");
+      exactKeys(contract.payload.task, ["id", "spec_sha256", "title", "outcome", "constraints", "acceptance", "success_criteria", "milestone", "critical", "sources", "dependencies", "evidence_requirements", "executor"], "Task Contract task");
+      for (const key of ["id", "title", "outcome"]) nonEmptyString(contract.payload.task[key], `Task Contract task.${key}`);
+      if (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.project.id) || !/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.id)) throw new Error("Task Contract project/task ID is invalid");
+      if (!path3.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
+      if (!options.allowHistoricalRoot && (!fs3.existsSync(contract.payload.project.root) || !fs3.lstatSync(contract.payload.project.root).isDirectory() || fs3.lstatSync(contract.payload.project.root).isSymbolicLink() || fs3.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error("Task Contract project.root must be an existing canonical real directory");
+      if (!/^[a-f0-9]{64}$/.test(contract.payload.task.spec_sha256)) throw new Error("Task Contract spec hash is invalid");
+      for (const key of ["constraints", "acceptance", "success_criteria", "sources", "dependencies"]) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ["success_criteria", "dependencies", "sources"].includes(key) && key !== "sources" });
+      if (contract.payload.task.acceptance.length === 0 || contract.payload.task.acceptance.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract acceptance must contain non-empty strings");
+      if (contract.payload.task.constraints.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract constraints must contain non-empty strings");
+      const safeId = (value) => typeof value === "string" && /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(value);
+      if (contract.payload.task.success_criteria.some((value) => !safeId(value) || !value.startsWith("SC-"))) throw new Error("Task Contract success criterion ID is invalid");
+      if (contract.payload.task.dependencies.some((value) => !safeId(value))) throw new Error("Task Contract dependency ID is invalid");
+      if (contract.payload.task.milestone !== null && (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.milestone) || !contract.payload.task.milestone.startsWith("M-"))) throw new Error("Task Contract milestone is invalid");
+      if (typeof contract.payload.task.critical !== "boolean") throw new Error("Task Contract critical must be boolean");
+      validateEvidenceRequirements(contract.payload.task.evidence_requirements, "Task Contract evidence_requirements");
+      exactKeys(contract.payload.task.executor, ["provider", "scope", "declared_root", "root"], "Task Contract executor");
+      const provider = contract.payload.task.executor.provider;
+      if (!Object.hasOwn(DEFAULT_EVIDENCE, provider)) throw new Error("Task Contract executor provider is invalid");
+      const executorRoot = contract.payload.task.executor.root;
+      const scope = contract.payload.task.executor.scope;
+      const declaredRoot = contract.payload.task.executor.declared_root;
+      if (provider === "human" && (executorRoot !== null || scope !== null || declaredRoot !== null)) throw new Error("Human executor root must be null");
+      if (!(["agent", "external"].includes(provider) && executorRoot === null && scope === null && declaredRoot === null) && provider !== "human" && !["absolute", "project"].includes(scope)) throw new Error("Executor scope must be absolute, project, or null for agent/external");
+      if (scope === "absolute" && (declaredRoot !== executorRoot || !path3.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
+      if (scope === "project") {
+        if (typeof declaredRoot !== "string" || declaredRoot === "" || path3.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
+        if (executorRoot !== path3.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
+        if (!options.allowHistoricalRoot) {
+          let cursor = contract.payload.project.root;
+          for (const piece of declaredRoot.split(/[\\/]/)) {
+            cursor = path3.join(cursor, piece);
+            if (!fs3.existsSync(cursor) || fs3.lstatSync(cursor).isSymbolicLink() || !fs3.lstatSync(cursor).isDirectory()) throw new Error("Project executor root prefixes must be existing real directories");
+          }
+          if (!fs3.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path3.sep}`)) throw new Error("Project executor root escapes the project");
+        }
+      }
+      if (provider === "rpd" && (typeof executorRoot !== "string" || !path3.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
+      if (["agent", "external"].includes(provider) && executorRoot !== null && !path3.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
+      if (executorRoot !== null && !options.allowHistoricalRoot) {
+        if (!fs3.existsSync(executorRoot) || fs3.lstatSync(executorRoot).isSymbolicLink() || !fs3.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
+      }
+      contract.payload.task.sources.forEach((source, index) => {
+        exactKeys(source, ["id", "version", "record_sha256", "content_sha256"], `Task Contract source[${index}]`);
+        nonEmptyString(source.id, `Task Contract source[${index}].id`);
+        if (!safeId(source.id) || !source.id.startsWith("SRC-")) throw new Error("Task Contract source ID is invalid");
+        if (source.version !== null) nonEmptyString(source.version, `Task Contract source[${index}].version`);
+        if (!/^[a-f0-9]{64}$/.test(source.record_sha256)) throw new Error("Task Contract source record hash is invalid");
+        if (source.content_sha256 !== null && !/^[a-f0-9]{64}$/.test(source.content_sha256)) throw new Error("Task Contract source content hash is invalid");
+      });
+      const sourceIds = contract.payload.task.sources.map((source) => source.id);
+      if (new Set(sourceIds).size !== sourceIds.length || canonicalJson(sourceIds) !== canonicalJson([...sourceIds].sort())) throw new Error("Task Contract sources must be unique and ordered by ID");
+      if (!validTimestamp(contract.payload.created_at)) throw new Error("Task Contract created_at must be RFC3339 UTC");
+      const recomputedSpec = taskSpecHash({
+        id: contract.payload.task.id,
+        title: contract.payload.task.title,
+        outcome: contract.payload.task.outcome,
+        constraints: contract.payload.task.constraints,
+        acceptance: contract.payload.task.acceptance,
+        success_criteria: contract.payload.task.success_criteria,
+        milestone: contract.payload.task.milestone,
+        executor: { provider, scope, root: declaredRoot },
+        depends_on: contract.payload.task.dependencies,
+        sources: sourceIds,
+        evidence_requirements: contract.payload.task.evidence_requirements,
+        critical: contract.payload.task.critical
+      });
+      if (contract.payload.task.spec_sha256 !== recomputedSpec) throw new Error("Task Contract task specification hash mismatch");
+      const digest = sha256(contract.payload);
+      if (contract.payload_sha256 !== digest || contract.contract_id !== `tc-${digest}`) throw new Error("Task Contract hash mismatch");
+      return contract;
+    }
+    function formatTaskContract(contract, derived = { story: null, executor_prompt: null, executor_prompt_sha256: null }) {
+      validateTaskContract(contract);
+      exactKeys(derived, ["story", "executor_prompt", "executor_prompt_sha256"], "Task Contract derived fields");
+      const provider = contract.payload.task.executor.provider;
+      if (provider !== "rpd" && Object.values(derived).some((value) => value !== null)) throw new Error("Non-RPD derived contract fields must be null");
+      if (provider === "rpd") {
+        nonEmptyString(derived.story, "RPD story");
+        nonEmptyString(derived.executor_prompt, "RPD executor prompt");
+        if (derived.executor_prompt_sha256 !== sha256(derived.executor_prompt)) throw new Error("RPD executor prompt hash mismatch");
+      }
+      const lines = {
+        schema_version: 1,
+        contract_id: contract.contract_id,
+        payload_sha256: contract.payload_sha256,
+        story: derived.story,
+        executor_prompt: derived.executor_prompt,
+        executor_prompt_sha256: derived.executor_prompt_sha256
+      };
+      return `---
+${Object.entries(lines).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}
+---
+
+## Payload
+
+\`\`\`json
+${canonicalJson(contract.payload)}
+\`\`\`
+`;
+    }
+    function deriveStory(projectId, taskId, contractId, occupied = /* @__PURE__ */ new Set()) {
+      const digest = contractId.replace(/^tc-/, "");
+      for (const length of [12, 16, 32, 64]) {
+        const story = `pm-${projectId.toLowerCase()}-${taskId.toLowerCase()}-${digest.slice(0, length)}`;
+        if (!occupied.has(story)) return story;
+      }
+      throw new Error("No unique RPD story suffix remains");
+    }
+    function renderRpdPrompt(input) {
+      const keys = ["project_id", "task_id", "contract_id", "story", "executor_root", "contract_absolute_path", "contract_relative_path", "acceptance", "constraints", "evidence_requirements"];
+      exactKeys(input, keys, "RPD prompt input");
+      return [
+        `Use $rpd to execute story ${input.story}.`,
+        `Project: ${input.project_id}; task: ${input.task_id}; contract: ${input.contract_id}.`,
+        `Run RPD in ${input.executor_root}.`,
+        `Read the immutable Task Contract at ${input.contract_absolute_path} (project metadata path: ${input.contract_relative_path}).`,
+        `Acceptance: ${canonicalJson(input.acceptance)}`,
+        `Constraints: ${canonicalJson(input.constraints)}`,
+        `Evidence requirements: ${canonicalJson(input.evidence_requirements)}`,
+        "Return exact-story RPD artifacts and terminal verification evidence; do not edit project state directly."
+      ].join("\n");
+    }
+    function evidenceFingerprint(payload) {
+      const sortRecords = (records) => [...records].sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
+      const acceptance = Object.fromEntries(Object.keys(payload.acceptance_evidence).sort().map((key) => [key, sortRecords(payload.acceptance_evidence[key])]));
+      return sha256({ evidence: sortRecords(payload.evidence), acceptance_evidence: acceptance, sources: sortRecords(payload.sources) });
+    }
+    function validateRpdTerminal(terminal) {
+      nonEmptyString(terminal, "RPD terminal evidence");
+      const lines = terminal.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+      const arLines = lines.filter((line) => /^(?:AR (?:passed|fixed|blocked):)/.test(line));
+      const crLines = lines.filter((line) => /^(?:CR (?:passed|fixed):)/.test(line));
+      const vrLines = lines.filter((line) => /^(?:VR (?:passed|incomplete):)/.test(line));
+      const auxiliary = {
+        ar: lines.filter((line) => /^AR result:/.test(line)),
+        cr: lines.filter((line) => /^CR result:/.test(line)),
+        vr: lines.filter((line) => /^VR result:/.test(line))
+      };
+      const ar = arLines.length === 1 && (arLines[0] === "AR passed: no blocking architecture flaws" || /^AR fixed: .+; rerun result passed$/.test(arLines[0]));
+      const cr = crLines.length === 1 && (crLines[0] === "CR passed: no major findings" || /^CR fixed: .+; rerun result passed$/.test(crLines[0]));
+      const vr = vrLines.length === 1 && vrLines[0] === "VR passed: all acceptance criteria complete";
+      const auxiliaryValid = Object.entries(auxiliary).every(([stage, values]) => values.length <= 1 && values.every((line) => line === `${stage.toUpperCase()} result: pass`));
+      if (!ar || !cr || !vr || !auxiliaryValid) throw new Error("RPD terminal must contain exactly one non-conflicting successful AR, CR, and VR result line");
+      return true;
+    }
+    function validateManifest(payload, contract, previous = [], options = {}) {
+      validateTaskContract(contract, options);
+      exactKeys(payload, ["schema_version", "sequence", "contract_id", "project", "task", "status", "blocker", "evidence", "acceptance_evidence", "sources", "observed_at", "notes"], "manifest payload");
+      if (payload.schema_version !== 1) throw new Error("Unsupported manifest schema version");
+      if (!Number.isInteger(payload.sequence) || payload.sequence < 1) throw new Error("Manifest sequence must be positive");
+      if (payload.contract_id !== contract.contract_id) throw new Error("Manifest contract mismatch");
+      exactKeys(payload.project, ["id"], "manifest project");
+      exactKeys(payload.task, ["id", "spec_sha256"], "manifest task");
+      if (payload.project.id !== contract.payload.project.id || payload.task.id !== contract.payload.task.id || payload.task.spec_sha256 !== contract.payload.task.spec_sha256) throw new Error("Manifest project/task binding mismatch");
+      if (!MANIFEST_STATUSES.has(payload.status)) throw new Error("Unsupported manifest status");
+      if (payload.status === "blocked") nonEmptyString(payload.blocker, "manifest blocker");
+      else if (payload.blocker !== null) throw new Error("Non-blocked manifest blocker must be null");
+      if (!Array.isArray(payload.evidence)) throw new Error("Manifest evidence must be an array");
+      payload.evidence.forEach((record, index) => validateEvidenceRecord(record, `evidence[${index}]`));
+      uniqueArray(payload.evidence, "Manifest evidence");
+      if (!payload.acceptance_evidence || typeof payload.acceptance_evidence !== "object" || Array.isArray(payload.acceptance_evidence)) throw new Error("acceptance_evidence must be an object");
+      const acceptance = contract.payload.task.acceptance;
+      if (Object.keys(payload.acceptance_evidence).sort().join("\0") !== [...acceptance].sort().join("\0")) throw new Error("Acceptance evidence keys must exactly match contract acceptance");
+      const main2 = new Set(payload.evidence.map(canonicalJson));
+      for (const [criterion, records] of Object.entries(payload.acceptance_evidence)) {
+        if (!Array.isArray(records)) throw new Error(`Acceptance evidence for ${criterion} must be an array`);
+        uniqueArray(records, `Acceptance evidence for ${criterion}`);
+        records.forEach((record, index) => {
+          validateEvidenceRecord(record, `acceptance_evidence[${criterion}][${index}]`);
+          if (!main2.has(canonicalJson(record))) throw new Error("Acceptance evidence must reuse a main evidence record");
+        });
+      }
+      if (!Array.isArray(payload.sources) || !Array.isArray(payload.notes)) throw new Error("Manifest sources and notes must be arrays");
+      payload.sources.forEach((source, index) => {
+        exactKeys(source, ["path", "sha256", "role"], `manifest sources[${index}]`);
+        nonEmptyString(source.path, `manifest sources[${index}].path`);
+        if (source.path.startsWith("/") || source.path.split("/").includes("..")) throw new Error("Manifest source paths must be project-relative");
+        if (!/^[a-f0-9]{64}$/.test(source.sha256)) throw new Error("Manifest source hash is invalid");
+        nonEmptyString(source.role, `manifest sources[${index}].role`);
+      });
+      uniqueArray(payload.sources, "Manifest sources");
+      payload.notes.forEach((note, index) => nonEmptyString(note, `notes[${index}]`));
+      if (!validTimestamp(payload.observed_at)) throw new Error("observed_at must be RFC3339 UTC");
+      const expectedSequence = previous.length + 1;
+      if (payload.sequence !== expectedSequence) throw new Error(`Manifest sequence must be ${expectedSequence}`);
+      const last = previous.at(-1)?.status;
+      const allowed = last === void 0 ? ["implemented", "verification", "verified", "blocked"] : last === "implemented" ? ["verification", "verified", "blocked"] : last === "verification" ? ["verified", "blocked"] : [];
+      if (!allowed.includes(payload.status)) throw new Error("Illegal manifest progression");
+      const fingerprint = evidenceFingerprint(payload);
+      if (previous.some((item) => item.evidence_sha256 === fingerprint)) throw new Error("Evidence replay detected");
+      if (payload.status !== "blocked") {
+        const level = STAGE_ORDER[payload.status];
+        const available = payload.evidence.map((record, index) => ({ record, index, used: false }));
+        for (const group of contract.payload.task.evidence_requirements) {
+          if (STAGE_ORDER[group.stage] > level) continue;
+          let count = 0;
+          for (const item of available) {
+            if (!item.used && group.any_of.includes(item.record.kind)) {
+              item.used = true;
+              count += 1;
+              if (count === group.minimum) break;
+            }
+          }
+          if (count < group.minimum) throw new Error(`Insufficient ${group.stage} provider evidence`);
+        }
+        if (payload.status === "verified") {
+          for (const criterion of acceptance) {
+            if (payload.acceptance_evidence[criterion].length === 0) throw new Error(`Acceptance criterion lacks evidence: ${criterion}`);
+          }
+          if (contract.payload.task.sources.some((source) => source.version === null && source.content_sha256 === null)) throw new Error("Verified manifest has an unverifiable current source");
+        }
+      }
+      return {
+        manifest_id: `em-${sha256(payload)}`,
+        payload_sha256: sha256(payload),
+        evidence_sha256: fingerprint,
+        status: payload.status
+      };
+    }
+    function findExactArtifact(root, category, filename, required = true) {
+      const realRoot = fs3.realpathSync(root);
+      if (fs3.lstatSync(root).isSymbolicLink() || !fs3.lstatSync(realRoot).isDirectory()) throw new Error("RPD executor root must be a real directory");
+      let cursor = realRoot;
+      for (const piece of [".docs", category]) {
+        cursor = path3.join(cursor, piece);
+        if (!fs3.existsSync(cursor)) {
+          if (required) throw new Error(`Missing RPD evidence directory ${piece}`);
+          return null;
+        }
+        const stat = fs3.lstatSync(cursor);
+        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs3.realpathSync(cursor).startsWith(`${realRoot}${path3.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
+      }
+      const categoryRoot = cursor;
+      const matches = [];
+      function walk(folder) {
+        if (!fs3.existsSync(folder)) return;
+        for (const entry of fs3.readdirSync(folder, { withFileTypes: true })) {
+          const full = path3.join(folder, entry.name);
+          const stat = fs3.lstatSync(full);
+          if (stat.isSymbolicLink()) throw new Error("RPD evidence cannot traverse symlinks");
+          if (stat.isDirectory()) walk(full);
+          else {
+            if (!stat.isFile() || !fs3.realpathSync(full).startsWith(`${realRoot}${path3.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
+            if (entry.name === filename) matches.push(full);
+          }
+        }
+      }
+      walk(categoryRoot);
+      if (required && matches.length !== 1 || !required && matches.length > 1) throw new Error(`Expected ${required ? "exactly one" : "at most one"} ${category}/${filename}`);
+      return matches[0] ?? null;
+    }
+    function snapshotRpdEvidence({ executor_root, project_root, attempt_root, story, terminal }) {
+      if (!path3.isAbsolute(executor_root) || !path3.isAbsolute(project_root) || !path3.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
+      const realProject = fs3.realpathSync(project_root);
+      if (fs3.lstatSync(project_root).isSymbolicLink() || realProject !== project_root) throw new Error("Project root must be canonical for RPD snapshot");
+      const attemptRelative = path3.relative(realProject, attempt_root);
+      if (attemptRelative === "" || attemptRelative.startsWith("..") || path3.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
+      let projectCursor = realProject;
+      for (const piece of attemptRelative.split(path3.sep)) {
+        projectCursor = path3.join(projectCursor, piece);
+        if (!fs3.existsSync(projectCursor)) break;
+        const stat = fs3.lstatSync(projectCursor);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("RPD snapshot path prefixes must be real project directories");
+      }
+      nonEmptyString(story, "RPD story");
+      validateRpdTerminal(terminal);
+      const artifacts = [
+        ["reqs", `req-${story}.md`, "rpd-req", true],
+        ["plans", `plan-${story}.md`, "rpd-plan", true],
+        ["tests", `test-${story}.md`, "rpd-test", false],
+        ["done", `${story}.md`, "rpd-done", true]
+      ];
+      if (fs3.existsSync(attempt_root)) throw new Error("RPD evidence snapshot already exists");
+      fs3.mkdirSync(attempt_root, { recursive: true });
+      if (!fs3.realpathSync(path3.dirname(attempt_root)).startsWith(`${realProject}${path3.sep}`) || fs3.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
+      const sources = [];
+      try {
+        for (const [category, filename, role, required] of artifacts) {
+          const source = findExactArtifact(executor_root, category, filename, required);
+          if (!source) continue;
+          const relative = path3.join(category, filename);
+          const target = path3.join(attempt_root, relative);
+          fs3.mkdirSync(path3.dirname(target), { recursive: true });
+          fs3.copyFileSync(source, target, fs3.constants.COPYFILE_EXCL);
+          sources.push({ path: path3.relative(project_root, target).split(path3.sep).join("/"), sha256: sha256(fs3.readFileSync(target)), role });
+        }
+        const terminalPath = path3.join(attempt_root, "RPD-TERMINAL.md");
+        fs3.writeFileSync(terminalPath, terminal, { flag: "wx" });
+        sources.push({ path: path3.relative(project_root, terminalPath).split(path3.sep).join("/"), sha256: sha256(fs3.readFileSync(terminalPath)), role: "rpd-terminal" });
+        return sources.sort((a, b) => a.role.localeCompare(b.role));
+      } catch (error) {
+        fs3.rmSync(attempt_root, { recursive: true, force: true });
+        throw error;
+      }
+    }
+    function formatEvidenceManifest(payload, contract, previous = []) {
+      const validated = validateManifest(payload, contract, previous);
+      const envelope = { schema_version: 1, manifest_id: validated.manifest_id, payload_sha256: validated.payload_sha256, evidence_sha256: validated.evidence_sha256 };
+      return { ...validated, document: `---
+${Object.entries(envelope).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}
+---
+
+## Payload
+
+\`\`\`json
+${canonicalJson(payload)}
+\`\`\`
+` };
+    }
+    module2.exports = {
+      DEFAULT_EVIDENCE,
+      EVIDENCE_KINDS,
+      canonicalJson,
+      sha256,
+      validateEvidenceRecord,
+      validateEvidenceRequirements,
+      taskSpecPayload,
+      taskSpecHash,
+      contractExecutor,
+      buildTaskContract,
+      validateTaskContract,
+      formatTaskContract,
+      deriveStory,
+      renderRpdPrompt,
+      evidenceFingerprint,
+      validateManifest,
+      formatEvidenceManifest,
+      snapshotRpdEvidence,
+      validTimestamp,
+      validateRpdTerminal
+    };
+  }
+});
+
+// skills/project-manager/scripts/lib/project-state.js
+var require_project_state = __commonJS({
+  "skills/project-manager/scripts/lib/project-state.js"(exports2, module2) {
+    "use strict";
+    var fs3 = require("node:fs");
+    var path3 = require("node:path");
+    var { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
+    var REQUIRED = ["PROJECT.md", "TASKS.md", "STATUS.md"];
+    var OPTIONAL_FILES = ["MILESTONES.md", "RISKS.md", "DECISIONS.md", "SOURCES.md", "TRACEABILITY.md", "CHANGES.md"];
+    var OPTIONAL_DIRS = ["handoffs", path3.join("reports", "history")];
+    var TASK_STATUSES = ["planned", "ready", "in_progress", "implemented", "verification", "verified", "done"];
+    var PROVIDERS = ["human", "rpd", "agent", "external"];
+    var PRIORITIES = ["P0", "P1", "P2", "P3"];
+    var ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
+    var DATE = /^\d{4}-\d{2}-\d{2}$/;
+    var HASH = /^[a-f0-9]{64}$/;
+    var PROJECT_WORK_NAME = /^\.project-manager-work-[a-f0-9]{24}$/;
+    var PROJECT_WORK_MARKER = ".rpd-project-manager-work-v1";
+    var PROJECT_WORK_MARKER_TEXT = "RPD Project Manager work area v1\n";
+    var ProjectError = class extends Error {
+      constructor(kind, code, filePath, message, project = null) {
+        super(message);
+        this.kind = kind;
+        this.code = code;
+        this.path = filePath;
+        this.project = project;
+      }
+    };
+    function fail(kind, code, filePath, message, project) {
+      throw new ProjectError(kind, code, filePath, message, project);
+    }
+    function assert(condition, code, filePath, message, project) {
+      if (!condition) fail("semantic", code, filePath, message, project);
+    }
+    function exactKeys(value, allowed, filePath, label, project) {
+      assert(value && typeof value === "object" && !Array.isArray(value), "INVALID_OBJECT", filePath, `${label} must be an object`, project);
+      const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+      assert(unknown.length === 0, "UNKNOWN_FIELD", filePath, `${label} has unknown fields: ${unknown.join(", ")}`, project);
+    }
+    function nonEmpty(value) {
+      return typeof value === "string" && value.trim().length > 0;
+    }
+    function validDate(value) {
+      if (!DATE.test(value)) return false;
+      const parsed = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+      return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+    }
+    function namespacedId(value, prefix) {
+      return ID.test(value) && value.startsWith(prefix);
+    }
+    function uniqueStrings(value, filePath, label, project, { sorted = true, allowEmpty = true } = {}) {
+      assert(Array.isArray(value), "INVALID_ARRAY", filePath, `${label} must be an array`, project);
+      assert(allowEmpty || value.length > 0, "EMPTY_ARRAY", filePath, `${label} must not be empty`, project);
+      assert(value.every(nonEmpty), "INVALID_STRING", filePath, `${label} must contain non-empty strings`, project);
+      assert(new Set(value).size === value.length, "DUPLICATE_VALUE", filePath, `${label} must be unique`, project);
+      if (sorted) assert(canonicalJson([...value].sort()) === canonicalJson(value), "UNSTABLE_ORDER", filePath, `${label} must be lexically ordered`, project);
+      return value;
+    }
+    function parseFrontmatter2(text, filePath) {
+      const lines = text.replace(/\r\n/g, "\n").split("\n");
+      if (lines[0] !== "---") fail("grammar", "FRONTMATTER_OPEN", filePath, "Expected opening ---");
+      const end = lines.indexOf("---", 1);
+      if (end < 0) fail("grammar", "FRONTMATTER_CLOSE", filePath, "Expected closing ---");
+      const data = {};
+      for (let index = 1; index < end; index += 1) {
+        const line = lines[index];
+        const match = /^([a-z][a-z0-9_]*): (.+)$/.exec(line);
+        if (!match) fail("grammar", "FRONTMATTER_LINE", filePath, `Invalid frontmatter line ${index + 1}`);
+        if (Object.hasOwn(data, match[1])) fail("grammar", "DUPLICATE_KEY", filePath, `Duplicate key ${match[1]}`);
+        try {
+          data[match[1]] = JSON.parse(match[2]);
+        } catch {
+          fail("grammar", "FRONTMATTER_JSON", filePath, `Value for ${match[1]} must be complete JSON`);
+        }
+      }
+      return { data, body: lines.slice(end + 1).join("\n") };
+    }
+    function parseCollection(text, filePath, options = {}) {
+      const parsed = parseFrontmatter2(text, filePath);
+      exactKeys(parsed.data, ["schema_version"], filePath, "collection frontmatter");
+      const schemaVersions = options.schemaVersions ?? [1];
+      if (!schemaVersions.includes(parsed.data.schema_version)) fail("grammar", "SCHEMA_VERSION", filePath, "Unsupported schema_version");
+      const heading = /^## ([A-Z][A-Z0-9-]{1,63}) - (.+)$/gm;
+      const matches = [...parsed.body.matchAll(heading)];
+      const allHeadings = [...parsed.body.matchAll(/^##(?:[ \t].*)?$/gm)];
+      if (allHeadings.length !== matches.length) fail("grammar", "RECORD_HEADING", filePath, "Every level-two heading must be a valid record heading");
+      const records = [];
+      for (let index = 0; index < matches.length; index += 1) {
+        const match = matches[index];
+        const chunkEnd = index + 1 < matches.length ? matches[index + 1].index : parsed.body.length;
+        const chunk = parsed.body.slice(match.index + match[0].length, chunkEnd);
+        const metadata = /^\n+```json\n([^\n]+)\n```(?:\n|$)/.exec(chunk);
+        if (!metadata) fail("grammar", "RECORD_METADATA", filePath, `Record ${match[1]} must immediately contain one single-line json block`);
+        let value;
+        try {
+          value = JSON.parse(metadata[1]);
+        } catch {
+          fail("grammar", "RECORD_JSON", filePath, `Record ${match[1]} metadata is invalid JSON`);
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) fail("grammar", "RECORD_OBJECT", filePath, `Record ${match[1]} metadata must be an object`);
+        if ([...chunk.matchAll(/```json/g)].length !== 1) fail("grammar", "RECORD_METADATA_COUNT", filePath, `Record ${match[1]} must contain exactly one json metadata block`);
+        if (!ID.test(match[1]) || match[2].trim() === "") fail("grammar", "RECORD_HEADING", filePath, `Record ${match[1]} heading is invalid`);
+        records.push({ id: match[1], title: match[2].trim(), raw: value });
+      }
+      const ids = records.map((record) => record.id.toLowerCase());
+      if (new Set(ids).size !== ids.length) fail("semantic", "DUPLICATE_ID", filePath, "Record IDs must be unique case-insensitively");
+      Object.defineProperty(records, "schema_version", { value: parsed.data.schema_version, enumerable: false });
+      return records;
+    }
+    function parseAttempt(text, filePath, type) {
+      const parsed = parseFrontmatter2(text, filePath);
+      const contractKeys = ["schema_version", "contract_id", "payload_sha256", "story", "executor_prompt", "executor_prompt_sha256"];
+      const manifestKeys = ["schema_version", "manifest_id", "payload_sha256", "evidence_sha256"];
+      exactKeys(parsed.data, type === "contract" ? contractKeys : manifestKeys, filePath, `${type} envelope`);
+      for (const key of type === "contract" ? contractKeys : manifestKeys) assert(Object.hasOwn(parsed.data, key), "ATTEMPT_FIELD", filePath, `Missing ${type} envelope field ${key}`);
+      const payloadMatch = /^\n*## Payload\n+```json\n([^\n]+)\n```\s*$/.exec(parsed.body);
+      if (!payloadMatch) fail("grammar", "ATTEMPT_PAYLOAD", filePath, `${type} must contain one canonical payload block`);
+      let payload;
+      try {
+        payload = JSON.parse(payloadMatch[1]);
+      } catch {
+        fail("grammar", "ATTEMPT_JSON", filePath, `${type} payload is invalid JSON`);
+      }
+      assert(canonicalJson(payload) === payloadMatch[1], "ATTEMPT_CANONICAL", filePath, `${type} payload is not canonical`);
+      assert(parsed.data.schema_version === 1 && parsed.data.payload_sha256 === sha256(payload), "ATTEMPT_HASH", filePath, `${type} payload hash mismatch`);
+      return { envelope: parsed.data, payload };
+    }
+    function readSafeBuffer(root, relative, required = false) {
+      const normalized = path3.normalize(relative);
+      if (path3.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path3.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
+      const target = path3.join(root, relative);
+      const parentRelative = path3.dirname(normalized);
+      if (parentRelative !== ".") assertRealDirectoryChain(root, parentRelative);
+      let stat;
+      try {
+        stat = fs3.lstatSync(target);
+      } catch (error) {
+        if (!required && error.code === "ENOENT") return null;
+        fail("path", "MISSING_PATH", target, `Missing required path ${relative}`);
+      }
+      if (stat.isSymbolicLink()) fail("path", "SYMLINK", target, "Known project state paths cannot be symlinks");
+      if (!stat.isFile()) fail("path", "NOT_FILE", target, "Expected a regular file");
+      const real = fs3.realpathSync(target);
+      if (real !== root && !real.startsWith(`${root}${path3.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
+      return fs3.readFileSync(target);
+    }
+    function readSafe(root, relative, required = false) {
+      const value = readSafeBuffer(root, relative, required);
+      return value === null ? null : value.toString("utf8");
+    }
+    function assertRealDirectoryChain(root, relative) {
+      let cursor = root;
+      for (const piece of relative.split(path3.sep)) {
+        cursor = path3.join(cursor, piece);
+        if (!fs3.existsSync(cursor)) return false;
+        const stat = fs3.lstatSync(cursor);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) fail("path", "UNSAFE_DIRECTORY", cursor, "Known project directories must be real directories");
+      }
+      return true;
+    }
+    function checkOptionalDirectories(root) {
+      for (const relative of OPTIONAL_DIRS) {
+        assertRealDirectoryChain(root, relative);
+      }
+    }
+    function parseProject(text, filePath, root) {
+      const { data, body } = parseFrontmatter2(text, filePath);
+      const fields = ["schema_version", "id", "name", "status", "owner", "start_date", "target_date", "current_milestone", "profile", "adapters", "created", "updated"];
+      exactKeys(data, fields, filePath, "PROJECT frontmatter");
+      for (const field of fields) assert(Object.hasOwn(data, field), "MISSING_FIELD", filePath, `PROJECT missing ${field}`);
+      assert(data.schema_version === 1, "SCHEMA_VERSION", filePath, "Unsupported project schema");
+      assert(ID.test(data.id), "INVALID_ID", filePath, "Invalid project ID");
+      assert(nonEmpty(data.name), "INVALID_NAME", filePath, "Project name is required");
+      assert(["planning", "active", "on_hold", "complete"].includes(data.status), "INVALID_STATUS", filePath, "Invalid project status");
+      assert(data.owner === null || nonEmpty(data.owner), "INVALID_OWNER", filePath, "Owner must be null or non-empty");
+      for (const key of ["start_date", "target_date"]) assert(data[key] === null || validDate(data[key]), "INVALID_DATE", filePath, `${key} must be date-only or null`);
+      assert(data.current_milestone === null || namespacedId(data.current_milestone, "M-"), "INVALID_MILESTONE", filePath, "Invalid current milestone");
+      assert(["minimal", "standard", "controlled"].includes(data.profile), "INVALID_PROFILE", filePath, "Invalid profile");
+      uniqueStrings(data.adapters, filePath, "adapters", null, { sorted: false, allowEmpty: false });
+      assert(data.adapters.includes("human") && data.adapters.every((item) => PROVIDERS.includes(item)), "INVALID_ADAPTER", filePath, "Adapters must include human and known providers");
+      assert(validDate(data.created) && validDate(data.updated), "INVALID_DATE", filePath, "created/updated must be date-only");
+      const objective = /(?:^|\n)## Objective\n+([\s\S]*?)(?=\n## |$)/.exec(body)?.[1]?.trim();
+      assert(nonEmpty(objective), "MISSING_OBJECTIVE", filePath, "Objective is required");
+      const successBody = /(?:^|\n)## Success Criteria\n+([\s\S]*?)(?=\n## |$)/.exec(body)?.[1] ?? "";
+      const successLines = successBody.split("\n").map((line) => line.trim()).filter(Boolean);
+      assert(successLines.length > 0 && successLines.every((line) => /^- \[SC-[A-Z0-9-]+\] .+$/.test(line)), "MALFORMED_SUCCESS", filePath, "Every success-criteria line must use - [SC-ID] text");
+      const success = successLines.map((line) => {
+        const match = /^- \[(SC-[A-Z0-9-]+)\] (.+)$/.exec(line);
+        return { id: match[1], text: match[2].trim() };
+      });
+      assert(success.length > 0 && success.every((item) => nonEmpty(item.text)), "MISSING_SUCCESS", filePath, "At least one valid success criterion is required");
+      assert(success.every((item) => namespacedId(item.id, "SC-")), "INVALID_SUCCESS", filePath, "Success criterion IDs are invalid");
+      assert(new Set(success.map((item) => item.id.toLowerCase())).size === success.length, "DUPLICATE_SUCCESS", filePath, "Success criteria must be unique case-insensitively");
+      return { ...data, root, objective, success_criteria_items: success };
+    }
+    function normalizeTask(record, project, filePath, schemaVersion = 1) {
+      const allowed = ["outcome", "acceptance", "status", "priority", "milestone", "owner", "executor", "depends_on", "blocks", "blocked_by", "sources", "success_criteria", "constraints", "evidence_requirements", "external_refs", "critical", "active_contract", "last_manifest", "created", "updated"];
+      if (schemaVersion === 2) allowed.push("scheduled_start", "scheduled_end");
+      exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
+      assert(nonEmpty(record.raw.outcome), "TASK_OUTCOME", filePath, `Task ${record.id} requires outcome`, project);
+      uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
+      const rawExecutor = record.raw.executor ?? { provider: "human", root: null, scope: null };
+      exactKeys(rawExecutor, ["provider", "root", "scope"], filePath, `task ${record.id} executor`, project);
+      const executor = { provider: rawExecutor.provider, root: rawExecutor.root, scope: rawExecutor.scope ?? (rawExecutor.root === null ? null : "absolute") };
+      assert(PROVIDERS.includes(executor.provider) && project.adapters.includes(executor.provider), "TASK_EXECUTOR", filePath, `Task ${record.id} provider is not enabled`, project);
+      const historicalDone = record.raw.status === "done";
+      const nullRootAllowed = ["human", "agent", "external"].includes(executor.provider) && executor.root === null && executor.scope === null;
+      assert(nullRootAllowed || ["absolute", "project"].includes(executor.scope), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor scope is invalid`, project);
+      if (executor.scope === "absolute") assert(path3.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} absolute executor root is invalid`, project);
+      if (executor.scope === "project") assert(nonEmpty(executor.root) && !path3.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root must be a safe relative path`, project);
+      const resolvedExecutorRoot = executor.root === null ? null : executor.scope === "project" ? path3.resolve(project.root, executor.root) : executor.root;
+      const physicalProjectRoot = path3.dirname(filePath);
+      const physicalExecutorRoot = executor.scope === "project" ? path3.resolve(physicalProjectRoot, executor.root) : resolvedExecutorRoot;
+      if (executor.scope === "project") {
+        let cursor = physicalProjectRoot;
+        for (const piece of executor.root.split(/[\\/]/)) {
+          cursor = path3.join(cursor, piece);
+          assert(fs3.existsSync(cursor) && !fs3.lstatSync(cursor).isSymbolicLink() && fs3.lstatSync(cursor).isDirectory(), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor prefixes must be real directories`, project);
+        }
+        assert(fs3.realpathSync(physicalExecutorRoot).startsWith(`${fs3.realpathSync(physicalProjectRoot)}${path3.sep}`), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root escapes the project`, project);
+      }
+      if (physicalExecutorRoot !== null && !historicalDone) assert(fs3.existsSync(physicalExecutorRoot) && !fs3.lstatSync(physicalExecutorRoot).isSymbolicLink() && fs3.lstatSync(physicalExecutorRoot).isDirectory(), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor root must be an existing real directory`, project);
+      assert(executor.provider !== "rpd" || executor.root !== null, "TASK_EXECUTOR_ROOT", filePath, `RPD task ${record.id} requires a root`, project);
+      assert(executor.provider !== "human" || executor.root === null, "TASK_EXECUTOR_ROOT", filePath, `Human task ${record.id} root must be null`, project);
+      const providerRequirements = JSON.parse(JSON.stringify(DEFAULT_EVIDENCE[executor.provider]));
+      const task = {
+        id: record.id,
+        title: record.title,
+        outcome: record.raw.outcome,
+        acceptance: record.raw.acceptance,
+        status: record.raw.status ?? "planned",
+        priority: record.raw.priority ?? "P2",
+        milestone: record.raw.milestone ?? null,
+        owner: record.raw.owner ?? null,
+        executor,
+        depends_on: record.raw.depends_on ?? [],
+        blocks: record.raw.blocks ?? [],
+        blocked_by: record.raw.blocked_by ?? [],
+        sources: record.raw.sources ?? [],
+        success_criteria: record.raw.success_criteria ?? [],
+        constraints: record.raw.constraints ?? [],
+        evidence_requirements: record.raw.evidence_requirements ?? providerRequirements,
+        external_refs: record.raw.external_refs ?? {},
+        critical: record.raw.critical ?? false,
+        active_contract: record.raw.active_contract ?? null,
+        last_manifest: record.raw.last_manifest ?? null,
+        created: record.raw.created ?? null,
+        updated: record.raw.updated ?? null
+      };
+      if (schemaVersion === 2) {
+        task.scheduled_start = record.raw.scheduled_start ?? null;
+        task.scheduled_end = record.raw.scheduled_end ?? null;
+      }
+      assert(TASK_STATUSES.includes(task.status), "TASK_STATUS", filePath, `Task ${task.id} has invalid status`, project);
+      assert(PRIORITIES.includes(task.priority), "TASK_PRIORITY", filePath, `Task ${task.id} has invalid priority`, project);
+      assert(task.milestone === null || namespacedId(task.milestone, "M-"), "TASK_MILESTONE", filePath, `Task ${task.id} has invalid milestone`, project);
+      assert(task.owner === null || nonEmpty(task.owner), "TASK_OWNER", filePath, `Task ${task.id} owner is invalid`, project);
+      for (const key of ["depends_on", "blocks", "blocked_by", "sources", "success_criteria", "constraints"]) uniqueStrings(task[key], filePath, `task ${task.id} ${key}`, project, { sorted: key !== "constraints" });
+      assert(typeof task.critical === "boolean", "TASK_CRITICAL", filePath, `Task ${task.id} critical must be boolean`, project);
+      assert(task.active_contract === null || /^tc-[a-f0-9]{64}$/.test(task.active_contract), "TASK_CONTRACT", filePath, `Task ${task.id} active contract is invalid`, project);
+      assert(task.last_manifest === null || /^em-[a-f0-9]{64}$/.test(task.last_manifest), "TASK_MANIFEST", filePath, `Task ${task.id} last manifest is invalid`, project);
+      const scheduleKeys = ["scheduled_start", "scheduled_end"].filter((key) => Object.hasOwn(record.raw, key));
+      assert(scheduleKeys.length === 0 || scheduleKeys.length === 2, "TASK_SCHEDULE", filePath, `Task ${task.id} schedule must contain both scheduled_start and scheduled_end`, project);
+      if (scheduleKeys.length === 2) {
+        assert(validDate(task.scheduled_start) && validDate(task.scheduled_end), "TASK_SCHEDULE", filePath, `Task ${task.id} schedule dates are invalid`, project);
+        assert(task.scheduled_start <= task.scheduled_end, "TASK_SCHEDULE", filePath, `Task ${task.id} scheduled_start must not be after scheduled_end`, project);
+      }
+      assert(task.created === null || validDate(task.created), "INVALID_DATE", filePath, `Task ${task.id} created is invalid`, project);
+      assert(task.updated === null || validDate(task.updated), "INVALID_DATE", filePath, `Task ${task.id} updated is invalid`, project);
+      assert(task.external_refs && typeof task.external_refs === "object" && !Array.isArray(task.external_refs), "TASK_EXTERNAL_REFS", filePath, `Task ${task.id} external_refs must be an object`, project);
+      for (const [key, value] of Object.entries(task.external_refs)) assert(/^[a-z][a-z0-9_-]{1,31}$/.test(key) && nonEmpty(value), "TASK_EXTERNAL_REFS", filePath, `Task ${task.id} external_refs is invalid`, project);
+      try {
+        validateEvidenceRequirements(task.evidence_requirements);
+      } catch (error) {
+        fail("semantic", "TASK_EVIDENCE", filePath, `Task ${task.id}: ${error.message}`, project);
+      }
+      task.spec_sha256 = taskSpecHash(task);
+      return task;
+    }
+    function normalizeSimple(record, kind, project, filePath) {
+      const raw = record.raw;
+      if (kind === "milestones") {
+        assert(namespacedId(record.id, "M-"), "MILESTONE_ID", filePath, `Invalid milestone ID ${record.id}`, project);
+        exactKeys(raw, ["status", "target_date", "forecast_date", "forecast_updated", "forecast_evidence", "critical"], filePath, `milestone ${record.id}`, project);
+        const item = { id: record.id, title: record.title, status: raw.status, target_date: raw.target_date ?? null, forecast_date: raw.forecast_date ?? null, forecast_updated: raw.forecast_updated ?? null, forecast_evidence: raw.forecast_evidence ?? [], critical: raw.critical ?? false };
+        assert(["planned", "active", "complete"].includes(item.status), "MILESTONE_STATUS", filePath, "Invalid milestone status", project);
+        for (const key of ["target_date", "forecast_date", "forecast_updated"]) assert(item[key] === null || validDate(item[key]), "INVALID_DATE", filePath, `Invalid milestone ${key}`, project);
+        assert(Array.isArray(item.forecast_evidence), "MILESTONE_EVIDENCE", filePath, "forecast_evidence must be an array", project);
+        item.forecast_evidence.forEach((value, index) => {
+          try {
+            validateEvidenceRecord(value, `forecast_evidence[${index}]`);
+          } catch (error) {
+            fail("semantic", "MILESTONE_EVIDENCE", filePath, error.message, project);
+          }
+        });
+        assert(typeof item.critical === "boolean", "MILESTONE_CRITICAL", filePath, "Milestone critical must be boolean", project);
+        const forecastParts = [item.forecast_date, item.forecast_updated, item.forecast_evidence.length ? true : null];
+        assert(forecastParts.every((value) => value === null) || forecastParts.every((value) => value !== null), "MILESTONE_FORECAST", filePath, "Forecast fields must be populated together", project);
+        return item;
+      }
+      if (kind === "risks") {
+        assert(namespacedId(record.id, "RISK-"), "RISK_ID", filePath, `Invalid risk ID ${record.id}`, project);
+        exactKeys(raw, ["status", "probability", "impact", "mitigation", "owner", "milestone"], filePath, `risk ${record.id}`, project);
+        const item = { id: record.id, title: record.title, status: raw.status, probability: raw.probability, impact: raw.impact, mitigation: raw.mitigation, owner: raw.owner ?? null, milestone: raw.milestone ?? null };
+        assert(["open", "mitigated", "accepted", "closed"].includes(item.status) && ["low", "medium", "high"].includes(item.probability) && ["low", "medium", "high"].includes(item.impact) && nonEmpty(item.mitigation), "RISK_SCHEMA", filePath, "Invalid risk record", project);
+        assert(item.owner === null || nonEmpty(item.owner), "RISK_OWNER", filePath, "Invalid risk owner", project);
+        assert(item.milestone === null || namespacedId(item.milestone, "M-"), "RISK_MILESTONE", filePath, "Invalid risk milestone", project);
+        return item;
+      }
+      if (kind === "decisions") {
+        assert(namespacedId(record.id, "DEC-"), "DECISION_ID", filePath, `Invalid decision ID ${record.id}`, project);
+        exactKeys(raw, ["status", "decision", "owner", "due_date", "date", "affects"], filePath, `decision ${record.id}`, project);
+        const item = { id: record.id, title: record.title, status: raw.status, decision: raw.decision, owner: raw.owner ?? null, due_date: raw.due_date ?? null, date: raw.date ?? null, affects: raw.affects ?? [] };
+        assert(["proposed", "decided", "superseded"].includes(item.status) && nonEmpty(item.decision), "DECISION_SCHEMA", filePath, "Invalid decision record", project);
+        assert(item.owner === null || nonEmpty(item.owner), "DECISION_OWNER", filePath, "Invalid decision owner", project);
+        for (const key of ["due_date", "date"]) assert(item[key] === null || validDate(item[key]), "INVALID_DATE", filePath, `Invalid decision ${key}`, project);
+        uniqueStrings(item.affects, filePath, `decision ${record.id} affects`, project);
+        assert(item.affects.every((value) => {
+          const index = value.indexOf(":");
+          return index > 0 && ["project", "task", "milestone", "risk", "source", "success"].includes(value.slice(0, index)) && ID.test(value.slice(index + 1));
+        }), "DECISION_AFFECTS", filePath, "Invalid decision affects reference", project);
+        return item;
+      }
+      if (kind === "sources") {
+        assert(namespacedId(record.id, "SRC-"), "SOURCE_ID", filePath, `Invalid source ID ${record.id}`, project);
+        exactKeys(raw, ["kind", "location", "role", "status", "version", "sha256"], filePath, `source ${record.id}`, project);
+        const item = { id: record.id, title: record.title, kind: raw.kind, location: raw.location, role: raw.role, status: raw.status, version: raw.version ?? null, sha256: raw.sha256 ?? null };
+        assert(["document", "pdf", "sheet", "requirement", "specification", "code", "url", "other"].includes(item.kind) && nonEmpty(item.location) && nonEmpty(item.role) && ["current", "superseded"].includes(item.status), "SOURCE_SCHEMA", filePath, "Invalid source record", project);
+        assert(item.version === null || nonEmpty(item.version), "SOURCE_VERSION", filePath, "Invalid source version", project);
+        assert(item.sha256 === null || HASH.test(item.sha256), "SOURCE_HASH", filePath, "Invalid source hash", project);
+        item.record_sha256 = sha256(raw);
+        return item;
+      }
+      if (kind === "changes") {
+        assert(namespacedId(record.id, "CHG-"), "CHANGE_ID", filePath, `Invalid change ID ${record.id}`, project);
+        exactKeys(raw, ["date", "observed_at", "sources", "affected_tasks", "affected_milestones", "reverify_tasks", "reverification", "risk_summary"], filePath, `change ${record.id}`, project);
+        const item = { id: record.id, title: record.title, ...raw, reverification: raw.reverification ?? Object.fromEntries((raw.reverify_tasks ?? []).map((id) => [id, { status: "pending", contract_id: null, manifest_id: null }])) };
+        assert(validDate(item.date) && validTimestamp(item.observed_at) && item.observed_at.slice(0, 10) === item.date && nonEmpty(item.risk_summary), "CHANGE_SCHEMA", filePath, "Invalid change record timestamp or risk summary", project);
+        for (const key of ["sources", "affected_tasks", "affected_milestones", "reverify_tasks"]) uniqueStrings(item[key], filePath, `change ${record.id} ${key}`, project);
+        assert(item.reverify_tasks.every((id) => item.affected_tasks.includes(id)), "CHANGE_REVERIFY", filePath, "reverify_tasks must be affected", project);
+        assert(item.reverification && typeof item.reverification === "object" && !Array.isArray(item.reverification) && canonicalJson(Object.keys(item.reverification).sort()) === canonicalJson([...item.reverify_tasks].sort()), "CHANGE_REVERIFY", filePath, "reverification must map every reverify task", project);
+        for (const [taskId, value] of Object.entries(item.reverification)) {
+          exactKeys(value, ["status", "contract_id", "manifest_id"], filePath, `change ${record.id} reverification ${taskId}`, project);
+          assert(["pending", "in_progress", "complete"].includes(value.status), "CHANGE_REVERIFY", filePath, "Invalid reverification status", project);
+          assert(value.contract_id === null || /^tc-[a-f0-9]{64}$/.test(value.contract_id), "CHANGE_REVERIFY", filePath, "Invalid reverification contract ID", project);
+          assert(value.manifest_id === null || /^em-[a-f0-9]{64}$/.test(value.manifest_id), "CHANGE_REVERIFY", filePath, "Invalid reverification manifest ID", project);
+          if (value.status === "pending") assert(value.contract_id === null && value.manifest_id === null, "CHANGE_REVERIFY", filePath, "Pending reverification cannot bind evidence", project);
+          if (value.status === "in_progress") assert(value.contract_id !== null && value.manifest_id === null, "CHANGE_REVERIFY", filePath, "In-progress reverification requires only a contract", project);
+          if (value.status === "complete") assert(value.contract_id !== null && value.manifest_id !== null, "CHANGE_REVERIFY", filePath, "Complete reverification requires contract and manifest", project);
+        }
+        return item;
+      }
+      return record;
+    }
+    function loadTraceability(text, filePath, project, tasks, sources) {
+      if (text === null) return { configured: false };
+      const parsed = parseFrontmatter2(text, filePath);
+      exactKeys(parsed.data, ["schema_version", "items"], filePath, "TRACEABILITY frontmatter", project);
+      assert(Object.hasOwn(parsed.data, "schema_version") && Object.hasOwn(parsed.data, "items") && parsed.data.schema_version === 1 && Array.isArray(parsed.data.items), "TRACEABILITY_SCHEMA", filePath, "Invalid traceability schema", project);
+      const pairs = /* @__PURE__ */ new Set();
+      let prior = "";
+      const taskIds = new Set(tasks.map((item) => item.id));
+      const sourceIds = new Set(sources.map((item) => item.id));
+      for (const item of parsed.data.items) {
+        exactKeys(item, ["source_id", "criterion", "tasks"], filePath, "traceability item", project);
+        assert(sourceIds.has(item.source_id) && nonEmpty(item.criterion), "TRACEABILITY_REFERENCE", filePath, "Traceability source/criterion is invalid", project);
+        uniqueStrings(item.tasks, filePath, "traceability tasks", project);
+        assert(item.tasks.every((id) => taskIds.has(id)), "TRACEABILITY_REFERENCE", filePath, "Traceability task is unknown", project);
+        const key = `${item.source_id}\0${item.criterion}`;
+        assert(!pairs.has(key) && key > prior, "TRACEABILITY_ORDER", filePath, "Traceability pairs must be unique and ordered", project);
+        pairs.add(key);
+        prior = key;
+      }
+      return { configured: true, items: parsed.data.items };
+    }
+    function validateGraph(state) {
+      const byId = new Map(state.tasks.map((task) => [task.id, task]));
+      const successIds = new Set(state.project.success_criteria_items.map((item) => item.id));
+      const milestoneIds = new Set(state.milestones.items.map((item) => item.id));
+      const sourceIds = new Set(state.sources.items.map((item) => item.id));
+      const riskIds = new Set(state.risks.items.map((item) => item.id));
+      for (const task of state.tasks) {
+        assert(task.depends_on.every((id) => byId.has(id) && id !== task.id), "TASK_DEPENDENCY", "TASKS.md", `Task ${task.id} has invalid dependency`, state.project);
+        const expectedBlocks = state.tasks.filter((candidate) => candidate.depends_on.includes(task.id)).map((item) => item.id).sort();
+        assert(canonicalJson(task.blocks) === canonicalJson(expectedBlocks), "TASK_REVERSE_LINK", "TASKS.md", `Task ${task.id} blocks is stale`, state.project);
+        assert(task.success_criteria.every((id) => successIds.has(id)), "TASK_SUCCESS_REF", "TASKS.md", `Task ${task.id} has unknown success criterion`, state.project);
+        assert(task.milestone === null || milestoneIds.has(task.milestone), "TASK_MILESTONE_REF", "TASKS.md", `Task ${task.id} has unknown milestone`, state.project);
+        assert(task.sources.every((id) => sourceIds.has(id) && state.sources.items.find((source) => source.id === id).status === "current"), "TASK_SOURCE_REF", "TASKS.md", `Task ${task.id} has invalid source`, state.project);
+        const active = task.active_contract !== null;
+        assert(["planned", "ready"].includes(task.status) && !active && task.last_manifest === null || !["planned", "ready"].includes(task.status) && active, "TASK_LIFECYCLE", "TASKS.md", `Task ${task.id} lifecycle pointers are inconsistent`, state.project);
+        assert(!["implemented", "verification", "verified", "done"].includes(task.status) || task.last_manifest !== null, "TASK_LIFECYCLE", "TASKS.md", `Task ${task.id} requires a manifest pointer`, state.project);
+        if (task.status === "ready") assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === "done"), "TASK_READY", "TASKS.md", `Task ${task.id} cannot be ready while blocked`, state.project);
+        if (task.status === "done") assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === "done"), "TASK_DONE", "TASKS.md", `Task ${task.id} cannot be done while blocked or dependency-incomplete`, state.project);
+      }
+      const visiting = /* @__PURE__ */ new Set();
+      const visited = /* @__PURE__ */ new Set();
+      function visit(id) {
+        if (visiting.has(id)) assert(false, "TASK_CYCLE", "TASKS.md", `Dependency cycle includes ${id}`, state.project);
+        if (visited.has(id)) return;
+        visiting.add(id);
+        byId.get(id).depends_on.forEach(visit);
+        visiting.delete(id);
+        visited.add(id);
+      }
+      state.tasks.forEach((task) => visit(task.id));
+      if (state.project.current_milestone !== null) assert(milestoneIds.has(state.project.current_milestone), "PROJECT_MILESTONE_REF", "PROJECT.md", "Current milestone is unknown", state.project);
+      const activeMilestones = state.milestones.items.filter((item) => item.status === "active");
+      assert(activeMilestones.length <= 1, "MILESTONE_ACTIVE", "MILESTONES.md", "Only one milestone may be active", state.project);
+      if (activeMilestones.length === 1) assert(state.project.current_milestone === activeMilestones[0].id, "MILESTONE_CURRENT", "PROJECT.md", "Current milestone must match active milestone", state.project);
+      if (activeMilestones.length === 0) assert(state.project.current_milestone === null, "MILESTONE_CURRENT", "PROJECT.md", "Current milestone must be null when no milestone is active", state.project);
+      for (const milestone of state.milestones.items.filter((item) => item.status === "complete")) assert(state.tasks.filter((task) => task.milestone === milestone.id).every((task) => task.status === "done"), "MILESTONE_COMPLETE", "MILESTONES.md", `Milestone ${milestone.id} has unfinished tasks`, state.project);
+      for (const risk of state.risks.items) assert(risk.milestone === null || milestoneIds.has(risk.milestone), "RISK_REFERENCE", "RISKS.md", `Risk ${risk.id} has unknown milestone`, state.project);
+      const typed = { project: /* @__PURE__ */ new Set([state.project.id]), task: new Set(byId.keys()), milestone: milestoneIds, risk: riskIds, source: sourceIds, success: successIds };
+      for (const decision of state.decisions.items) for (const reference of decision.affects) {
+        const split = reference.indexOf(":");
+        const kind = reference.slice(0, split);
+        const id = reference.slice(split + 1);
+        assert(typed[kind]?.has(id), "DECISION_REFERENCE", "DECISIONS.md", `Decision ${decision.id} has unknown reference ${reference}`, state.project);
+      }
+      for (const change of state.changes.items) {
+        assert(change.sources.every((id) => sourceIds.has(id)), "CHANGE_REFERENCE", "CHANGES.md", `Change ${change.id} has unknown source`, state.project);
+        assert([...change.affected_tasks, ...change.reverify_tasks].every((id) => byId.has(id)), "CHANGE_REFERENCE", "CHANGES.md", `Change ${change.id} has unknown task`, state.project);
+        assert(change.affected_milestones.every((id) => milestoneIds.has(id)), "CHANGE_REFERENCE", "CHANGES.md", `Change ${change.id} has unknown milestone`, state.project);
+      }
+      const latestReverification = /* @__PURE__ */ new Map();
+      const seenReverifyTimes = /* @__PURE__ */ new Set();
+      for (const change of [...state.changes.items].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at) || a.id.localeCompare(b.id))) {
+        for (const id of change.reverify_tasks) {
+          const key = `${id}\0${Date.parse(change.observed_at)}`;
+          assert(!seenReverifyTimes.has(key), "CHANGE_REVERIFY_ORDER", "CHANGES.md", `Task ${id} has ambiguous same-timestamp changes`, state.project);
+          seenReverifyTimes.add(key);
+        }
+        for (const [id, value] of Object.entries(change.reverification)) latestReverification.set(id, { change, value });
+      }
+      for (const [id, { value }] of latestReverification) {
+        const target = byId.get(id);
+        if (value.status === "pending") assert(["planned", "ready"].includes(target.status) && target.active_contract === null && target.last_manifest === null, "CHANGE_REVERIFY", "CHANGES.md", `Task ${id} must regress and clear execution pointers before re-verification`, state.project);
+        if (value.status === "in_progress") assert(["in_progress", "implemented", "verification", "verified"].includes(target.status) && target.active_contract === value.contract_id, "CHANGE_REVERIFY", "CHANGES.md", `Task ${id} re-verification must use its bound active contract`, state.project);
+        if (value.status === "complete") assert(target.status === "done" && target.active_contract === value.contract_id && target.last_manifest === value.manifest_id, "CHANGE_REVERIFY", "CHANGES.md", `Task ${id} re-verification is not complete on its bound evidence`, state.project);
+      }
+      if (state.project.status === "complete") {
+        assert(state.tasks.every((task) => task.status === "done"), "PROJECT_COMPLETE", "PROJECT.md", "Complete project has unfinished tasks", state.project);
+        assert(state.milestones.items.every((item) => item.status === "complete"), "PROJECT_COMPLETE", "PROJECT.md", "Complete project has unfinished milestones", state.project);
+        for (const criterion of successIds) assert(state.tasks.some((task) => task.status === "done" && task.success_criteria.includes(criterion)), "PROJECT_COMPLETE", "PROJECT.md", `Success criterion ${criterion} is not backed by done work`, state.project);
+      }
+    }
+    function validateAttempts(state) {
+      for (const task of state.tasks.filter((item) => item.active_contract !== null)) {
+        const attemptRoot = path3.join(state.root, "handoffs", task.id, task.active_contract);
+        const contractPath = path3.join(attemptRoot, "TASK-CONTRACT.md");
+        const contractDoc = readSafe(state.root, path3.relative(state.root, contractPath), true);
+        const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
+        const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
+        const allowHistoricalRoot = task.status === "done";
+        try {
+          validateTaskContract(contract, { allowHistoricalRoot });
+        } catch (error) {
+          fail("semantic", "CONTRACT_INVALID", contractPath, error.message, state.project);
+        }
+        const executing = task.status !== "done";
+        assert(contract.contract_id === task.active_contract && contract.payload.project.id === state.project.id && (!executing || contract.payload.project.root === state.project.root) && contract.payload.task.id === task.id && contract.payload.task.spec_sha256 === task.spec_sha256, "CONTRACT_BINDING", contractPath, `Task ${task.id} contract binding or active root is stale`, state.project);
+        const liveBindings = task.sources.map((id) => {
+          const source = state.sources.items.find((item) => item.id === id);
+          return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
+        });
+        assert(canonicalJson(liveBindings) === canonicalJson(contract.payload.task.sources), "CONTRACT_SOURCE_BINDING", contractPath, `Task ${task.id} source binding is stale`, state.project);
+        const derived = parsedContract.envelope;
+        const provider = task.executor.provider;
+        if (provider !== "rpd") {
+          assert(derived.story === null && derived.executor_prompt === null && derived.executor_prompt_sha256 === null, "CONTRACT_DERIVED", contractPath, "Non-RPD derived fields must be null", state.project);
+        } else {
+          const digest = contract.contract_id.slice(3);
+          const storyPrefix = `pm-${state.project.id.toLowerCase()}-${task.id.toLowerCase()}-`;
+          assert([12, 16, 32, 64].some((length) => derived.story === `${storyPrefix}${digest.slice(0, length)}`), "RPD_STORY", contractPath, "RPD story is not derived from this attempt", state.project);
+          const relativeContract = path3.relative(state.root, contractPath).split(path3.sep).join("/");
+          const issuanceContractPath = path3.join(contract.payload.project.root, relativeContract);
+          const expectedPrompt = renderRpdPrompt({ project_id: state.project.id, task_id: task.id, contract_id: contract.contract_id, story: derived.story, executor_root: contract.payload.task.executor.root, contract_absolute_path: issuanceContractPath, contract_relative_path: relativeContract, acceptance: task.acceptance, constraints: task.constraints, evidence_requirements: task.evidence_requirements });
+          assert(derived.executor_prompt === expectedPrompt && derived.executor_prompt_sha256 === sha256(expectedPrompt), "RPD_PROMPT", contractPath, "RPD executor prompt/hash is stale or tampered", state.project);
+        }
+        const allEntries = fs3.readdirSync(attemptRoot);
+        const reservedEvidence = allEntries.filter((name) => name.startsWith("EVIDENCE-"));
+        assert(reservedEvidence.every((name) => /^EVIDENCE-\d{3}\.md$/.test(name)), "MANIFEST_FILENAME", attemptRoot, "Every EVIDENCE-* entry must use exact three-digit numbering", state.project);
+        const entries = reservedEvidence.sort();
+        const previous = [];
+        for (const [index, name] of entries.entries()) {
+          assert(name === `EVIDENCE-${String(index + 1).padStart(3, "0")}.md`, "MANIFEST_SEQUENCE", attemptRoot, "Manifest filenames must be gap-free", state.project);
+          const manifestPath = path3.join(attemptRoot, name);
+          const manifestDoc = readSafe(state.root, path3.relative(state.root, manifestPath), true);
+          const parsed = parseAttempt(manifestDoc, manifestPath, "manifest");
+          let result;
+          try {
+            result = validateManifest(parsed.payload, contract, previous, { allowHistoricalRoot });
+          } catch (error) {
+            fail("semantic", "MANIFEST_INVALID", manifestPath, error.message, state.project);
+          }
+          assert(parsed.envelope.manifest_id === result.manifest_id && parsed.envelope.evidence_sha256 === result.evidence_sha256, "MANIFEST_HASH", manifestPath, "Manifest envelope hash mismatch", state.project);
+          for (const source of parsed.payload.sources) {
+            const sourceBytes = readSafeBuffer(state.root, source.path, true);
+            assert(sha256(sourceBytes) === source.sha256, "MANIFEST_SOURCE_HASH", manifestPath, `Manifest source ${source.path} hash mismatch`, state.project);
+          }
+          if (provider === "rpd" && parsed.payload.status === "verified") {
+            const requiredPrefix = `handoffs/${task.id}/${contract.contract_id}/rpd-evidence/`;
+            assert(parsed.payload.sources.every((source) => source.path.startsWith(requiredPrefix)), "RPD_SOURCE_PATH", manifestPath, "RPD sources must be snapshotted into this attempt", state.project);
+            const roles = parsed.payload.sources.map((source) => source.role).sort();
+            const allowedRoles = ["rpd-done", "rpd-plan", "rpd-req", "rpd-terminal"];
+            const allowedWithTest = [...allowedRoles, "rpd-test"].sort();
+            assert(canonicalJson(roles) === canonicalJson(allowedRoles.sort()) || canonicalJson(roles) === canonicalJson(allowedWithTest), "RPD_SOURCE_ROLE", manifestPath, "RPD source roles must be exact and unique", state.project);
+            const byRole = new Map(parsed.payload.sources.map((source) => [source.role, source]));
+            for (const role of ["rpd-req", "rpd-plan", "rpd-done", "rpd-terminal"]) assert(byRole.has(role), "RPD_SOURCE_ROLE", manifestPath, `RPD verified evidence missing ${role}`, state.project);
+            assert(path3.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path3.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path3.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
+            assert(byRole.get("rpd-req").path === `${requiredPrefix}reqs/req-${derived.story}.md` && byRole.get("rpd-plan").path === `${requiredPrefix}plans/plan-${derived.story}.md` && byRole.get("rpd-done").path === `${requiredPrefix}done/${derived.story}.md` && byRole.get("rpd-terminal").path === `${requiredPrefix}RPD-TERMINAL.md` && (!byRole.has("rpd-test") || byRole.get("rpd-test").path === `${requiredPrefix}tests/test-${derived.story}.md`), "RPD_SOURCE_LAYOUT", manifestPath, "RPD source layout is invalid", state.project);
+            const terminal = readSafe(state.root, byRole.get("rpd-terminal").path, true);
+            try {
+              validateRpdTerminal(terminal);
+            } catch (error) {
+              fail("semantic", "RPD_TERMINAL", manifestPath, error.message, state.project);
+            }
+          }
+          previous.push({ ...result, status: parsed.payload.status, blocker: parsed.payload.blocker });
+        }
+        const last = previous.at(-1) ?? null;
+        assert(task.last_manifest === null && last === null || last && task.last_manifest === last.manifest_id, "MANIFEST_POINTER", attemptRoot, `Task ${task.id} last manifest pointer is stale`, state.project);
+        const expected = last === null ? "in_progress" : last.status === "blocked" ? "in_progress" : last.status;
+        assert(task.status === expected || last?.status === "verified" && ["verified", "done"].includes(task.status), "MANIFEST_LIFECYCLE", attemptRoot, `Task ${task.id} status does not match latest manifest`, state.project);
+        if (last?.status === "blocked") {
+          assert(task.blocked_by.includes(last.blocker), "MANIFEST_BLOCKER", attemptRoot, `Task ${task.id} must store the blocked manifest blocker`, state.project);
+        }
+      }
+    }
+    function validateReverificationBindings(state) {
+      for (const change of state.changes.items) for (const [taskId, value] of Object.entries(change.reverification)) {
+        if (value.status === "pending") continue;
+        const attemptRoot = path3.join(state.root, "handoffs", taskId, value.contract_id);
+        const contractPath = path3.join(attemptRoot, "TASK-CONTRACT.md");
+        const parsedContract = parseAttempt(readSafe(state.root, path3.relative(state.root, contractPath), true), contractPath, "contract");
+        assert(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
+        if (value.status === "complete") {
+          const evidenceNames = fs3.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
+          const matched = evidenceNames.some((name) => {
+            const manifestPath = path3.join(attemptRoot, name);
+            const parsed = parseAttempt(readSafe(state.root, path3.relative(state.root, manifestPath), true), manifestPath, "manifest");
+            return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === "verified" && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
+          });
+          assert(matched, "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
+        }
+      }
+    }
+    function loadProject(folder, options = {}) {
+      if (!folder) fail("path", "MISSING_SELECTOR", "", "Project folder is required");
+      let root;
+      try {
+        root = fs3.realpathSync(folder);
+      } catch {
+        fail("path", "INVALID_SELECTOR", folder, "Project folder does not exist");
+      }
+      if (!fs3.lstatSync(root).isDirectory()) fail("path", "INVALID_SELECTOR", folder, "Project folder must be a directory");
+      checkOptionalDirectories(root);
+      const texts = Object.fromEntries(REQUIRED.map((name) => [name, readSafe(root, name, true)]));
+      for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
+      const logicalRoot = options.logicalRoot ?? root;
+      if (!path3.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const project = parseProject(texts["PROJECT.md"], path3.join(root, "PROJECT.md"), logicalRoot);
+      const taskRecords = parseCollection(texts["TASKS.md"], path3.join(root, "TASKS.md"), { schemaVersions: [1, 2] });
+      const tasks = taskRecords.map((record) => normalizeTask(record, project, path3.join(root, "TASKS.md"), taskRecords.schema_version));
+      function module3(name, kind) {
+        const text = texts[name];
+        if (text === null) return { configured: false, items: [] };
+        const items = parseCollection(text, path3.join(root, name)).map((record) => normalizeSimple(record, kind, project, path3.join(root, name))).sort((a, b) => a.id.localeCompare(b.id));
+        return { configured: true, items };
+      }
+      const state = {
+        root,
+        project,
+        tasks,
+        tasks_schema_version: taskRecords.schema_version,
+        milestones: module3("MILESTONES.md", "milestones"),
+        risks: module3("RISKS.md", "risks"),
+        decisions: module3("DECISIONS.md", "decisions"),
+        sources: module3("SOURCES.md", "sources"),
+        changes: module3("CHANGES.md", "changes")
+      };
+      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path3.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
+      validateGraph(state);
+      state.source_sha256 = sha256({ project: { ...project, root: void 0 }, tasks, milestones: state.milestones.items, risks: state.risks.items, decisions: state.decisions.items, sources: state.sources.items, traceability: state.traceability, changes: state.changes.items });
+      const statusParsed = parseFrontmatter2(texts["STATUS.md"], path3.join(root, "STATUS.md"));
+      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path3.join(root, "STATUS.md"), "STATUS frontmatter", project);
+      assert(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path3.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
+      state.status_stale = statusParsed.data.source_sha256 !== state.source_sha256;
+      validateAttempts(state);
+      validateReverificationBindings(state);
+      return state;
+    }
+    function loadProjectIndex(indexPath) {
+      if (fs3.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
+      if (fs3.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
+      const indexRoot = fs3.realpathSync(path3.dirname(indexPath));
+      const text = fs3.readFileSync(indexPath, "utf8");
+      const records = parseCollection(text, indexPath);
+      const seenPaths = /* @__PURE__ */ new Set();
+      const projects = [];
+      for (const record of records) {
+        exactKeys(record.raw, ["path"], indexPath, `index ${record.id}`);
+        assert(nonEmpty(record.raw.path) && !path3.isAbsolute(record.raw.path), "INDEX_PATH", indexPath, `Index path for ${record.id} must be relative`);
+        const pieces = record.raw.path.split(/[\\/]/);
+        assert(!pieces.includes("..") && !pieces.includes("") && !pieces.includes("."), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes or is empty`);
+        let cursor = indexRoot;
+        for (const piece of pieces) {
+          cursor = path3.join(cursor, piece);
+          const stat = fs3.lstatSync(cursor);
+          assert(!stat.isSymbolicLink(), "INDEX_SYMLINK", indexPath, `Index path for ${record.id} contains a symlink`);
+        }
+        const real = fs3.realpathSync(cursor);
+        assert(real.startsWith(`${indexRoot}${path3.sep}`), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes index root`);
+        const pathKey = real.toLowerCase();
+        assert(!seenPaths.has(pathKey), "INDEX_DUPLICATE", indexPath, `Index path for ${record.id} is duplicated`);
+        seenPaths.add(pathKey);
+        const state = loadProject(real);
+        assert(state.project.id === record.id, "INDEX_ID", indexPath, `Index ID ${record.id} does not match target project`, state.project);
+        projects.push({ id: record.id, name: record.title, path: record.raw.path, root: real });
+      }
+      return projects;
+    }
+    function loadProjectsRoot2(folder) {
+      let rootStat;
+      try {
+        rootStat = fs3.lstatSync(folder);
+      } catch (error) {
+        if (error.code === "ENOENT") fail("path", "PROJECTS_ROOT_MISSING", folder, `Projects root does not exist: ${folder}`);
+        throw error;
+      }
+      if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) fail("path", "PROJECTS_ROOT_INVALID", folder, "Projects root must be a real directory");
+      const root = fs3.realpathSync(folder);
+      const projects = [];
+      for (const name of fs3.readdirSync(root).sort()) {
+        const target = path3.join(root, name);
+        const stat = fs3.lstatSync(target);
+        const projectFile = path3.join(target, "PROJECT.md");
+        let hasProjectFile = false;
+        if (stat.isDirectory()) {
+          try {
+            fs3.lstatSync(projectFile);
+            hasProjectFile = true;
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+          }
+        }
+        if (PROJECT_WORK_NAME.test(name) && stat.isDirectory() && !hasProjectFile) {
+          const marker = path3.join(target, PROJECT_WORK_MARKER);
+          let markerStat;
+          try {
+            markerStat = fs3.lstatSync(marker);
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+            if (fs3.readdirSync(target).length === 0) continue;
+            fail("path", "PROJECT_CATALOG_INVALID", target, "Markerless project work area must be empty");
+          }
+          if (markerStat.isSymbolicLink() || !markerStat.isFile() || fs3.readFileSync(marker, "utf8") !== PROJECT_WORK_MARKER_TEXT) {
+            fail("path", "PROJECT_CATALOG_INVALID", target, "Reserved project work area marker is unsafe");
+          }
+          continue;
+        }
+        if (stat.isSymbolicLink()) fail("path", "PROJECT_CATALOG_INVALID", target, `Project catalog child cannot be a symlink: ${name}`);
+        if (!stat.isDirectory()) continue;
+        let state;
+        try {
+          state = loadProject(target);
+        } catch (error) {
+          const detail = error instanceof ProjectError ? `${error.code}: ${error.message}` : error.message;
+          fail("semantic", "PROJECT_CATALOG_INVALID", target, `Invalid project catalog child ${name}: ${detail}`);
+        }
+        projects.push({ id: state.project.id, name: state.project.name, child: name, root: state.root });
+      }
+      if (projects.length === 0) fail("semantic", "PROJECTS_ROOT_EMPTY", root, "Projects root contains no valid direct-child projects");
+      const seen = /* @__PURE__ */ new Set();
+      for (const project of projects) {
+        const key = project.id.toLowerCase();
+        if (seen.has(key)) fail("semantic", "PROJECT_ID_DUPLICATE", root, `Project ID is duplicated in projects root: ${project.id}`);
+        seen.add(key);
+      }
+      projects.sort((left, right) => left.id.localeCompare(right.id) || left.child.localeCompare(right.child));
+      return { root, projects };
+    }
+    function unfinishedDependencies(task, state) {
+      const byId = new Map(state.tasks.map((item) => [item.id, item]));
+      return task.depends_on.filter((id) => byId.get(id).status !== "done");
+    }
+    function blockerItems(state) {
+      return state.tasks.filter((task) => task.blocked_by.length || unfinishedDependencies(task, state).length).map((task) => ({
+        id: task.id,
+        title: task.title,
+        dependency_tasks: unfinishedDependencies(task, state),
+        waiting_on: task.blocked_by
+      })).sort((a, b) => a.id.localeCompare(b.id));
+    }
+    function successCounts(state) {
+      const result = { total: state.project.success_criteria_items.length, covered: 0, verified: 0 };
+      for (const criterion of state.project.success_criteria_items) {
+        const mapped = state.tasks.filter((task) => task.success_criteria.includes(criterion.id));
+        if (mapped.length) result.covered += 1;
+        if (mapped.length && mapped.every((task) => task.status === "done" && task.last_manifest !== null)) result.verified += 1;
+      }
+      return result;
+    }
+    function coverageData(state) {
+      if (!state.traceability.configured) return { schema_version: 1, configured: false };
+      const items = state.traceability.items.map((item) => {
+        const mapped = item.tasks.map((id) => state.tasks.find((task) => task.id === id));
+        return { ...item, covered: mapped.length > 0, verified: mapped.length > 0 && mapped.every((task) => task.status === "done" && task.last_manifest !== null) };
+      });
+      return { schema_version: 1, configured: true, criteria: { total: items.length, covered: items.filter((item) => item.covered).length, verified: items.filter((item) => item.verified).length, uncovered: items.filter((item) => !item.covered).length }, items };
+    }
+    function nextData(state) {
+      if (state.project.status !== "active") return { schema_version: 1, tasks: [] };
+      const candidates = state.tasks.filter((task) => task.status === "ready" && !task.blocked_by.length && !unfinishedDependencies(task, state).length);
+      const taskById = new Map(state.tasks.map((task) => [task.id, task]));
+      const rows = candidates.map((task) => {
+        const unlocks = state.tasks.filter((candidate) => candidate.status === "planned" && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === "done")).length;
+        const reasons = [];
+        if (task.critical) reasons.push("declared critical");
+        if (unlocks) reasons.push(`unlocks ${unlocks}`);
+        reasons.push(task.priority);
+        if (task.milestone === state.project.current_milestone && task.milestone !== null) reasons.push("current milestone");
+        return { id: task.id, title: task.title, critical: task.critical, unlocks, priority: task.priority, milestone: task.milestone, reasons };
+      });
+      rows.sort((a, b) => Number(b.critical) - Number(a.critical) || b.unlocks - a.unlocks || PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) || Number(b.milestone !== null && b.milestone === state.project.current_milestone) - Number(a.milestone !== null && a.milestone === state.project.current_milestone) || a.id.localeCompare(b.id));
+      return { schema_version: 1, tasks: rows };
+    }
+    function statusData(state, asOf = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
+      const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, state.tasks.filter((task) => task.status === status).length]));
+      const blockers = blockerItems(state);
+      const coverage = coverageData(state);
+      return {
+        schema_version: 1,
+        as_of_date: asOf,
+        project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date },
+        tasks: { total: state.tasks.length, by_status: byStatus, actionable: nextData(state).tasks.length, blocked: blockers.length },
+        success: successCounts(state),
+        milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== "complete" })) } : { configured: false },
+        coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
+        risks: state.risks.configured ? { configured: true, open: state.risks.items.filter((item) => item.status === "open").length, high: state.risks.items.filter((item) => item.status === "open" && (item.probability === "high" || item.impact === "high")).length } : { configured: false },
+        decisions: state.decisions.configured ? { configured: true, proposed: state.decisions.items.filter((item) => item.status === "proposed").length } : { configured: false }
+      };
+    }
+    function validateData(state) {
+      return { schema_version: 1, valid: true, warnings: state.status_stale ? [{ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" }] : [], modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, handoffs: fs3.existsSync(path3.join(state.root, "handoffs")), reports: fs3.existsSync(path3.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length } };
+    }
+    function reportData(state) {
+      const status = statusData(state);
+      delete status.schema_version;
+      const unknowns = [];
+      if (!state.milestones.configured) unknowns.push({ field: "status.milestones", reason: "Milestones are unconfigured" });
+      if (!state.traceability.configured) unknowns.push({ field: "status.coverage", reason: "Traceability is unconfigured" });
+      if (state.project.target_date === null) unknowns.push({ field: "status.project.target_date", reason: "Target date is unknown" });
+      for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: "Forecast is unknown" });
+      const configuredItems = (module3) => module3.configured ? { configured: true, items: module3.items } : { configured: false };
+      const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
+      return { schema_version: 1, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
+    }
+    var KANBAN_LANES = [
+      { id: "planned", title: "Planned", statuses: ["planned"] },
+      { id: "ready", title: "Ready", statuses: ["ready"] },
+      { id: "active", title: "Active", statuses: ["in_progress", "implemented", "verification"] },
+      { id: "verified", title: "Verified", statuses: ["verified"] },
+      { id: "done", title: "Done", statuses: ["done"] }
+    ];
+    function taskEditEligibility(state, task) {
+      if (!["planned", "ready"].includes(task.status)) return { editable: false, reason: "Evidence-backed work must be changed through project update." };
+      if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: "This task has active execution evidence and must be changed through project update." };
+      if (fs3.existsSync(path3.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
+      if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: "This task is governed by re-verification state and must be changed through project update." };
+      return { editable: true, reason: null };
+    }
+    function scheduleEditEligibility(state, task) {
+      if (state.project.status === "complete") return { editable: false, reason: "Completed projects cannot be rescheduled in Studio." };
+      const milestone = task.milestone === null ? null : state.milestones.items.find((item) => item.id === task.milestone);
+      if (milestone?.status === "complete") return { editable: false, reason: "Tasks in completed milestones cannot be rescheduled in Studio." };
+      if (task.status === "done") return { editable: false, reason: "Completed tasks cannot be rescheduled in Studio." };
+      return { editable: true, reason: null };
+    }
+    function kanbanData(state, mutationRevision = null) {
+      const status = statusData(state);
+      const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
+      const next = nextData(state).tasks;
+      const nextRank = new Map(next.map((item, index) => [item.id, index + 1]));
+      const tasks = state.tasks.map((task) => {
+        const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
+        const eligibility = taskEditEligibility(state, task);
+        const scheduleEligibility = scheduleEditEligibility(state, task);
+        const scheduleConflicts = task.depends_on.flatMap((dependencyId) => {
+          const dependency = state.tasks.find((item) => item.id === dependencyId);
+          if (!dependency?.scheduled_end || !task.scheduled_start || task.scheduled_start > dependency.scheduled_end) return [];
+          return [{ dependency_id: dependencyId, dependency_end: dependency.scheduled_end, task_start: task.scheduled_start }];
+        });
+        return {
+          id: task.id,
+          title: task.title,
+          outcome: task.outcome,
+          acceptance: task.acceptance,
+          status: task.status,
+          priority: task.priority,
+          milestone: task.milestone,
+          owner: task.owner,
+          executor: task.executor,
+          depends_on: task.depends_on,
+          blocks: task.blocks,
+          blocked_by: task.blocked_by,
+          dependency_blockers: blocker.dependency_tasks,
+          sources: task.sources,
+          success_criteria: task.success_criteria,
+          constraints: task.constraints,
+          critical: task.critical,
+          active_contract: task.active_contract,
+          last_manifest: task.last_manifest,
+          scheduled_start: task.scheduled_start ?? null,
+          scheduled_end: task.scheduled_end ?? null,
+          schedule_conflicts: scheduleConflicts,
+          created: task.created,
+          updated: task.updated,
+          task_revision: task.spec_sha256,
+          next_rank: nextRank.get(task.id) ?? null,
+          editable: eligibility.editable,
+          edit_reason: eligibility.reason,
+          schedule_editable: scheduleEligibility.editable,
+          schedule_edit_reason: scheduleEligibility.reason
+        };
+      });
+      const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
+      return {
+        schema_version: 1,
+        mutation_revision: mutationRevision,
+        semantic_revision: state.source_sha256,
+        project: {
+          id: state.project.id,
+          name: state.project.name,
+          root: state.root,
+          status: state.project.status,
+          owner: state.project.owner,
+          objective: state.project.objective,
+          start_date: state.project.start_date,
+          target_date: state.project.target_date,
+          current_milestone: state.project.current_milestone,
+          profile: state.project.profile
+        },
+        summary: {
+          tasks: status.tasks,
+          success: status.success,
+          coverage: status.coverage,
+          risks: status.risks,
+          decisions: status.decisions,
+          owner_gaps: tasks.filter((task) => task.owner === null).length
+        },
+        warnings: state.status_stale ? [{ code: "STATUS_STALE", message: "STATUS.md is stale; the board is showing validated authoritative state." }] : [],
+        milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, forecast_updated: item.forecast_updated, critical: item.critical })),
+        options: {
+          owners: ownerOptions,
+          priorities: PRIORITIES,
+          milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title })),
+          success_criteria: state.project.success_criteria_items,
+          tasks: tasks.map((task) => ({ id: task.id, title: task.title }))
+        },
+        next,
+        tasks,
+        lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.statuses.includes(task.status)) }))
+      };
+    }
+    function renderStatus(state, generatedAt = (/* @__PURE__ */ new Date()).toISOString()) {
+      if (!validTimestamp(generatedAt)) throw new Error("STATUS generated_at must be RFC3339 UTC");
+      const data = statusData(state, generatedAt.slice(0, 10));
+      return `---
+schema_version: 1
+project_id: ${JSON.stringify(state.project.id)}
+generated_at: ${JSON.stringify(generatedAt)}
+source_sha256: ${JSON.stringify(state.source_sha256)}
+---
+
+## Snapshot
+
+${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blocked} blocked.
+`;
+    }
+    function regenerateStatus(folder, generatedAt = (/* @__PURE__ */ new Date()).toISOString(), options = {}) {
+      const state = loadProject(folder, options);
+      fs3.writeFileSync(path3.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
+      return loadProject(state.root, options);
+    }
+    module2.exports = { ProjectError, loadProject, loadProjectIndex, loadProjectsRoot: loadProjectsRoot2, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter: parseFrontmatter2, parseCollection, successCounts };
+  }
+});
+
 // node_modules/ms/index.js
 var require_ms = __commonJS({
   "node_modules/ms/index.js"(exports2, module2) {
@@ -15225,11 +16591,11 @@ var require_mime_types = __commonJS({
       }
       return exts[0];
     }
-    function lookup(path2) {
-      if (!path2 || typeof path2 !== "string") {
+    function lookup(path3) {
+      if (!path3 || typeof path3 !== "string") {
         return false;
       }
-      var extension2 = extname("x." + path2).toLowerCase().slice(1);
+      var extension2 = extname("x." + path3).toLowerCase().slice(1);
       if (!extension2) {
         return false;
       }
@@ -18896,13 +20262,13 @@ var require_view = __commonJS({
   "node_modules/express/lib/view.js"(exports2, module2) {
     "use strict";
     var debug = require_src()("express:view");
-    var path2 = require("node:path");
-    var fs = require("node:fs");
-    var dirname = path2.dirname;
-    var basename = path2.basename;
-    var extname = path2.extname;
-    var join = path2.join;
-    var resolve = path2.resolve;
+    var path3 = require("node:path");
+    var fs3 = require("node:fs");
+    var dirname = path3.dirname;
+    var basename = path3.basename;
+    var extname = path3.extname;
+    var join = path3.join;
+    var resolve = path3.resolve;
     module2.exports = View;
     function View(name, options) {
       var opts = options || {};
@@ -18931,17 +20297,17 @@ var require_view = __commonJS({
       this.path = this.lookup(fileName);
     }
     View.prototype.lookup = function lookup(name) {
-      var path3;
+      var path4;
       var roots = [].concat(this.root);
       debug('lookup "%s"', name);
-      for (var i = 0; i < roots.length && !path3; i++) {
+      for (var i = 0; i < roots.length && !path4; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
         var dir = dirname(loc);
         var file = basename(loc);
-        path3 = this.resolve(dir, file);
+        path4 = this.resolve(dir, file);
       }
-      return path3;
+      return path4;
     };
     View.prototype.render = function render(options, callback) {
       var sync = true;
@@ -18963,21 +20329,21 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path3 = join(dir, file);
-      var stat = tryStat(path3);
+      var path4 = join(dir, file);
+      var stat = tryStat(path4);
       if (stat && stat.isFile()) {
-        return path3;
+        return path4;
       }
-      path3 = join(dir, basename(file, ext), "index" + ext);
-      stat = tryStat(path3);
+      path4 = join(dir, basename(file, ext), "index" + ext);
+      stat = tryStat(path4);
       if (stat && stat.isFile()) {
-        return path3;
+        return path4;
       }
     };
-    function tryStat(path3) {
-      debug('stat "%s"', path3);
+    function tryStat(path4) {
+      debug('stat "%s"', path4);
       try {
-        return fs.statSync(path3);
+        return fs3.statSync(path4);
       } catch (e) {
         return void 0;
       }
@@ -19094,14 +20460,14 @@ var require_etag = __commonJS({
   "node_modules/etag/index.js"(exports2, module2) {
     "use strict";
     module2.exports = etag;
-    var crypto2 = require("crypto");
+    var crypto3 = require("crypto");
     var Stats = require("fs").Stats;
     var toString = Object.prototype.toString;
     function entitytag(entity) {
       if (entity.length === 0) {
         return '"0-2jmj7l5rSw0yVb/vlWAYkK/YBwk"';
       }
-      var hash = crypto2.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
+      var hash = crypto3.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
       var len = typeof entity === "string" ? Buffer.byteLength(entity, "utf8") : entity.length;
       return '"' + len.toString(16) + "-" + hash + '"';
     }
@@ -20217,15 +21583,15 @@ var require_dist3 = __commonJS({
       let index = 0;
       function consumeUntil(end) {
         const output = [];
-        let path2 = "";
+        let path3 = "";
         function writePath() {
-          if (!path2)
+          if (!path3)
             return;
           output.push({
             type: "text",
-            value: encodePath(path2)
+            value: encodePath(path3)
           });
-          path2 = "";
+          path3 = "";
         }
         while (index < chars.length) {
           const value = chars[index++];
@@ -20237,7 +21603,7 @@ var require_dist3 = __commonJS({
             if (index === chars.length) {
               throw new PathError(`Unexpected end after \\ at index ${index}`, str);
             }
-            path2 += chars[index++];
+            path3 += chars[index++];
             continue;
           }
           if (value === ":" || value === "*") {
@@ -20281,7 +21647,7 @@ var require_dist3 = __commonJS({
           if (value === "}" || value === "(" || value === ")" || value === "[" || value === "]" || value === "+" || value === "?" || value === "!") {
             throw new PathError(`Unexpected ${value} at index ${index - 1}`, str);
           }
-          path2 += value;
+          path3 += value;
         }
         if (end) {
           throw new PathError(`Unexpected end at index ${index}, expected ${end}`, str);
@@ -20291,17 +21657,17 @@ var require_dist3 = __commonJS({
       }
       return new TokenData(consumeUntil(""), str);
     }
-    function compile(path2, options = {}) {
+    function compile(path3, options = {}) {
       const { encode = encodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const data = typeof path2 === "object" ? path2 : parse(path2, options);
+      const data = typeof path3 === "object" ? path3 : parse(path3, options);
       const fn = tokensToFunction(data.tokens, delimiter, encode);
-      return function path3(params = {}) {
+      return function path4(params = {}) {
         const missing = [];
-        const path4 = fn(params, missing);
+        const path5 = fn(params, missing);
         if (missing.length) {
           throw new TypeError(`Missing parameters: ${missing.join(", ")}`);
         }
-        return path4;
+        return path5;
       };
     }
     function tokensToFunction(tokens, delimiter, encode) {
@@ -20363,9 +21729,9 @@ var require_dist3 = __commonJS({
         return encodeValue(value);
       };
     }
-    function match(path2, options = {}) {
+    function match(path3, options = {}) {
       const { decode = decodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const { regexp, keys } = pathToRegexp(path2, options);
+      const { regexp, keys } = pathToRegexp(path3, options);
       const decoders = keys.map((key) => {
         if (decode === false)
           return NOOP_VALUE;
@@ -20377,7 +21743,7 @@ var require_dist3 = __commonJS({
         const m = regexp.exec(input);
         if (!m)
           return false;
-        const path3 = m[0];
+        const path4 = m[0];
         const params = /* @__PURE__ */ Object.create(null);
         for (let i = 1; i < m.length; i++) {
           if (m[i] === void 0)
@@ -20386,21 +21752,21 @@ var require_dist3 = __commonJS({
           const decoder = decoders[i - 1];
           params[key.name] = decoder(m[i]);
         }
-        return { path: path3, params };
+        return { path: path4, params };
       };
     }
-    function pathToRegexp(path2, options = {}) {
+    function pathToRegexp(path3, options = {}) {
       const { delimiter = DEFAULT_DELIMITER, end = true, sensitive = false, trailing = true } = options;
       const keys = [];
       let source = "";
       let combinations = 0;
-      function process2(path3) {
-        if (Array.isArray(path3)) {
-          for (const p of path3)
+      function process2(path4) {
+        if (Array.isArray(path4)) {
+          for (const p of path4)
             process2(p);
           return;
         }
-        const data = typeof path3 === "object" ? path3 : parse(path3, options);
+        const data = typeof path4 === "object" ? path4 : parse(path4, options);
         flatten(data.tokens, 0, [], (tokens) => {
           if (combinations >= 256) {
             throw new PathError("Too many path combinations", data.originalPath);
@@ -20411,7 +21777,7 @@ var require_dist3 = __commonJS({
           combinations++;
         });
       }
-      process2(path2);
+      process2(path3);
       let pattern = `^(?:${source})`;
       if (trailing)
         pattern += "(?:" + escape2(delimiter) + "$)?";
@@ -20551,18 +21917,18 @@ var require_layer = __commonJS({
     var TRAILING_SLASH_REGEXP = /\/+$/;
     var MATCHING_GROUP_REGEXP = /\((?:\?<(.*?)>)?(?!\?)/g;
     module2.exports = Layer;
-    function Layer(path2, options, fn) {
+    function Layer(path3, options, fn) {
       if (!(this instanceof Layer)) {
-        return new Layer(path2, options, fn);
+        return new Layer(path3, options, fn);
       }
-      debug("new %o", path2);
+      debug("new %o", path3);
       const opts = options || {};
       this.handle = fn;
       this.keys = [];
       this.name = fn.name || "<anonymous>";
       this.params = void 0;
       this.path = void 0;
-      this.slash = path2 === "/" && opts.end === false;
+      this.slash = path3 === "/" && opts.end === false;
       function matcher(_path) {
         if (_path instanceof RegExp) {
           const keys = [];
@@ -20601,7 +21967,7 @@ var require_layer = __commonJS({
           decode: decodeParam
         });
       }
-      this.matchers = Array.isArray(path2) ? path2.map(matcher) : [matcher(path2)];
+      this.matchers = Array.isArray(path3) ? path3.map(matcher) : [matcher(path3)];
     }
     Layer.prototype.handleError = function handleError(error, req, res, next) {
       const fn = this.handle;
@@ -20641,9 +22007,9 @@ var require_layer = __commonJS({
         next(err);
       }
     };
-    Layer.prototype.match = function match(path2) {
+    Layer.prototype.match = function match(path3) {
       let match2;
-      if (path2 != null) {
+      if (path3 != null) {
         if (this.slash) {
           this.params = {};
           this.path = "";
@@ -20651,7 +22017,7 @@ var require_layer = __commonJS({
         }
         let i = 0;
         while (!match2 && i < this.matchers.length) {
-          match2 = this.matchers[i](path2);
+          match2 = this.matchers[i](path3);
           i++;
         }
       }
@@ -20679,13 +22045,13 @@ var require_layer = __commonJS({
         throw err;
       }
     }
-    function loosen(path2) {
-      if (path2 instanceof RegExp || path2 === "/") {
-        return path2;
+    function loosen(path3) {
+      if (path3 instanceof RegExp || path3 === "/") {
+        return path3;
       }
-      return Array.isArray(path2) ? path2.map(function(p) {
+      return Array.isArray(path3) ? path3.map(function(p) {
         return loosen(p);
-      }) : String(path2).replace(TRAILING_SLASH_REGEXP, "");
+      }) : String(path3).replace(TRAILING_SLASH_REGEXP, "");
     }
   }
 });
@@ -20701,9 +22067,9 @@ var require_route = __commonJS({
     var flatten = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
     module2.exports = Route;
-    function Route(path2) {
-      debug("new %o", path2);
-      this.path = path2;
+    function Route(path3) {
+      debug("new %o", path3);
+      this.path = path3;
       this.stack = [];
       this.methods = /* @__PURE__ */ Object.create(null);
     }
@@ -20911,8 +22277,8 @@ var require_router = __commonJS({
         if (++sync > 100) {
           return setImmediate(next, err);
         }
-        const path2 = getPathname(req);
-        if (path2 == null) {
+        const path3 = getPathname(req);
+        if (path3 == null) {
           return done(layerError);
         }
         let layer;
@@ -20920,7 +22286,7 @@ var require_router = __commonJS({
         let route;
         while (match !== true && idx < stack.length) {
           layer = stack[idx++];
-          match = matchLayer(layer, path2);
+          match = matchLayer(layer, path3);
           route = layer.route;
           if (typeof match !== "boolean") {
             layerError = layerError || match;
@@ -20958,18 +22324,18 @@ var require_router = __commonJS({
           } else if (route) {
             layer.handleRequest(req, res, next);
           } else {
-            trimPrefix(layer, layerError, layerPath, path2);
+            trimPrefix(layer, layerError, layerPath, path3);
           }
           sync = 0;
         });
       }
-      function trimPrefix(layer, layerError, layerPath, path2) {
+      function trimPrefix(layer, layerError, layerPath, path3) {
         if (layerPath.length !== 0) {
-          if (layerPath !== path2.substring(0, layerPath.length)) {
+          if (layerPath !== path3.substring(0, layerPath.length)) {
             next(layerError);
             return;
           }
-          const c = path2[layerPath.length];
+          const c = path3[layerPath.length];
           if (c && c !== "/") {
             next(layerError);
             return;
@@ -20993,7 +22359,7 @@ var require_router = __commonJS({
     };
     Router.prototype.use = function use(handler) {
       let offset = 0;
-      let path2 = "/";
+      let path3 = "/";
       if (typeof handler !== "function") {
         let arg = handler;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -21001,7 +22367,7 @@ var require_router = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path2 = handler;
+          path3 = handler;
         }
       }
       const callbacks = flatten.call(slice.call(arguments, offset), Infinity);
@@ -21013,8 +22379,8 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("argument handler must be a function");
         }
-        debug("use %o %s", path2, fn.name || "<anonymous>");
-        const layer = new Layer(path2, {
+        debug("use %o %s", path3, fn.name || "<anonymous>");
+        const layer = new Layer(path3, {
           sensitive: this.caseSensitive,
           strict: false,
           end: false
@@ -21024,9 +22390,9 @@ var require_router = __commonJS({
       }
       return this;
     };
-    Router.prototype.route = function route(path2) {
-      const route2 = new Route(path2);
-      const layer = new Layer(path2, {
+    Router.prototype.route = function route(path3) {
+      const route2 = new Route(path3);
+      const layer = new Layer(path3, {
         sensitive: this.caseSensitive,
         strict: this.strict,
         end: true
@@ -21039,8 +22405,8 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      Router.prototype[method] = function(path2) {
-        const route = this.route(path2);
+      Router.prototype[method] = function(path3) {
+        const route = this.route(path3);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
@@ -21069,9 +22435,9 @@ var require_router = __commonJS({
       const fqdnIndex = url.substring(0, pathLength).indexOf("://");
       return fqdnIndex !== -1 ? url.substring(0, url.indexOf("/", 3 + fqdnIndex)) : void 0;
     }
-    function matchLayer(layer, path2) {
+    function matchLayer(layer, path3) {
       try {
-        return layer.match(path2);
+        return layer.match(path3);
       } catch (err) {
         return err;
       }
@@ -21299,7 +22665,7 @@ var require_application = __commonJS({
     };
     app.use = function use(fn) {
       var offset = 0;
-      var path2 = "/";
+      var path3 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -21307,7 +22673,7 @@ var require_application = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path2 = fn;
+          path3 = fn;
         }
       }
       var fns = flatten.call(slice.call(arguments, offset), Infinity);
@@ -21317,12 +22683,12 @@ var require_application = __commonJS({
       var router = this.router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router.use(path2, fn2);
+          return router.use(path3, fn2);
         }
-        debug(".use app under %s", path2);
-        fn2.mountpath = path2;
+        debug(".use app under %s", path3);
+        fn2.mountpath = path3;
         fn2.parent = this;
-        router.use(path2, function mounted_app(req, res, next) {
+        router.use(path3, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             Object.setPrototypeOf(req, orig.request);
@@ -21334,8 +22700,8 @@ var require_application = __commonJS({
       }, this);
       return this;
     };
-    app.route = function route(path2) {
-      return this.router.route(path2);
+    app.route = function route(path3) {
+      return this.router.route(path3);
     };
     app.engine = function engine(ext, fn) {
       if (typeof fn !== "function") {
@@ -21378,7 +22744,7 @@ var require_application = __commonJS({
       }
       return this;
     };
-    app.path = function path2() {
+    app.path = function path3() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
     app.enabled = function enabled(setting) {
@@ -21394,17 +22760,17 @@ var require_application = __commonJS({
       return this.set(setting, false);
     };
     methods.forEach(function(method) {
-      app[method] = function(path2) {
+      app[method] = function(path3) {
         if (method === "get" && arguments.length === 1) {
-          return this.set(path2);
+          return this.set(path3);
         }
-        var route = this.route(path2);
+        var route = this.route(path3);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
     });
-    app.all = function all(path2) {
-      var route = this.route(path2);
+    app.all = function all(path3) {
+      var route = this.route(path3);
       var args = slice.call(arguments, 1);
       for (var i = 0; i < methods.length; i++) {
         route[methods[i]].apply(route, args);
@@ -22326,7 +23692,7 @@ var require_request = __commonJS({
       var subdomains2 = !isIP(hostname) ? hostname.split(".").reverse() : [hostname];
       return subdomains2.slice(offset);
     });
-    defineGetter(req, "path", function path2() {
+    defineGetter(req, "path", function path3() {
       return parse(this).pathname;
     });
     defineGetter(req, "host", function host() {
@@ -22359,7 +23725,7 @@ var require_request = __commonJS({
       }
       return false;
     });
-    defineGetter(req, "stale", function stale() {
+    defineGetter(req, "stale", function stale2() {
       return !this.fresh;
     });
     defineGetter(req, "xhr", function xhr() {
@@ -22537,8 +23903,8 @@ var require_content_disposition = __commonJS({
       this.type = type;
       this.parameters = parameters;
     }
-    function basename(path2) {
-      const normalized = path2.replaceAll("\\", "/");
+    function basename(path3) {
+      const normalized = path3.replaceAll("\\", "/");
       let end = normalized.length;
       while (end > 0 && normalized[end - 1] === "/") {
         end--;
@@ -22588,17 +23954,17 @@ var require_content_disposition = __commonJS({
 // node_modules/cookie-signature/index.js
 var require_cookie_signature = __commonJS({
   "node_modules/cookie-signature/index.js"(exports2) {
-    var crypto2 = require("crypto");
+    var crypto3 = require("crypto");
     exports2.sign = function(val, secret) {
       if ("string" != typeof val) throw new TypeError("Cookie value must be provided as a string.");
       if (null == secret) throw new TypeError("Secret key must be provided.");
-      return val + "." + crypto2.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
+      return val + "." + crypto3.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
     };
     exports2.unsign = function(input, secret) {
       if ("string" != typeof input) throw new TypeError("Signed cookie string must be provided.");
       if (null == secret) throw new TypeError("Secret key must be provided.");
       var tentativeValue = input.slice(0, input.lastIndexOf(".")), expectedInput = exports2.sign(tentativeValue, secret), expectedBuffer = Buffer.from(expectedInput), inputBuffer = Buffer.from(input);
-      return expectedBuffer.length === inputBuffer.length && crypto2.timingSafeEqual(expectedBuffer, inputBuffer) ? tentativeValue : false;
+      return expectedBuffer.length === inputBuffer.length && crypto3.timingSafeEqual(expectedBuffer, inputBuffer) ? tentativeValue : false;
     };
   }
 });
@@ -22779,32 +24145,32 @@ var require_send = __commonJS({
     var escapeHtml = require_escape_html();
     var etag = require_etag();
     var fresh = require_fresh();
-    var fs = require("fs");
+    var fs3 = require("fs");
     var mime = require_mime_types();
     var ms = require_ms();
     var onFinished = require_on_finished();
     var parseRange = require_range_parser();
-    var path2 = require("path");
+    var path3 = require("path");
     var statuses = require_statuses();
     var Stream = require("stream");
     var util = require("util");
-    var extname = path2.extname;
-    var join = path2.join;
-    var normalize = path2.normalize;
-    var resolve = path2.resolve;
-    var sep = path2.sep;
+    var extname = path3.extname;
+    var join = path3.join;
+    var normalize = path3.normalize;
+    var resolve = path3.resolve;
+    var sep = path3.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
     var MAX_MAXAGE = 60 * 60 * 24 * 365 * 1e3;
     var UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
     module2.exports = send;
-    function send(req, path3, options) {
-      return new SendStream(req, path3, options);
+    function send(req, path4, options) {
+      return new SendStream(req, path4, options);
     }
-    function SendStream(req, path3, options) {
+    function SendStream(req, path4, options) {
       Stream.call(this);
       var opts = options || {};
       this.options = opts;
-      this.path = path3;
+      this.path = path4;
       this.req = req;
       this._acceptRanges = opts.acceptRanges !== void 0 ? Boolean(opts.acceptRanges) : true;
       this._cacheControl = opts.cacheControl !== void 0 ? Boolean(opts.cacheControl) : true;
@@ -22918,10 +24284,10 @@ var require_send = __commonJS({
       var lastModified = this.res.getHeader("Last-Modified");
       return parseHttpDate(lastModified) <= parseHttpDate(ifRange);
     };
-    SendStream.prototype.redirect = function redirect(path3) {
+    SendStream.prototype.redirect = function redirect(path4) {
       var res = this.res;
       if (hasListeners(this, "directory")) {
-        this.emit("directory", res, path3);
+        this.emit("directory", res, path4);
         return;
       }
       if (this.hasTrailingSlash()) {
@@ -22941,38 +24307,38 @@ var require_send = __commonJS({
     SendStream.prototype.pipe = function pipe(res) {
       var root = this._root;
       this.res = res;
-      var path3 = decode(this.path);
-      if (path3 === -1) {
+      var path4 = decode(this.path);
+      if (path4 === -1) {
         this.error(400);
         return res;
       }
-      if (~path3.indexOf("\0")) {
+      if (~path4.indexOf("\0")) {
         this.error(400);
         return res;
       }
       var parts;
       if (root !== null) {
-        if (path3) {
-          path3 = normalize("." + sep + path3);
+        if (path4) {
+          path4 = normalize("." + sep + path4);
         }
-        if (UP_PATH_REGEXP.test(path3)) {
-          debug('malicious path "%s"', path3);
+        if (UP_PATH_REGEXP.test(path4)) {
+          debug('malicious path "%s"', path4);
           this.error(403);
           return res;
         }
-        parts = path3.split(sep);
-        path3 = normalize(join(root, path3));
+        parts = path4.split(sep);
+        path4 = normalize(join(root, path4));
       } else {
-        if (UP_PATH_REGEXP.test(path3)) {
-          debug('malicious path "%s"', path3);
+        if (UP_PATH_REGEXP.test(path4)) {
+          debug('malicious path "%s"', path4);
           this.error(403);
           return res;
         }
-        parts = normalize(path3).split(sep);
-        path3 = resolve(path3);
+        parts = normalize(path4).split(sep);
+        path4 = resolve(path4);
       }
       if (containsDotFile(parts)) {
-        debug('%s dotfile "%s"', this._dotfiles, path3);
+        debug('%s dotfile "%s"', this._dotfiles, path4);
         switch (this._dotfiles) {
           case "allow":
             break;
@@ -22986,13 +24352,13 @@ var require_send = __commonJS({
         }
       }
       if (this._index.length && this.hasTrailingSlash()) {
-        this.sendIndex(path3);
+        this.sendIndex(path4);
         return res;
       }
-      this.sendFile(path3);
+      this.sendFile(path4);
       return res;
     };
-    SendStream.prototype.send = function send2(path3, stat) {
+    SendStream.prototype.send = function send2(path4, stat) {
       var len = stat.size;
       var options = this.options;
       var opts = {};
@@ -23004,9 +24370,9 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug('pipe "%s"', path3);
-      this.setHeader(path3, stat);
-      this.type(path3);
+      debug('pipe "%s"', path4);
+      this.setHeader(path4, stat);
+      this.type(path4);
       if (this.isConditionalGET()) {
         if (this.isPreconditionFailure()) {
           this.error(412);
@@ -23055,30 +24421,30 @@ var require_send = __commonJS({
         res.end();
         return;
       }
-      this.stream(path3, opts);
+      this.stream(path4, opts);
     };
-    SendStream.prototype.sendFile = function sendFile(path3) {
+    SendStream.prototype.sendFile = function sendFile(path4) {
       var i = 0;
       var self = this;
-      debug('stat "%s"', path3);
-      fs.stat(path3, function onstat(err, stat) {
-        var pathEndsWithSep = path3[path3.length - 1] === sep;
-        if (err && err.code === "ENOENT" && !extname(path3) && !pathEndsWithSep) {
+      debug('stat "%s"', path4);
+      fs3.stat(path4, function onstat(err, stat) {
+        var pathEndsWithSep = path4[path4.length - 1] === sep;
+        if (err && err.code === "ENOENT" && !extname(path4) && !pathEndsWithSep) {
           return next(err);
         }
         if (err) return self.onStatError(err);
-        if (stat.isDirectory()) return self.redirect(path3);
+        if (stat.isDirectory()) return self.redirect(path4);
         if (pathEndsWithSep) return self.error(404);
-        self.emit("file", path3, stat);
-        self.send(path3, stat);
+        self.emit("file", path4, stat);
+        self.send(path4, stat);
       });
       function next(err) {
         if (self._extensions.length <= i) {
           return err ? self.onStatError(err) : self.error(404);
         }
-        var p = path3 + "." + self._extensions[i++];
+        var p = path4 + "." + self._extensions[i++];
         debug('stat "%s"', p);
-        fs.stat(p, function(err2, stat) {
+        fs3.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self.emit("file", p, stat);
@@ -23086,7 +24452,7 @@ var require_send = __commonJS({
         });
       }
     };
-    SendStream.prototype.sendIndex = function sendIndex(path3) {
+    SendStream.prototype.sendIndex = function sendIndex(path4) {
       var i = -1;
       var self = this;
       function next(err) {
@@ -23094,9 +24460,9 @@ var require_send = __commonJS({
           if (err) return self.onStatError(err);
           return self.error(404);
         }
-        var p = join(path3, self._index[i]);
+        var p = join(path4, self._index[i]);
         debug('stat "%s"', p);
-        fs.stat(p, function(err2, stat) {
+        fs3.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self.emit("file", p, stat);
@@ -23105,10 +24471,10 @@ var require_send = __commonJS({
       }
       next();
     };
-    SendStream.prototype.stream = function stream(path3, options) {
+    SendStream.prototype.stream = function stream(path4, options) {
       var self = this;
       var res = this.res;
-      var stream2 = fs.createReadStream(path3, options);
+      var stream2 = fs3.createReadStream(path4, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -23123,17 +24489,17 @@ var require_send = __commonJS({
         self.emit("end");
       });
     };
-    SendStream.prototype.type = function type(path3) {
+    SendStream.prototype.type = function type(path4) {
       var res = this.res;
       if (res.getHeader("Content-Type")) return;
-      var ext = extname(path3);
+      var ext = extname(path4);
       var type2 = mime.contentType(ext) || "application/octet-stream";
       debug("content-type %s", type2);
       res.setHeader("Content-Type", type2);
     };
-    SendStream.prototype.setHeader = function setHeader(path3, stat) {
+    SendStream.prototype.setHeader = function setHeader(path4, stat) {
       var res = this.res;
-      this.emit("headers", res, path3, stat);
+      this.emit("headers", res, path4, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
         debug("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
@@ -23191,9 +24557,9 @@ var require_send = __commonJS({
       }
       return err instanceof Error ? createError(status, err, { expose: false }) : createError(status, err);
     }
-    function decode(path3) {
+    function decode(path4) {
       try {
-        return decodeURIComponent(path3);
+        return decodeURIComponent(path4);
       } catch (err) {
         return -1;
       }
@@ -23337,7 +24703,7 @@ var require_response = __commonJS({
     var http2 = require("node:http");
     var onFinished = require_on_finished();
     var mime = require_mime_types();
-    var path2 = require("node:path");
+    var path3 = require("node:path");
     var pathIsAbsolute = require("node:path").isAbsolute;
     var statuses = require_statuses();
     var sign = require_cookie_signature().sign;
@@ -23346,8 +24712,8 @@ var require_response = __commonJS({
     var setCharset = require_utils3().setCharset;
     var cookie = require_cookie();
     var send = require_send();
-    var extname = path2.extname;
-    var resolve = path2.resolve;
+    var extname = path3.extname;
+    var resolve = path3.resolve;
     var vary = require_vary();
     var { Buffer: Buffer2 } = require("node:buffer");
     var res = Object.create(http2.ServerResponse.prototype);
@@ -23493,26 +24859,26 @@ var require_response = __commonJS({
       this.type("txt");
       return this.send(body);
     };
-    res.sendFile = function sendFile(path3, options, callback) {
+    res.sendFile = function sendFile(path4, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
       var next = req.next;
       var opts = options || {};
-      if (!path3) {
+      if (!path4) {
         throw new TypeError("path argument is required to res.sendFile");
       }
-      if (typeof path3 !== "string") {
+      if (typeof path4 !== "string") {
         throw new TypeError("path must be a string to res.sendFile");
       }
       if (typeof options === "function") {
         done = options;
         opts = {};
       }
-      if (!opts.root && !pathIsAbsolute(path3)) {
+      if (!opts.root && !pathIsAbsolute(path4)) {
         throw new TypeError("path must be absolute or specify root to res.sendFile");
       }
-      var pathname = encodeURI(path3);
+      var pathname = encodeURI(path4);
       opts.etag = this.app.enabled("etag");
       var file = send(req, pathname, opts);
       sendfile(res2, file, opts, function(err) {
@@ -23523,7 +24889,7 @@ var require_response = __commonJS({
         }
       });
     };
-    res.download = function download(path3, filename, options, callback) {
+    res.download = function download(path4, filename, options, callback) {
       var done = callback;
       var name = filename;
       var opts = options || null;
@@ -23540,7 +24906,7 @@ var require_response = __commonJS({
         opts = filename;
       }
       var headers = {
-        "Content-Disposition": contentDisposition(name || path3)
+        "Content-Disposition": contentDisposition(name || path4)
       };
       if (opts && opts.headers) {
         var keys = Object.keys(opts.headers);
@@ -23553,7 +24919,7 @@ var require_response = __commonJS({
       }
       opts = Object.create(opts);
       opts.headers = headers;
-      var fullPath = !opts.root ? resolve(path3) : path3;
+      var fullPath = !opts.root ? resolve(path4) : path4;
       return this.sendFile(fullPath, opts, done);
     };
     res.contentType = res.type = function contentType(type) {
@@ -23836,11 +25202,11 @@ var require_serve_static = __commonJS({
         }
         var forwardError = !fallthrough;
         var originalUrl = parseUrl.original(req);
-        var path2 = parseUrl(req).pathname;
-        if (path2 === "/" && originalUrl.pathname.substr(-1) !== "/") {
-          path2 = "";
+        var path3 = parseUrl(req).pathname;
+        if (path3 === "/" && originalUrl.pathname.substr(-1) !== "/") {
+          path3 = "";
         }
-        var stream = send(req, path2, opts);
+        var stream = send(req, path3, opts);
         stream.on("directory", onDirectory);
         if (setHeaders) {
           stream.on("headers", setHeaders);
@@ -23947,1317 +25313,17 @@ var require_express2 = __commonJS({
   }
 });
 
-// skills/project-manager/scripts/lib/contracts.js
-var require_contracts = __commonJS({
-  "skills/project-manager/scripts/lib/contracts.js"(exports2, module2) {
-    "use strict";
-    var crypto2 = require("node:crypto");
-    var fs = require("node:fs");
-    var path2 = require("node:path");
-    var EVIDENCE_KINDS = /* @__PURE__ */ new Set(["file", "command", "review", "artifact", "approval", "note", "commit"]);
-    var MANIFEST_STATUSES = /* @__PURE__ */ new Set(["implemented", "verification", "verified", "blocked"]);
-    var STAGE_ORDER = { implemented: 0, verification: 1, verified: 2 };
-    var DEFAULT_EVIDENCE = Object.freeze({
-      human: [{ stage: "verified", any_of: ["approval"], minimum: 1 }],
-      rpd: [
-        { stage: "implemented", any_of: ["artifact", "file"], minimum: 1 },
-        { stage: "verification", any_of: ["command"], minimum: 1 },
-        { stage: "verified", any_of: ["review"], minimum: 1 }
-      ],
-      agent: [
-        { stage: "implemented", any_of: ["artifact"], minimum: 1 },
-        { stage: "verified", any_of: ["review"], minimum: 1 }
-      ],
-      external: [{ stage: "verified", any_of: ["approval", "artifact"], minimum: 1 }]
-    });
-    function canonicalValue(value) {
-      if (Array.isArray(value)) return value.map(canonicalValue);
-      if (value && typeof value === "object") {
-        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]));
-      }
-      return value;
-    }
-    function canonicalJson(value) {
-      return JSON.stringify(canonicalValue(value));
-    }
-    function sha256(value) {
-      const input = Buffer.isBuffer(value) || value instanceof Uint8Array ? value : typeof value === "string" ? value : canonicalJson(value);
-      return crypto2.createHash("sha256").update(input).digest("hex");
-    }
-    function exactKeys(value, keys, label) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
-      const actual = Object.keys(value).sort();
-      const expected = [...keys].sort();
-      if (actual.join("\0") !== expected.join("\0")) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
-    }
-    function nonEmptyString(value, label) {
-      if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} must be a non-empty string`);
-    }
-    function validTimestamp(value) {
-      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return false;
-      const parsed = new Date(value);
-      return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === (value.includes(".") ? value : value.replace("Z", ".000Z"));
-    }
-    function uniqueArray(values, label, { sorted = false } = {}) {
-      if (!Array.isArray(values)) throw new Error(`${label} must be an array`);
-      if (new Set(values.map(canonicalJson)).size !== values.length) throw new Error(`${label} must not contain duplicates`);
-      if (sorted && canonicalJson(values) !== canonicalJson([...values].sort())) throw new Error(`${label} must be lexically ordered`);
-    }
-    function validateEvidenceRecord(record, label = "evidence") {
-      exactKeys(record, ["kind", "ref", "result", "sha256"], label);
-      if (!EVIDENCE_KINDS.has(record.kind)) throw new Error(`${label}.kind is unsupported`);
-      nonEmptyString(record.ref, `${label}.ref`);
-      nonEmptyString(record.result, `${label}.result`);
-      if (record.sha256 !== null && !/^[a-f0-9]{64}$/.test(record.sha256)) throw new Error(`${label}.sha256 must be null or lowercase SHA-256`);
-      if ((record.kind === "file" || record.kind === "artifact") && record.sha256 === null) throw new Error(`${label}.sha256 is required for file/artifact evidence`);
-      return record;
-    }
-    function validateEvidenceRequirements(groups, label = "evidence_requirements") {
-      if (!Array.isArray(groups) || groups.length === 0) throw new Error(`${label} must be a non-empty array`);
-      const seen = /* @__PURE__ */ new Set();
-      for (const [index, group] of groups.entries()) {
-        exactKeys(group, ["stage", "any_of", "minimum"], `${label}[${index}]`);
-        if (!(group.stage in STAGE_ORDER)) throw new Error(`${label}[${index}].stage is unsupported`);
-        if (!Array.isArray(group.any_of) || group.any_of.length === 0) throw new Error(`${label}[${index}].any_of must be non-empty`);
-        if (!Number.isInteger(group.minimum) || group.minimum < 1) throw new Error(`${label}[${index}].minimum must be positive`);
-        const sorted = [...group.any_of].sort();
-        if (new Set(sorted).size !== sorted.length || sorted.some((kind) => !EVIDENCE_KINDS.has(kind)) || canonicalJson(sorted) !== canonicalJson(group.any_of)) {
-          throw new Error(`${label}[${index}].any_of must contain unique, sorted evidence kinds`);
-        }
-        const key = `${group.stage}:${sorted.join(",")}`;
-        if (seen.has(key)) throw new Error(`${label} contains a duplicate group`);
-        seen.add(key);
-      }
-      const ordered = [...groups].sort((a, b) => STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage] || canonicalJson(a.any_of).localeCompare(canonicalJson(b.any_of)));
-      if (canonicalJson(ordered) !== canonicalJson(groups)) throw new Error(`${label} groups must be in stable stage/any_of order`);
-      return groups;
-    }
-    function taskSpecPayload(task) {
-      return {
-        id: task.id,
-        title: task.title,
-        outcome: task.outcome,
-        constraints: task.constraints,
-        acceptance: task.acceptance,
-        success_criteria: task.success_criteria,
-        milestone: task.milestone,
-        executor: task.executor,
-        depends_on: task.depends_on,
-        sources: task.sources,
-        evidence_requirements: task.evidence_requirements,
-        critical: task.critical
-      };
-    }
-    function taskSpecHash(task) {
-      return sha256(taskSpecPayload(task));
-    }
-    function contractExecutor(executor, projectRoot) {
-      const scope = executor.scope ?? (executor.root === null ? null : "absolute");
-      const declared = executor.root;
-      const resolved = declared === null ? null : scope === "project" ? path2.resolve(projectRoot, declared) : declared;
-      return { provider: executor.provider, scope, declared_root: declared, root: resolved };
-    }
-    function buildTaskContract(project, task, sourceBindings, createdAt) {
-      const payload = {
-        schema_version: 1,
-        project: { id: project.id, root: project.root },
-        task: {
-          id: task.id,
-          spec_sha256: taskSpecHash(task),
-          title: task.title,
-          outcome: task.outcome,
-          constraints: task.constraints,
-          acceptance: task.acceptance,
-          success_criteria: task.success_criteria,
-          milestone: task.milestone,
-          critical: task.critical,
-          sources: sourceBindings,
-          dependencies: task.depends_on,
-          evidence_requirements: task.evidence_requirements,
-          executor: contractExecutor(task.executor, project.root)
-        },
-        created_at: createdAt
-      };
-      if (!validTimestamp(createdAt)) throw new Error("created_at must be RFC3339 UTC");
-      const digest = sha256(payload);
-      const contract = { payload, payload_sha256: digest, contract_id: `tc-${digest}` };
-      return validateTaskContract(contract);
-    }
-    function validateTaskContract(contract, options = {}) {
-      exactKeys(contract, ["payload", "payload_sha256", "contract_id"], "Task Contract");
-      exactKeys(contract.payload, ["schema_version", "project", "task", "created_at"], "Task Contract payload");
-      if (contract.payload.schema_version !== 1) throw new Error("Unsupported Task Contract schema version");
-      exactKeys(contract.payload.project, ["id", "root"], "Task Contract project");
-      nonEmptyString(contract.payload.project.id, "Task Contract project.id");
-      nonEmptyString(contract.payload.project.root, "Task Contract project.root");
-      exactKeys(contract.payload.task, ["id", "spec_sha256", "title", "outcome", "constraints", "acceptance", "success_criteria", "milestone", "critical", "sources", "dependencies", "evidence_requirements", "executor"], "Task Contract task");
-      for (const key of ["id", "title", "outcome"]) nonEmptyString(contract.payload.task[key], `Task Contract task.${key}`);
-      if (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.project.id) || !/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.id)) throw new Error("Task Contract project/task ID is invalid");
-      if (!path2.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
-      if (!options.allowHistoricalRoot && (!fs.existsSync(contract.payload.project.root) || !fs.lstatSync(contract.payload.project.root).isDirectory() || fs.lstatSync(contract.payload.project.root).isSymbolicLink() || fs.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error("Task Contract project.root must be an existing canonical real directory");
-      if (!/^[a-f0-9]{64}$/.test(contract.payload.task.spec_sha256)) throw new Error("Task Contract spec hash is invalid");
-      for (const key of ["constraints", "acceptance", "success_criteria", "sources", "dependencies"]) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ["success_criteria", "dependencies", "sources"].includes(key) && key !== "sources" });
-      if (contract.payload.task.acceptance.length === 0 || contract.payload.task.acceptance.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract acceptance must contain non-empty strings");
-      if (contract.payload.task.constraints.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract constraints must contain non-empty strings");
-      const safeId = (value) => typeof value === "string" && /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(value);
-      if (contract.payload.task.success_criteria.some((value) => !safeId(value) || !value.startsWith("SC-"))) throw new Error("Task Contract success criterion ID is invalid");
-      if (contract.payload.task.dependencies.some((value) => !safeId(value))) throw new Error("Task Contract dependency ID is invalid");
-      if (contract.payload.task.milestone !== null && (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.milestone) || !contract.payload.task.milestone.startsWith("M-"))) throw new Error("Task Contract milestone is invalid");
-      if (typeof contract.payload.task.critical !== "boolean") throw new Error("Task Contract critical must be boolean");
-      validateEvidenceRequirements(contract.payload.task.evidence_requirements, "Task Contract evidence_requirements");
-      exactKeys(contract.payload.task.executor, ["provider", "scope", "declared_root", "root"], "Task Contract executor");
-      const provider = contract.payload.task.executor.provider;
-      if (!Object.hasOwn(DEFAULT_EVIDENCE, provider)) throw new Error("Task Contract executor provider is invalid");
-      const executorRoot = contract.payload.task.executor.root;
-      const scope = contract.payload.task.executor.scope;
-      const declaredRoot = contract.payload.task.executor.declared_root;
-      if (provider === "human" && (executorRoot !== null || scope !== null || declaredRoot !== null)) throw new Error("Human executor root must be null");
-      if (!(["agent", "external"].includes(provider) && executorRoot === null && scope === null && declaredRoot === null) && provider !== "human" && !["absolute", "project"].includes(scope)) throw new Error("Executor scope must be absolute, project, or null for agent/external");
-      if (scope === "absolute" && (declaredRoot !== executorRoot || !path2.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
-      if (scope === "project") {
-        if (typeof declaredRoot !== "string" || declaredRoot === "" || path2.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
-        if (executorRoot !== path2.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
-        if (!options.allowHistoricalRoot) {
-          let cursor = contract.payload.project.root;
-          for (const piece of declaredRoot.split(/[\\/]/)) {
-            cursor = path2.join(cursor, piece);
-            if (!fs.existsSync(cursor) || fs.lstatSync(cursor).isSymbolicLink() || !fs.lstatSync(cursor).isDirectory()) throw new Error("Project executor root prefixes must be existing real directories");
-          }
-          if (!fs.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path2.sep}`)) throw new Error("Project executor root escapes the project");
-        }
-      }
-      if (provider === "rpd" && (typeof executorRoot !== "string" || !path2.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
-      if (["agent", "external"].includes(provider) && executorRoot !== null && !path2.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
-      if (executorRoot !== null && !options.allowHistoricalRoot) {
-        if (!fs.existsSync(executorRoot) || fs.lstatSync(executorRoot).isSymbolicLink() || !fs.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
-      }
-      contract.payload.task.sources.forEach((source, index) => {
-        exactKeys(source, ["id", "version", "record_sha256", "content_sha256"], `Task Contract source[${index}]`);
-        nonEmptyString(source.id, `Task Contract source[${index}].id`);
-        if (!safeId(source.id) || !source.id.startsWith("SRC-")) throw new Error("Task Contract source ID is invalid");
-        if (source.version !== null) nonEmptyString(source.version, `Task Contract source[${index}].version`);
-        if (!/^[a-f0-9]{64}$/.test(source.record_sha256)) throw new Error("Task Contract source record hash is invalid");
-        if (source.content_sha256 !== null && !/^[a-f0-9]{64}$/.test(source.content_sha256)) throw new Error("Task Contract source content hash is invalid");
-      });
-      const sourceIds = contract.payload.task.sources.map((source) => source.id);
-      if (new Set(sourceIds).size !== sourceIds.length || canonicalJson(sourceIds) !== canonicalJson([...sourceIds].sort())) throw new Error("Task Contract sources must be unique and ordered by ID");
-      if (!validTimestamp(contract.payload.created_at)) throw new Error("Task Contract created_at must be RFC3339 UTC");
-      const recomputedSpec = taskSpecHash({
-        id: contract.payload.task.id,
-        title: contract.payload.task.title,
-        outcome: contract.payload.task.outcome,
-        constraints: contract.payload.task.constraints,
-        acceptance: contract.payload.task.acceptance,
-        success_criteria: contract.payload.task.success_criteria,
-        milestone: contract.payload.task.milestone,
-        executor: { provider, scope, root: declaredRoot },
-        depends_on: contract.payload.task.dependencies,
-        sources: sourceIds,
-        evidence_requirements: contract.payload.task.evidence_requirements,
-        critical: contract.payload.task.critical
-      });
-      if (contract.payload.task.spec_sha256 !== recomputedSpec) throw new Error("Task Contract task specification hash mismatch");
-      const digest = sha256(contract.payload);
-      if (contract.payload_sha256 !== digest || contract.contract_id !== `tc-${digest}`) throw new Error("Task Contract hash mismatch");
-      return contract;
-    }
-    function formatTaskContract(contract, derived = { story: null, executor_prompt: null, executor_prompt_sha256: null }) {
-      validateTaskContract(contract);
-      exactKeys(derived, ["story", "executor_prompt", "executor_prompt_sha256"], "Task Contract derived fields");
-      const provider = contract.payload.task.executor.provider;
-      if (provider !== "rpd" && Object.values(derived).some((value) => value !== null)) throw new Error("Non-RPD derived contract fields must be null");
-      if (provider === "rpd") {
-        nonEmptyString(derived.story, "RPD story");
-        nonEmptyString(derived.executor_prompt, "RPD executor prompt");
-        if (derived.executor_prompt_sha256 !== sha256(derived.executor_prompt)) throw new Error("RPD executor prompt hash mismatch");
-      }
-      const lines = {
-        schema_version: 1,
-        contract_id: contract.contract_id,
-        payload_sha256: contract.payload_sha256,
-        story: derived.story,
-        executor_prompt: derived.executor_prompt,
-        executor_prompt_sha256: derived.executor_prompt_sha256
-      };
-      return `---
-${Object.entries(lines).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}
----
-
-## Payload
-
-\`\`\`json
-${canonicalJson(contract.payload)}
-\`\`\`
-`;
-    }
-    function deriveStory(projectId, taskId, contractId, occupied = /* @__PURE__ */ new Set()) {
-      const digest = contractId.replace(/^tc-/, "");
-      for (const length of [12, 16, 32, 64]) {
-        const story = `pm-${projectId.toLowerCase()}-${taskId.toLowerCase()}-${digest.slice(0, length)}`;
-        if (!occupied.has(story)) return story;
-      }
-      throw new Error("No unique RPD story suffix remains");
-    }
-    function renderRpdPrompt(input) {
-      const keys = ["project_id", "task_id", "contract_id", "story", "executor_root", "contract_absolute_path", "contract_relative_path", "acceptance", "constraints", "evidence_requirements"];
-      exactKeys(input, keys, "RPD prompt input");
-      return [
-        `Use $rpd to execute story ${input.story}.`,
-        `Project: ${input.project_id}; task: ${input.task_id}; contract: ${input.contract_id}.`,
-        `Run RPD in ${input.executor_root}.`,
-        `Read the immutable Task Contract at ${input.contract_absolute_path} (project metadata path: ${input.contract_relative_path}).`,
-        `Acceptance: ${canonicalJson(input.acceptance)}`,
-        `Constraints: ${canonicalJson(input.constraints)}`,
-        `Evidence requirements: ${canonicalJson(input.evidence_requirements)}`,
-        "Return exact-story RPD artifacts and terminal verification evidence; do not edit project state directly."
-      ].join("\n");
-    }
-    function evidenceFingerprint(payload) {
-      const sortRecords = (records) => [...records].sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
-      const acceptance = Object.fromEntries(Object.keys(payload.acceptance_evidence).sort().map((key) => [key, sortRecords(payload.acceptance_evidence[key])]));
-      return sha256({ evidence: sortRecords(payload.evidence), acceptance_evidence: acceptance, sources: sortRecords(payload.sources) });
-    }
-    function validateRpdTerminal(terminal) {
-      nonEmptyString(terminal, "RPD terminal evidence");
-      const lines = terminal.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
-      const arLines = lines.filter((line) => /^(?:AR (?:passed|fixed|blocked):)/.test(line));
-      const crLines = lines.filter((line) => /^(?:CR (?:passed|fixed):)/.test(line));
-      const vrLines = lines.filter((line) => /^(?:VR (?:passed|incomplete):)/.test(line));
-      const auxiliary = {
-        ar: lines.filter((line) => /^AR result:/.test(line)),
-        cr: lines.filter((line) => /^CR result:/.test(line)),
-        vr: lines.filter((line) => /^VR result:/.test(line))
-      };
-      const ar = arLines.length === 1 && (arLines[0] === "AR passed: no blocking architecture flaws" || /^AR fixed: .+; rerun result passed$/.test(arLines[0]));
-      const cr = crLines.length === 1 && (crLines[0] === "CR passed: no major findings" || /^CR fixed: .+; rerun result passed$/.test(crLines[0]));
-      const vr = vrLines.length === 1 && vrLines[0] === "VR passed: all acceptance criteria complete";
-      const auxiliaryValid = Object.entries(auxiliary).every(([stage, values]) => values.length <= 1 && values.every((line) => line === `${stage.toUpperCase()} result: pass`));
-      if (!ar || !cr || !vr || !auxiliaryValid) throw new Error("RPD terminal must contain exactly one non-conflicting successful AR, CR, and VR result line");
-      return true;
-    }
-    function validateManifest(payload, contract, previous = [], options = {}) {
-      validateTaskContract(contract, options);
-      exactKeys(payload, ["schema_version", "sequence", "contract_id", "project", "task", "status", "blocker", "evidence", "acceptance_evidence", "sources", "observed_at", "notes"], "manifest payload");
-      if (payload.schema_version !== 1) throw new Error("Unsupported manifest schema version");
-      if (!Number.isInteger(payload.sequence) || payload.sequence < 1) throw new Error("Manifest sequence must be positive");
-      if (payload.contract_id !== contract.contract_id) throw new Error("Manifest contract mismatch");
-      exactKeys(payload.project, ["id"], "manifest project");
-      exactKeys(payload.task, ["id", "spec_sha256"], "manifest task");
-      if (payload.project.id !== contract.payload.project.id || payload.task.id !== contract.payload.task.id || payload.task.spec_sha256 !== contract.payload.task.spec_sha256) throw new Error("Manifest project/task binding mismatch");
-      if (!MANIFEST_STATUSES.has(payload.status)) throw new Error("Unsupported manifest status");
-      if (payload.status === "blocked") nonEmptyString(payload.blocker, "manifest blocker");
-      else if (payload.blocker !== null) throw new Error("Non-blocked manifest blocker must be null");
-      if (!Array.isArray(payload.evidence)) throw new Error("Manifest evidence must be an array");
-      payload.evidence.forEach((record, index) => validateEvidenceRecord(record, `evidence[${index}]`));
-      uniqueArray(payload.evidence, "Manifest evidence");
-      if (!payload.acceptance_evidence || typeof payload.acceptance_evidence !== "object" || Array.isArray(payload.acceptance_evidence)) throw new Error("acceptance_evidence must be an object");
-      const acceptance = contract.payload.task.acceptance;
-      if (Object.keys(payload.acceptance_evidence).sort().join("\0") !== [...acceptance].sort().join("\0")) throw new Error("Acceptance evidence keys must exactly match contract acceptance");
-      const main2 = new Set(payload.evidence.map(canonicalJson));
-      for (const [criterion, records] of Object.entries(payload.acceptance_evidence)) {
-        if (!Array.isArray(records)) throw new Error(`Acceptance evidence for ${criterion} must be an array`);
-        uniqueArray(records, `Acceptance evidence for ${criterion}`);
-        records.forEach((record, index) => {
-          validateEvidenceRecord(record, `acceptance_evidence[${criterion}][${index}]`);
-          if (!main2.has(canonicalJson(record))) throw new Error("Acceptance evidence must reuse a main evidence record");
-        });
-      }
-      if (!Array.isArray(payload.sources) || !Array.isArray(payload.notes)) throw new Error("Manifest sources and notes must be arrays");
-      payload.sources.forEach((source, index) => {
-        exactKeys(source, ["path", "sha256", "role"], `manifest sources[${index}]`);
-        nonEmptyString(source.path, `manifest sources[${index}].path`);
-        if (source.path.startsWith("/") || source.path.split("/").includes("..")) throw new Error("Manifest source paths must be project-relative");
-        if (!/^[a-f0-9]{64}$/.test(source.sha256)) throw new Error("Manifest source hash is invalid");
-        nonEmptyString(source.role, `manifest sources[${index}].role`);
-      });
-      uniqueArray(payload.sources, "Manifest sources");
-      payload.notes.forEach((note, index) => nonEmptyString(note, `notes[${index}]`));
-      if (!validTimestamp(payload.observed_at)) throw new Error("observed_at must be RFC3339 UTC");
-      const expectedSequence = previous.length + 1;
-      if (payload.sequence !== expectedSequence) throw new Error(`Manifest sequence must be ${expectedSequence}`);
-      const last = previous.at(-1)?.status;
-      const allowed = last === void 0 ? ["implemented", "verification", "verified", "blocked"] : last === "implemented" ? ["verification", "verified", "blocked"] : last === "verification" ? ["verified", "blocked"] : [];
-      if (!allowed.includes(payload.status)) throw new Error("Illegal manifest progression");
-      const fingerprint = evidenceFingerprint(payload);
-      if (previous.some((item) => item.evidence_sha256 === fingerprint)) throw new Error("Evidence replay detected");
-      if (payload.status !== "blocked") {
-        const level = STAGE_ORDER[payload.status];
-        const available = payload.evidence.map((record, index) => ({ record, index, used: false }));
-        for (const group of contract.payload.task.evidence_requirements) {
-          if (STAGE_ORDER[group.stage] > level) continue;
-          let count = 0;
-          for (const item of available) {
-            if (!item.used && group.any_of.includes(item.record.kind)) {
-              item.used = true;
-              count += 1;
-              if (count === group.minimum) break;
-            }
-          }
-          if (count < group.minimum) throw new Error(`Insufficient ${group.stage} provider evidence`);
-        }
-        if (payload.status === "verified") {
-          for (const criterion of acceptance) {
-            if (payload.acceptance_evidence[criterion].length === 0) throw new Error(`Acceptance criterion lacks evidence: ${criterion}`);
-          }
-          if (contract.payload.task.sources.some((source) => source.version === null && source.content_sha256 === null)) throw new Error("Verified manifest has an unverifiable current source");
-        }
-      }
-      return {
-        manifest_id: `em-${sha256(payload)}`,
-        payload_sha256: sha256(payload),
-        evidence_sha256: fingerprint,
-        status: payload.status
-      };
-    }
-    function findExactArtifact(root, category, filename, required = true) {
-      const realRoot = fs.realpathSync(root);
-      if (fs.lstatSync(root).isSymbolicLink() || !fs.lstatSync(realRoot).isDirectory()) throw new Error("RPD executor root must be a real directory");
-      let cursor = realRoot;
-      for (const piece of [".docs", category]) {
-        cursor = path2.join(cursor, piece);
-        if (!fs.existsSync(cursor)) {
-          if (required) throw new Error(`Missing RPD evidence directory ${piece}`);
-          return null;
-        }
-        const stat = fs.lstatSync(cursor);
-        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs.realpathSync(cursor).startsWith(`${realRoot}${path2.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
-      }
-      const categoryRoot = cursor;
-      const matches = [];
-      function walk(folder) {
-        if (!fs.existsSync(folder)) return;
-        for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
-          const full = path2.join(folder, entry.name);
-          const stat = fs.lstatSync(full);
-          if (stat.isSymbolicLink()) throw new Error("RPD evidence cannot traverse symlinks");
-          if (stat.isDirectory()) walk(full);
-          else {
-            if (!stat.isFile() || !fs.realpathSync(full).startsWith(`${realRoot}${path2.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
-            if (entry.name === filename) matches.push(full);
-          }
-        }
-      }
-      walk(categoryRoot);
-      if (required && matches.length !== 1 || !required && matches.length > 1) throw new Error(`Expected ${required ? "exactly one" : "at most one"} ${category}/${filename}`);
-      return matches[0] ?? null;
-    }
-    function snapshotRpdEvidence({ executor_root, project_root, attempt_root, story, terminal }) {
-      if (!path2.isAbsolute(executor_root) || !path2.isAbsolute(project_root) || !path2.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
-      const realProject = fs.realpathSync(project_root);
-      if (fs.lstatSync(project_root).isSymbolicLink() || realProject !== project_root) throw new Error("Project root must be canonical for RPD snapshot");
-      const attemptRelative = path2.relative(realProject, attempt_root);
-      if (attemptRelative === "" || attemptRelative.startsWith("..") || path2.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
-      let projectCursor = realProject;
-      for (const piece of attemptRelative.split(path2.sep)) {
-        projectCursor = path2.join(projectCursor, piece);
-        if (!fs.existsSync(projectCursor)) break;
-        const stat = fs.lstatSync(projectCursor);
-        if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("RPD snapshot path prefixes must be real project directories");
-      }
-      nonEmptyString(story, "RPD story");
-      validateRpdTerminal(terminal);
-      const artifacts = [
-        ["reqs", `req-${story}.md`, "rpd-req", true],
-        ["plans", `plan-${story}.md`, "rpd-plan", true],
-        ["tests", `test-${story}.md`, "rpd-test", false],
-        ["done", `${story}.md`, "rpd-done", true]
-      ];
-      if (fs.existsSync(attempt_root)) throw new Error("RPD evidence snapshot already exists");
-      fs.mkdirSync(attempt_root, { recursive: true });
-      if (!fs.realpathSync(path2.dirname(attempt_root)).startsWith(`${realProject}${path2.sep}`) || fs.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
-      const sources = [];
-      try {
-        for (const [category, filename, role, required] of artifacts) {
-          const source = findExactArtifact(executor_root, category, filename, required);
-          if (!source) continue;
-          const relative = path2.join(category, filename);
-          const target = path2.join(attempt_root, relative);
-          fs.mkdirSync(path2.dirname(target), { recursive: true });
-          fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
-          sources.push({ path: path2.relative(project_root, target).split(path2.sep).join("/"), sha256: sha256(fs.readFileSync(target)), role });
-        }
-        const terminalPath = path2.join(attempt_root, "RPD-TERMINAL.md");
-        fs.writeFileSync(terminalPath, terminal, { flag: "wx" });
-        sources.push({ path: path2.relative(project_root, terminalPath).split(path2.sep).join("/"), sha256: sha256(fs.readFileSync(terminalPath)), role: "rpd-terminal" });
-        return sources.sort((a, b) => a.role.localeCompare(b.role));
-      } catch (error) {
-        fs.rmSync(attempt_root, { recursive: true, force: true });
-        throw error;
-      }
-    }
-    function formatEvidenceManifest(payload, contract, previous = []) {
-      const validated = validateManifest(payload, contract, previous);
-      const envelope = { schema_version: 1, manifest_id: validated.manifest_id, payload_sha256: validated.payload_sha256, evidence_sha256: validated.evidence_sha256 };
-      return { ...validated, document: `---
-${Object.entries(envelope).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}
----
-
-## Payload
-
-\`\`\`json
-${canonicalJson(payload)}
-\`\`\`
-` };
-    }
-    module2.exports = {
-      DEFAULT_EVIDENCE,
-      EVIDENCE_KINDS,
-      canonicalJson,
-      sha256,
-      validateEvidenceRecord,
-      validateEvidenceRequirements,
-      taskSpecPayload,
-      taskSpecHash,
-      contractExecutor,
-      buildTaskContract,
-      validateTaskContract,
-      formatTaskContract,
-      deriveStory,
-      renderRpdPrompt,
-      evidenceFingerprint,
-      validateManifest,
-      formatEvidenceManifest,
-      snapshotRpdEvidence,
-      validTimestamp,
-      validateRpdTerminal
-    };
-  }
-});
-
-// skills/project-manager/scripts/lib/project-state.js
-var require_project_state = __commonJS({
-  "skills/project-manager/scripts/lib/project-state.js"(exports2, module2) {
-    "use strict";
-    var fs = require("node:fs");
-    var path2 = require("node:path");
-    var { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
-    var REQUIRED = ["PROJECT.md", "TASKS.md", "STATUS.md"];
-    var OPTIONAL_FILES = ["MILESTONES.md", "RISKS.md", "DECISIONS.md", "SOURCES.md", "TRACEABILITY.md", "CHANGES.md"];
-    var OPTIONAL_DIRS = ["handoffs", path2.join("reports", "history")];
-    var TASK_STATUSES = ["planned", "ready", "in_progress", "implemented", "verification", "verified", "done"];
-    var PROVIDERS = ["human", "rpd", "agent", "external"];
-    var PRIORITIES = ["P0", "P1", "P2", "P3"];
-    var ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
-    var DATE = /^\d{4}-\d{2}-\d{2}$/;
-    var HASH = /^[a-f0-9]{64}$/;
-    var ProjectError = class extends Error {
-      constructor(kind, code, filePath, message, project = null) {
-        super(message);
-        this.kind = kind;
-        this.code = code;
-        this.path = filePath;
-        this.project = project;
-      }
-    };
-    function fail(kind, code, filePath, message, project) {
-      throw new ProjectError(kind, code, filePath, message, project);
-    }
-    function assert(condition, code, filePath, message, project) {
-      if (!condition) fail("semantic", code, filePath, message, project);
-    }
-    function exactKeys(value, allowed, filePath, label, project) {
-      assert(value && typeof value === "object" && !Array.isArray(value), "INVALID_OBJECT", filePath, `${label} must be an object`, project);
-      const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
-      assert(unknown.length === 0, "UNKNOWN_FIELD", filePath, `${label} has unknown fields: ${unknown.join(", ")}`, project);
-    }
-    function nonEmpty(value) {
-      return typeof value === "string" && value.trim().length > 0;
-    }
-    function validDate(value) {
-      if (!DATE.test(value)) return false;
-      const parsed = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
-      return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
-    }
-    function namespacedId(value, prefix) {
-      return ID.test(value) && value.startsWith(prefix);
-    }
-    function uniqueStrings(value, filePath, label, project, { sorted = true, allowEmpty = true } = {}) {
-      assert(Array.isArray(value), "INVALID_ARRAY", filePath, `${label} must be an array`, project);
-      assert(allowEmpty || value.length > 0, "EMPTY_ARRAY", filePath, `${label} must not be empty`, project);
-      assert(value.every(nonEmpty), "INVALID_STRING", filePath, `${label} must contain non-empty strings`, project);
-      assert(new Set(value).size === value.length, "DUPLICATE_VALUE", filePath, `${label} must be unique`, project);
-      if (sorted) assert(canonicalJson([...value].sort()) === canonicalJson(value), "UNSTABLE_ORDER", filePath, `${label} must be lexically ordered`, project);
-      return value;
-    }
-    function parseFrontmatter(text, filePath) {
-      const lines = text.replace(/\r\n/g, "\n").split("\n");
-      if (lines[0] !== "---") fail("grammar", "FRONTMATTER_OPEN", filePath, "Expected opening ---");
-      const end = lines.indexOf("---", 1);
-      if (end < 0) fail("grammar", "FRONTMATTER_CLOSE", filePath, "Expected closing ---");
-      const data = {};
-      for (let index = 1; index < end; index += 1) {
-        const line = lines[index];
-        const match = /^([a-z][a-z0-9_]*): (.+)$/.exec(line);
-        if (!match) fail("grammar", "FRONTMATTER_LINE", filePath, `Invalid frontmatter line ${index + 1}`);
-        if (Object.hasOwn(data, match[1])) fail("grammar", "DUPLICATE_KEY", filePath, `Duplicate key ${match[1]}`);
-        try {
-          data[match[1]] = JSON.parse(match[2]);
-        } catch {
-          fail("grammar", "FRONTMATTER_JSON", filePath, `Value for ${match[1]} must be complete JSON`);
-        }
-      }
-      return { data, body: lines.slice(end + 1).join("\n") };
-    }
-    function parseCollection(text, filePath, options = {}) {
-      const parsed = parseFrontmatter(text, filePath);
-      exactKeys(parsed.data, ["schema_version"], filePath, "collection frontmatter");
-      const schemaVersions = options.schemaVersions ?? [1];
-      if (!schemaVersions.includes(parsed.data.schema_version)) fail("grammar", "SCHEMA_VERSION", filePath, "Unsupported schema_version");
-      const heading = /^## ([A-Z][A-Z0-9-]{1,63}) - (.+)$/gm;
-      const matches = [...parsed.body.matchAll(heading)];
-      const allHeadings = [...parsed.body.matchAll(/^##(?:[ \t].*)?$/gm)];
-      if (allHeadings.length !== matches.length) fail("grammar", "RECORD_HEADING", filePath, "Every level-two heading must be a valid record heading");
-      const records = [];
-      for (let index = 0; index < matches.length; index += 1) {
-        const match = matches[index];
-        const chunkEnd = index + 1 < matches.length ? matches[index + 1].index : parsed.body.length;
-        const chunk = parsed.body.slice(match.index + match[0].length, chunkEnd);
-        const metadata = /^\n+```json\n([^\n]+)\n```(?:\n|$)/.exec(chunk);
-        if (!metadata) fail("grammar", "RECORD_METADATA", filePath, `Record ${match[1]} must immediately contain one single-line json block`);
-        let value;
-        try {
-          value = JSON.parse(metadata[1]);
-        } catch {
-          fail("grammar", "RECORD_JSON", filePath, `Record ${match[1]} metadata is invalid JSON`);
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) fail("grammar", "RECORD_OBJECT", filePath, `Record ${match[1]} metadata must be an object`);
-        if ([...chunk.matchAll(/```json/g)].length !== 1) fail("grammar", "RECORD_METADATA_COUNT", filePath, `Record ${match[1]} must contain exactly one json metadata block`);
-        if (!ID.test(match[1]) || match[2].trim() === "") fail("grammar", "RECORD_HEADING", filePath, `Record ${match[1]} heading is invalid`);
-        records.push({ id: match[1], title: match[2].trim(), raw: value });
-      }
-      const ids = records.map((record) => record.id.toLowerCase());
-      if (new Set(ids).size !== ids.length) fail("semantic", "DUPLICATE_ID", filePath, "Record IDs must be unique case-insensitively");
-      Object.defineProperty(records, "schema_version", { value: parsed.data.schema_version, enumerable: false });
-      return records;
-    }
-    function parseAttempt(text, filePath, type) {
-      const parsed = parseFrontmatter(text, filePath);
-      const contractKeys = ["schema_version", "contract_id", "payload_sha256", "story", "executor_prompt", "executor_prompt_sha256"];
-      const manifestKeys = ["schema_version", "manifest_id", "payload_sha256", "evidence_sha256"];
-      exactKeys(parsed.data, type === "contract" ? contractKeys : manifestKeys, filePath, `${type} envelope`);
-      for (const key of type === "contract" ? contractKeys : manifestKeys) assert(Object.hasOwn(parsed.data, key), "ATTEMPT_FIELD", filePath, `Missing ${type} envelope field ${key}`);
-      const payloadMatch = /^\n*## Payload\n+```json\n([^\n]+)\n```\s*$/.exec(parsed.body);
-      if (!payloadMatch) fail("grammar", "ATTEMPT_PAYLOAD", filePath, `${type} must contain one canonical payload block`);
-      let payload;
-      try {
-        payload = JSON.parse(payloadMatch[1]);
-      } catch {
-        fail("grammar", "ATTEMPT_JSON", filePath, `${type} payload is invalid JSON`);
-      }
-      assert(canonicalJson(payload) === payloadMatch[1], "ATTEMPT_CANONICAL", filePath, `${type} payload is not canonical`);
-      assert(parsed.data.schema_version === 1 && parsed.data.payload_sha256 === sha256(payload), "ATTEMPT_HASH", filePath, `${type} payload hash mismatch`);
-      return { envelope: parsed.data, payload };
-    }
-    function readSafeBuffer(root, relative, required = false) {
-      const normalized = path2.normalize(relative);
-      if (path2.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path2.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
-      const target = path2.join(root, relative);
-      const parentRelative = path2.dirname(normalized);
-      if (parentRelative !== ".") assertRealDirectoryChain(root, parentRelative);
-      let stat;
-      try {
-        stat = fs.lstatSync(target);
-      } catch (error) {
-        if (!required && error.code === "ENOENT") return null;
-        fail("path", "MISSING_PATH", target, `Missing required path ${relative}`);
-      }
-      if (stat.isSymbolicLink()) fail("path", "SYMLINK", target, "Known project state paths cannot be symlinks");
-      if (!stat.isFile()) fail("path", "NOT_FILE", target, "Expected a regular file");
-      const real = fs.realpathSync(target);
-      if (real !== root && !real.startsWith(`${root}${path2.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
-      return fs.readFileSync(target);
-    }
-    function readSafe(root, relative, required = false) {
-      const value = readSafeBuffer(root, relative, required);
-      return value === null ? null : value.toString("utf8");
-    }
-    function assertRealDirectoryChain(root, relative) {
-      let cursor = root;
-      for (const piece of relative.split(path2.sep)) {
-        cursor = path2.join(cursor, piece);
-        if (!fs.existsSync(cursor)) return false;
-        const stat = fs.lstatSync(cursor);
-        if (stat.isSymbolicLink() || !stat.isDirectory()) fail("path", "UNSAFE_DIRECTORY", cursor, "Known project directories must be real directories");
-      }
-      return true;
-    }
-    function checkOptionalDirectories(root) {
-      for (const relative of OPTIONAL_DIRS) {
-        assertRealDirectoryChain(root, relative);
-      }
-    }
-    function parseProject(text, filePath, root) {
-      const { data, body } = parseFrontmatter(text, filePath);
-      const fields = ["schema_version", "id", "name", "status", "owner", "start_date", "target_date", "current_milestone", "profile", "adapters", "created", "updated"];
-      exactKeys(data, fields, filePath, "PROJECT frontmatter");
-      for (const field of fields) assert(Object.hasOwn(data, field), "MISSING_FIELD", filePath, `PROJECT missing ${field}`);
-      assert(data.schema_version === 1, "SCHEMA_VERSION", filePath, "Unsupported project schema");
-      assert(ID.test(data.id), "INVALID_ID", filePath, "Invalid project ID");
-      assert(nonEmpty(data.name), "INVALID_NAME", filePath, "Project name is required");
-      assert(["planning", "active", "on_hold", "complete"].includes(data.status), "INVALID_STATUS", filePath, "Invalid project status");
-      assert(data.owner === null || nonEmpty(data.owner), "INVALID_OWNER", filePath, "Owner must be null or non-empty");
-      for (const key of ["start_date", "target_date"]) assert(data[key] === null || validDate(data[key]), "INVALID_DATE", filePath, `${key} must be date-only or null`);
-      assert(data.current_milestone === null || namespacedId(data.current_milestone, "M-"), "INVALID_MILESTONE", filePath, "Invalid current milestone");
-      assert(["minimal", "standard", "controlled"].includes(data.profile), "INVALID_PROFILE", filePath, "Invalid profile");
-      uniqueStrings(data.adapters, filePath, "adapters", null, { sorted: false, allowEmpty: false });
-      assert(data.adapters.includes("human") && data.adapters.every((item) => PROVIDERS.includes(item)), "INVALID_ADAPTER", filePath, "Adapters must include human and known providers");
-      assert(validDate(data.created) && validDate(data.updated), "INVALID_DATE", filePath, "created/updated must be date-only");
-      const objective = /(?:^|\n)## Objective\n+([\s\S]*?)(?=\n## |$)/.exec(body)?.[1]?.trim();
-      assert(nonEmpty(objective), "MISSING_OBJECTIVE", filePath, "Objective is required");
-      const successBody = /(?:^|\n)## Success Criteria\n+([\s\S]*?)(?=\n## |$)/.exec(body)?.[1] ?? "";
-      const successLines = successBody.split("\n").map((line) => line.trim()).filter(Boolean);
-      assert(successLines.length > 0 && successLines.every((line) => /^- \[SC-[A-Z0-9-]+\] .+$/.test(line)), "MALFORMED_SUCCESS", filePath, "Every success-criteria line must use - [SC-ID] text");
-      const success = successLines.map((line) => {
-        const match = /^- \[(SC-[A-Z0-9-]+)\] (.+)$/.exec(line);
-        return { id: match[1], text: match[2].trim() };
-      });
-      assert(success.length > 0 && success.every((item) => nonEmpty(item.text)), "MISSING_SUCCESS", filePath, "At least one valid success criterion is required");
-      assert(success.every((item) => namespacedId(item.id, "SC-")), "INVALID_SUCCESS", filePath, "Success criterion IDs are invalid");
-      assert(new Set(success.map((item) => item.id.toLowerCase())).size === success.length, "DUPLICATE_SUCCESS", filePath, "Success criteria must be unique case-insensitively");
-      return { ...data, root, objective, success_criteria_items: success };
-    }
-    function normalizeTask(record, project, filePath, schemaVersion = 1) {
-      const allowed = ["outcome", "acceptance", "status", "priority", "milestone", "owner", "executor", "depends_on", "blocks", "blocked_by", "sources", "success_criteria", "constraints", "evidence_requirements", "external_refs", "critical", "active_contract", "last_manifest", "created", "updated"];
-      if (schemaVersion === 2) allowed.push("scheduled_start", "scheduled_end");
-      exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
-      assert(nonEmpty(record.raw.outcome), "TASK_OUTCOME", filePath, `Task ${record.id} requires outcome`, project);
-      uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
-      const rawExecutor = record.raw.executor ?? { provider: "human", root: null, scope: null };
-      exactKeys(rawExecutor, ["provider", "root", "scope"], filePath, `task ${record.id} executor`, project);
-      const executor = { provider: rawExecutor.provider, root: rawExecutor.root, scope: rawExecutor.scope ?? (rawExecutor.root === null ? null : "absolute") };
-      assert(PROVIDERS.includes(executor.provider) && project.adapters.includes(executor.provider), "TASK_EXECUTOR", filePath, `Task ${record.id} provider is not enabled`, project);
-      const historicalDone = record.raw.status === "done";
-      const nullRootAllowed = ["human", "agent", "external"].includes(executor.provider) && executor.root === null && executor.scope === null;
-      assert(nullRootAllowed || ["absolute", "project"].includes(executor.scope), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor scope is invalid`, project);
-      if (executor.scope === "absolute") assert(path2.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} absolute executor root is invalid`, project);
-      if (executor.scope === "project") assert(nonEmpty(executor.root) && !path2.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root must be a safe relative path`, project);
-      const resolvedExecutorRoot = executor.root === null ? null : executor.scope === "project" ? path2.resolve(project.root, executor.root) : executor.root;
-      const physicalProjectRoot = path2.dirname(filePath);
-      const physicalExecutorRoot = executor.scope === "project" ? path2.resolve(physicalProjectRoot, executor.root) : resolvedExecutorRoot;
-      if (executor.scope === "project") {
-        let cursor = physicalProjectRoot;
-        for (const piece of executor.root.split(/[\\/]/)) {
-          cursor = path2.join(cursor, piece);
-          assert(fs.existsSync(cursor) && !fs.lstatSync(cursor).isSymbolicLink() && fs.lstatSync(cursor).isDirectory(), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor prefixes must be real directories`, project);
-        }
-        assert(fs.realpathSync(physicalExecutorRoot).startsWith(`${fs.realpathSync(physicalProjectRoot)}${path2.sep}`), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root escapes the project`, project);
-      }
-      if (physicalExecutorRoot !== null && !historicalDone) assert(fs.existsSync(physicalExecutorRoot) && !fs.lstatSync(physicalExecutorRoot).isSymbolicLink() && fs.lstatSync(physicalExecutorRoot).isDirectory(), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor root must be an existing real directory`, project);
-      assert(executor.provider !== "rpd" || executor.root !== null, "TASK_EXECUTOR_ROOT", filePath, `RPD task ${record.id} requires a root`, project);
-      assert(executor.provider !== "human" || executor.root === null, "TASK_EXECUTOR_ROOT", filePath, `Human task ${record.id} root must be null`, project);
-      const providerRequirements = JSON.parse(JSON.stringify(DEFAULT_EVIDENCE[executor.provider]));
-      const task = {
-        id: record.id,
-        title: record.title,
-        outcome: record.raw.outcome,
-        acceptance: record.raw.acceptance,
-        status: record.raw.status ?? "planned",
-        priority: record.raw.priority ?? "P2",
-        milestone: record.raw.milestone ?? null,
-        owner: record.raw.owner ?? null,
-        executor,
-        depends_on: record.raw.depends_on ?? [],
-        blocks: record.raw.blocks ?? [],
-        blocked_by: record.raw.blocked_by ?? [],
-        sources: record.raw.sources ?? [],
-        success_criteria: record.raw.success_criteria ?? [],
-        constraints: record.raw.constraints ?? [],
-        evidence_requirements: record.raw.evidence_requirements ?? providerRequirements,
-        external_refs: record.raw.external_refs ?? {},
-        critical: record.raw.critical ?? false,
-        active_contract: record.raw.active_contract ?? null,
-        last_manifest: record.raw.last_manifest ?? null,
-        created: record.raw.created ?? null,
-        updated: record.raw.updated ?? null
-      };
-      if (schemaVersion === 2) {
-        task.scheduled_start = record.raw.scheduled_start ?? null;
-        task.scheduled_end = record.raw.scheduled_end ?? null;
-      }
-      assert(TASK_STATUSES.includes(task.status), "TASK_STATUS", filePath, `Task ${task.id} has invalid status`, project);
-      assert(PRIORITIES.includes(task.priority), "TASK_PRIORITY", filePath, `Task ${task.id} has invalid priority`, project);
-      assert(task.milestone === null || namespacedId(task.milestone, "M-"), "TASK_MILESTONE", filePath, `Task ${task.id} has invalid milestone`, project);
-      assert(task.owner === null || nonEmpty(task.owner), "TASK_OWNER", filePath, `Task ${task.id} owner is invalid`, project);
-      for (const key of ["depends_on", "blocks", "blocked_by", "sources", "success_criteria", "constraints"]) uniqueStrings(task[key], filePath, `task ${task.id} ${key}`, project, { sorted: key !== "constraints" });
-      assert(typeof task.critical === "boolean", "TASK_CRITICAL", filePath, `Task ${task.id} critical must be boolean`, project);
-      assert(task.active_contract === null || /^tc-[a-f0-9]{64}$/.test(task.active_contract), "TASK_CONTRACT", filePath, `Task ${task.id} active contract is invalid`, project);
-      assert(task.last_manifest === null || /^em-[a-f0-9]{64}$/.test(task.last_manifest), "TASK_MANIFEST", filePath, `Task ${task.id} last manifest is invalid`, project);
-      const scheduleKeys = ["scheduled_start", "scheduled_end"].filter((key) => Object.hasOwn(record.raw, key));
-      assert(scheduleKeys.length === 0 || scheduleKeys.length === 2, "TASK_SCHEDULE", filePath, `Task ${task.id} schedule must contain both scheduled_start and scheduled_end`, project);
-      if (scheduleKeys.length === 2) {
-        assert(validDate(task.scheduled_start) && validDate(task.scheduled_end), "TASK_SCHEDULE", filePath, `Task ${task.id} schedule dates are invalid`, project);
-        assert(task.scheduled_start <= task.scheduled_end, "TASK_SCHEDULE", filePath, `Task ${task.id} scheduled_start must not be after scheduled_end`, project);
-      }
-      assert(task.created === null || validDate(task.created), "INVALID_DATE", filePath, `Task ${task.id} created is invalid`, project);
-      assert(task.updated === null || validDate(task.updated), "INVALID_DATE", filePath, `Task ${task.id} updated is invalid`, project);
-      assert(task.external_refs && typeof task.external_refs === "object" && !Array.isArray(task.external_refs), "TASK_EXTERNAL_REFS", filePath, `Task ${task.id} external_refs must be an object`, project);
-      for (const [key, value] of Object.entries(task.external_refs)) assert(/^[a-z][a-z0-9_-]{1,31}$/.test(key) && nonEmpty(value), "TASK_EXTERNAL_REFS", filePath, `Task ${task.id} external_refs is invalid`, project);
-      try {
-        validateEvidenceRequirements(task.evidence_requirements);
-      } catch (error) {
-        fail("semantic", "TASK_EVIDENCE", filePath, `Task ${task.id}: ${error.message}`, project);
-      }
-      task.spec_sha256 = taskSpecHash(task);
-      return task;
-    }
-    function normalizeSimple(record, kind, project, filePath) {
-      const raw = record.raw;
-      if (kind === "milestones") {
-        assert(namespacedId(record.id, "M-"), "MILESTONE_ID", filePath, `Invalid milestone ID ${record.id}`, project);
-        exactKeys(raw, ["status", "target_date", "forecast_date", "forecast_updated", "forecast_evidence", "critical"], filePath, `milestone ${record.id}`, project);
-        const item = { id: record.id, title: record.title, status: raw.status, target_date: raw.target_date ?? null, forecast_date: raw.forecast_date ?? null, forecast_updated: raw.forecast_updated ?? null, forecast_evidence: raw.forecast_evidence ?? [], critical: raw.critical ?? false };
-        assert(["planned", "active", "complete"].includes(item.status), "MILESTONE_STATUS", filePath, "Invalid milestone status", project);
-        for (const key of ["target_date", "forecast_date", "forecast_updated"]) assert(item[key] === null || validDate(item[key]), "INVALID_DATE", filePath, `Invalid milestone ${key}`, project);
-        assert(Array.isArray(item.forecast_evidence), "MILESTONE_EVIDENCE", filePath, "forecast_evidence must be an array", project);
-        item.forecast_evidence.forEach((value, index) => {
-          try {
-            validateEvidenceRecord(value, `forecast_evidence[${index}]`);
-          } catch (error) {
-            fail("semantic", "MILESTONE_EVIDENCE", filePath, error.message, project);
-          }
-        });
-        assert(typeof item.critical === "boolean", "MILESTONE_CRITICAL", filePath, "Milestone critical must be boolean", project);
-        const forecastParts = [item.forecast_date, item.forecast_updated, item.forecast_evidence.length ? true : null];
-        assert(forecastParts.every((value) => value === null) || forecastParts.every((value) => value !== null), "MILESTONE_FORECAST", filePath, "Forecast fields must be populated together", project);
-        return item;
-      }
-      if (kind === "risks") {
-        assert(namespacedId(record.id, "RISK-"), "RISK_ID", filePath, `Invalid risk ID ${record.id}`, project);
-        exactKeys(raw, ["status", "probability", "impact", "mitigation", "owner", "milestone"], filePath, `risk ${record.id}`, project);
-        const item = { id: record.id, title: record.title, status: raw.status, probability: raw.probability, impact: raw.impact, mitigation: raw.mitigation, owner: raw.owner ?? null, milestone: raw.milestone ?? null };
-        assert(["open", "mitigated", "accepted", "closed"].includes(item.status) && ["low", "medium", "high"].includes(item.probability) && ["low", "medium", "high"].includes(item.impact) && nonEmpty(item.mitigation), "RISK_SCHEMA", filePath, "Invalid risk record", project);
-        assert(item.owner === null || nonEmpty(item.owner), "RISK_OWNER", filePath, "Invalid risk owner", project);
-        assert(item.milestone === null || namespacedId(item.milestone, "M-"), "RISK_MILESTONE", filePath, "Invalid risk milestone", project);
-        return item;
-      }
-      if (kind === "decisions") {
-        assert(namespacedId(record.id, "DEC-"), "DECISION_ID", filePath, `Invalid decision ID ${record.id}`, project);
-        exactKeys(raw, ["status", "decision", "owner", "due_date", "date", "affects"], filePath, `decision ${record.id}`, project);
-        const item = { id: record.id, title: record.title, status: raw.status, decision: raw.decision, owner: raw.owner ?? null, due_date: raw.due_date ?? null, date: raw.date ?? null, affects: raw.affects ?? [] };
-        assert(["proposed", "decided", "superseded"].includes(item.status) && nonEmpty(item.decision), "DECISION_SCHEMA", filePath, "Invalid decision record", project);
-        assert(item.owner === null || nonEmpty(item.owner), "DECISION_OWNER", filePath, "Invalid decision owner", project);
-        for (const key of ["due_date", "date"]) assert(item[key] === null || validDate(item[key]), "INVALID_DATE", filePath, `Invalid decision ${key}`, project);
-        uniqueStrings(item.affects, filePath, `decision ${record.id} affects`, project);
-        assert(item.affects.every((value) => {
-          const index = value.indexOf(":");
-          return index > 0 && ["project", "task", "milestone", "risk", "source", "success"].includes(value.slice(0, index)) && ID.test(value.slice(index + 1));
-        }), "DECISION_AFFECTS", filePath, "Invalid decision affects reference", project);
-        return item;
-      }
-      if (kind === "sources") {
-        assert(namespacedId(record.id, "SRC-"), "SOURCE_ID", filePath, `Invalid source ID ${record.id}`, project);
-        exactKeys(raw, ["kind", "location", "role", "status", "version", "sha256"], filePath, `source ${record.id}`, project);
-        const item = { id: record.id, title: record.title, kind: raw.kind, location: raw.location, role: raw.role, status: raw.status, version: raw.version ?? null, sha256: raw.sha256 ?? null };
-        assert(["document", "pdf", "sheet", "requirement", "specification", "code", "url", "other"].includes(item.kind) && nonEmpty(item.location) && nonEmpty(item.role) && ["current", "superseded"].includes(item.status), "SOURCE_SCHEMA", filePath, "Invalid source record", project);
-        assert(item.version === null || nonEmpty(item.version), "SOURCE_VERSION", filePath, "Invalid source version", project);
-        assert(item.sha256 === null || HASH.test(item.sha256), "SOURCE_HASH", filePath, "Invalid source hash", project);
-        item.record_sha256 = sha256(raw);
-        return item;
-      }
-      if (kind === "changes") {
-        assert(namespacedId(record.id, "CHG-"), "CHANGE_ID", filePath, `Invalid change ID ${record.id}`, project);
-        exactKeys(raw, ["date", "observed_at", "sources", "affected_tasks", "affected_milestones", "reverify_tasks", "reverification", "risk_summary"], filePath, `change ${record.id}`, project);
-        const item = { id: record.id, title: record.title, ...raw, reverification: raw.reverification ?? Object.fromEntries((raw.reverify_tasks ?? []).map((id) => [id, { status: "pending", contract_id: null, manifest_id: null }])) };
-        assert(validDate(item.date) && validTimestamp(item.observed_at) && item.observed_at.slice(0, 10) === item.date && nonEmpty(item.risk_summary), "CHANGE_SCHEMA", filePath, "Invalid change record timestamp or risk summary", project);
-        for (const key of ["sources", "affected_tasks", "affected_milestones", "reverify_tasks"]) uniqueStrings(item[key], filePath, `change ${record.id} ${key}`, project);
-        assert(item.reverify_tasks.every((id) => item.affected_tasks.includes(id)), "CHANGE_REVERIFY", filePath, "reverify_tasks must be affected", project);
-        assert(item.reverification && typeof item.reverification === "object" && !Array.isArray(item.reverification) && canonicalJson(Object.keys(item.reverification).sort()) === canonicalJson([...item.reverify_tasks].sort()), "CHANGE_REVERIFY", filePath, "reverification must map every reverify task", project);
-        for (const [taskId, value] of Object.entries(item.reverification)) {
-          exactKeys(value, ["status", "contract_id", "manifest_id"], filePath, `change ${record.id} reverification ${taskId}`, project);
-          assert(["pending", "in_progress", "complete"].includes(value.status), "CHANGE_REVERIFY", filePath, "Invalid reverification status", project);
-          assert(value.contract_id === null || /^tc-[a-f0-9]{64}$/.test(value.contract_id), "CHANGE_REVERIFY", filePath, "Invalid reverification contract ID", project);
-          assert(value.manifest_id === null || /^em-[a-f0-9]{64}$/.test(value.manifest_id), "CHANGE_REVERIFY", filePath, "Invalid reverification manifest ID", project);
-          if (value.status === "pending") assert(value.contract_id === null && value.manifest_id === null, "CHANGE_REVERIFY", filePath, "Pending reverification cannot bind evidence", project);
-          if (value.status === "in_progress") assert(value.contract_id !== null && value.manifest_id === null, "CHANGE_REVERIFY", filePath, "In-progress reverification requires only a contract", project);
-          if (value.status === "complete") assert(value.contract_id !== null && value.manifest_id !== null, "CHANGE_REVERIFY", filePath, "Complete reverification requires contract and manifest", project);
-        }
-        return item;
-      }
-      return record;
-    }
-    function loadTraceability(text, filePath, project, tasks, sources) {
-      if (text === null) return { configured: false };
-      const parsed = parseFrontmatter(text, filePath);
-      exactKeys(parsed.data, ["schema_version", "items"], filePath, "TRACEABILITY frontmatter", project);
-      assert(Object.hasOwn(parsed.data, "schema_version") && Object.hasOwn(parsed.data, "items") && parsed.data.schema_version === 1 && Array.isArray(parsed.data.items), "TRACEABILITY_SCHEMA", filePath, "Invalid traceability schema", project);
-      const pairs = /* @__PURE__ */ new Set();
-      let prior = "";
-      const taskIds = new Set(tasks.map((item) => item.id));
-      const sourceIds = new Set(sources.map((item) => item.id));
-      for (const item of parsed.data.items) {
-        exactKeys(item, ["source_id", "criterion", "tasks"], filePath, "traceability item", project);
-        assert(sourceIds.has(item.source_id) && nonEmpty(item.criterion), "TRACEABILITY_REFERENCE", filePath, "Traceability source/criterion is invalid", project);
-        uniqueStrings(item.tasks, filePath, "traceability tasks", project);
-        assert(item.tasks.every((id) => taskIds.has(id)), "TRACEABILITY_REFERENCE", filePath, "Traceability task is unknown", project);
-        const key = `${item.source_id}\0${item.criterion}`;
-        assert(!pairs.has(key) && key > prior, "TRACEABILITY_ORDER", filePath, "Traceability pairs must be unique and ordered", project);
-        pairs.add(key);
-        prior = key;
-      }
-      return { configured: true, items: parsed.data.items };
-    }
-    function validateGraph(state) {
-      const byId = new Map(state.tasks.map((task) => [task.id, task]));
-      const successIds = new Set(state.project.success_criteria_items.map((item) => item.id));
-      const milestoneIds = new Set(state.milestones.items.map((item) => item.id));
-      const sourceIds = new Set(state.sources.items.map((item) => item.id));
-      const riskIds = new Set(state.risks.items.map((item) => item.id));
-      for (const task of state.tasks) {
-        assert(task.depends_on.every((id) => byId.has(id) && id !== task.id), "TASK_DEPENDENCY", "TASKS.md", `Task ${task.id} has invalid dependency`, state.project);
-        const expectedBlocks = state.tasks.filter((candidate) => candidate.depends_on.includes(task.id)).map((item) => item.id).sort();
-        assert(canonicalJson(task.blocks) === canonicalJson(expectedBlocks), "TASK_REVERSE_LINK", "TASKS.md", `Task ${task.id} blocks is stale`, state.project);
-        assert(task.success_criteria.every((id) => successIds.has(id)), "TASK_SUCCESS_REF", "TASKS.md", `Task ${task.id} has unknown success criterion`, state.project);
-        assert(task.milestone === null || milestoneIds.has(task.milestone), "TASK_MILESTONE_REF", "TASKS.md", `Task ${task.id} has unknown milestone`, state.project);
-        assert(task.sources.every((id) => sourceIds.has(id) && state.sources.items.find((source) => source.id === id).status === "current"), "TASK_SOURCE_REF", "TASKS.md", `Task ${task.id} has invalid source`, state.project);
-        const active = task.active_contract !== null;
-        assert(["planned", "ready"].includes(task.status) && !active && task.last_manifest === null || !["planned", "ready"].includes(task.status) && active, "TASK_LIFECYCLE", "TASKS.md", `Task ${task.id} lifecycle pointers are inconsistent`, state.project);
-        assert(!["implemented", "verification", "verified", "done"].includes(task.status) || task.last_manifest !== null, "TASK_LIFECYCLE", "TASKS.md", `Task ${task.id} requires a manifest pointer`, state.project);
-        if (task.status === "ready") assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === "done"), "TASK_READY", "TASKS.md", `Task ${task.id} cannot be ready while blocked`, state.project);
-        if (task.status === "done") assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === "done"), "TASK_DONE", "TASKS.md", `Task ${task.id} cannot be done while blocked or dependency-incomplete`, state.project);
-      }
-      const visiting = /* @__PURE__ */ new Set();
-      const visited = /* @__PURE__ */ new Set();
-      function visit(id) {
-        if (visiting.has(id)) assert(false, "TASK_CYCLE", "TASKS.md", `Dependency cycle includes ${id}`, state.project);
-        if (visited.has(id)) return;
-        visiting.add(id);
-        byId.get(id).depends_on.forEach(visit);
-        visiting.delete(id);
-        visited.add(id);
-      }
-      state.tasks.forEach((task) => visit(task.id));
-      if (state.project.current_milestone !== null) assert(milestoneIds.has(state.project.current_milestone), "PROJECT_MILESTONE_REF", "PROJECT.md", "Current milestone is unknown", state.project);
-      const activeMilestones = state.milestones.items.filter((item) => item.status === "active");
-      assert(activeMilestones.length <= 1, "MILESTONE_ACTIVE", "MILESTONES.md", "Only one milestone may be active", state.project);
-      if (activeMilestones.length === 1) assert(state.project.current_milestone === activeMilestones[0].id, "MILESTONE_CURRENT", "PROJECT.md", "Current milestone must match active milestone", state.project);
-      if (activeMilestones.length === 0) assert(state.project.current_milestone === null, "MILESTONE_CURRENT", "PROJECT.md", "Current milestone must be null when no milestone is active", state.project);
-      for (const milestone of state.milestones.items.filter((item) => item.status === "complete")) assert(state.tasks.filter((task) => task.milestone === milestone.id).every((task) => task.status === "done"), "MILESTONE_COMPLETE", "MILESTONES.md", `Milestone ${milestone.id} has unfinished tasks`, state.project);
-      for (const risk of state.risks.items) assert(risk.milestone === null || milestoneIds.has(risk.milestone), "RISK_REFERENCE", "RISKS.md", `Risk ${risk.id} has unknown milestone`, state.project);
-      const typed = { project: /* @__PURE__ */ new Set([state.project.id]), task: new Set(byId.keys()), milestone: milestoneIds, risk: riskIds, source: sourceIds, success: successIds };
-      for (const decision of state.decisions.items) for (const reference of decision.affects) {
-        const split = reference.indexOf(":");
-        const kind = reference.slice(0, split);
-        const id = reference.slice(split + 1);
-        assert(typed[kind]?.has(id), "DECISION_REFERENCE", "DECISIONS.md", `Decision ${decision.id} has unknown reference ${reference}`, state.project);
-      }
-      for (const change of state.changes.items) {
-        assert(change.sources.every((id) => sourceIds.has(id)), "CHANGE_REFERENCE", "CHANGES.md", `Change ${change.id} has unknown source`, state.project);
-        assert([...change.affected_tasks, ...change.reverify_tasks].every((id) => byId.has(id)), "CHANGE_REFERENCE", "CHANGES.md", `Change ${change.id} has unknown task`, state.project);
-        assert(change.affected_milestones.every((id) => milestoneIds.has(id)), "CHANGE_REFERENCE", "CHANGES.md", `Change ${change.id} has unknown milestone`, state.project);
-      }
-      const latestReverification = /* @__PURE__ */ new Map();
-      const seenReverifyTimes = /* @__PURE__ */ new Set();
-      for (const change of [...state.changes.items].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at) || a.id.localeCompare(b.id))) {
-        for (const id of change.reverify_tasks) {
-          const key = `${id}\0${Date.parse(change.observed_at)}`;
-          assert(!seenReverifyTimes.has(key), "CHANGE_REVERIFY_ORDER", "CHANGES.md", `Task ${id} has ambiguous same-timestamp changes`, state.project);
-          seenReverifyTimes.add(key);
-        }
-        for (const [id, value] of Object.entries(change.reverification)) latestReverification.set(id, { change, value });
-      }
-      for (const [id, { value }] of latestReverification) {
-        const target = byId.get(id);
-        if (value.status === "pending") assert(["planned", "ready"].includes(target.status) && target.active_contract === null && target.last_manifest === null, "CHANGE_REVERIFY", "CHANGES.md", `Task ${id} must regress and clear execution pointers before re-verification`, state.project);
-        if (value.status === "in_progress") assert(["in_progress", "implemented", "verification", "verified"].includes(target.status) && target.active_contract === value.contract_id, "CHANGE_REVERIFY", "CHANGES.md", `Task ${id} re-verification must use its bound active contract`, state.project);
-        if (value.status === "complete") assert(target.status === "done" && target.active_contract === value.contract_id && target.last_manifest === value.manifest_id, "CHANGE_REVERIFY", "CHANGES.md", `Task ${id} re-verification is not complete on its bound evidence`, state.project);
-      }
-      if (state.project.status === "complete") {
-        assert(state.tasks.every((task) => task.status === "done"), "PROJECT_COMPLETE", "PROJECT.md", "Complete project has unfinished tasks", state.project);
-        assert(state.milestones.items.every((item) => item.status === "complete"), "PROJECT_COMPLETE", "PROJECT.md", "Complete project has unfinished milestones", state.project);
-        for (const criterion of successIds) assert(state.tasks.some((task) => task.status === "done" && task.success_criteria.includes(criterion)), "PROJECT_COMPLETE", "PROJECT.md", `Success criterion ${criterion} is not backed by done work`, state.project);
-      }
-    }
-    function validateAttempts(state) {
-      for (const task of state.tasks.filter((item) => item.active_contract !== null)) {
-        const attemptRoot = path2.join(state.root, "handoffs", task.id, task.active_contract);
-        const contractPath = path2.join(attemptRoot, "TASK-CONTRACT.md");
-        const contractDoc = readSafe(state.root, path2.relative(state.root, contractPath), true);
-        const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
-        const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
-        const allowHistoricalRoot = task.status === "done";
-        try {
-          validateTaskContract(contract, { allowHistoricalRoot });
-        } catch (error) {
-          fail("semantic", "CONTRACT_INVALID", contractPath, error.message, state.project);
-        }
-        const executing = task.status !== "done";
-        assert(contract.contract_id === task.active_contract && contract.payload.project.id === state.project.id && (!executing || contract.payload.project.root === state.project.root) && contract.payload.task.id === task.id && contract.payload.task.spec_sha256 === task.spec_sha256, "CONTRACT_BINDING", contractPath, `Task ${task.id} contract binding or active root is stale`, state.project);
-        const liveBindings = task.sources.map((id) => {
-          const source = state.sources.items.find((item) => item.id === id);
-          return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
-        });
-        assert(canonicalJson(liveBindings) === canonicalJson(contract.payload.task.sources), "CONTRACT_SOURCE_BINDING", contractPath, `Task ${task.id} source binding is stale`, state.project);
-        const derived = parsedContract.envelope;
-        const provider = task.executor.provider;
-        if (provider !== "rpd") {
-          assert(derived.story === null && derived.executor_prompt === null && derived.executor_prompt_sha256 === null, "CONTRACT_DERIVED", contractPath, "Non-RPD derived fields must be null", state.project);
-        } else {
-          const digest = contract.contract_id.slice(3);
-          const storyPrefix = `pm-${state.project.id.toLowerCase()}-${task.id.toLowerCase()}-`;
-          assert([12, 16, 32, 64].some((length) => derived.story === `${storyPrefix}${digest.slice(0, length)}`), "RPD_STORY", contractPath, "RPD story is not derived from this attempt", state.project);
-          const relativeContract = path2.relative(state.root, contractPath).split(path2.sep).join("/");
-          const issuanceContractPath = path2.join(contract.payload.project.root, relativeContract);
-          const expectedPrompt = renderRpdPrompt({ project_id: state.project.id, task_id: task.id, contract_id: contract.contract_id, story: derived.story, executor_root: contract.payload.task.executor.root, contract_absolute_path: issuanceContractPath, contract_relative_path: relativeContract, acceptance: task.acceptance, constraints: task.constraints, evidence_requirements: task.evidence_requirements });
-          assert(derived.executor_prompt === expectedPrompt && derived.executor_prompt_sha256 === sha256(expectedPrompt), "RPD_PROMPT", contractPath, "RPD executor prompt/hash is stale or tampered", state.project);
-        }
-        const allEntries = fs.readdirSync(attemptRoot);
-        const reservedEvidence = allEntries.filter((name) => name.startsWith("EVIDENCE-"));
-        assert(reservedEvidence.every((name) => /^EVIDENCE-\d{3}\.md$/.test(name)), "MANIFEST_FILENAME", attemptRoot, "Every EVIDENCE-* entry must use exact three-digit numbering", state.project);
-        const entries = reservedEvidence.sort();
-        const previous = [];
-        for (const [index, name] of entries.entries()) {
-          assert(name === `EVIDENCE-${String(index + 1).padStart(3, "0")}.md`, "MANIFEST_SEQUENCE", attemptRoot, "Manifest filenames must be gap-free", state.project);
-          const manifestPath = path2.join(attemptRoot, name);
-          const manifestDoc = readSafe(state.root, path2.relative(state.root, manifestPath), true);
-          const parsed = parseAttempt(manifestDoc, manifestPath, "manifest");
-          let result;
-          try {
-            result = validateManifest(parsed.payload, contract, previous, { allowHistoricalRoot });
-          } catch (error) {
-            fail("semantic", "MANIFEST_INVALID", manifestPath, error.message, state.project);
-          }
-          assert(parsed.envelope.manifest_id === result.manifest_id && parsed.envelope.evidence_sha256 === result.evidence_sha256, "MANIFEST_HASH", manifestPath, "Manifest envelope hash mismatch", state.project);
-          for (const source of parsed.payload.sources) {
-            const sourceBytes = readSafeBuffer(state.root, source.path, true);
-            assert(sha256(sourceBytes) === source.sha256, "MANIFEST_SOURCE_HASH", manifestPath, `Manifest source ${source.path} hash mismatch`, state.project);
-          }
-          if (provider === "rpd" && parsed.payload.status === "verified") {
-            const requiredPrefix = `handoffs/${task.id}/${contract.contract_id}/rpd-evidence/`;
-            assert(parsed.payload.sources.every((source) => source.path.startsWith(requiredPrefix)), "RPD_SOURCE_PATH", manifestPath, "RPD sources must be snapshotted into this attempt", state.project);
-            const roles = parsed.payload.sources.map((source) => source.role).sort();
-            const allowedRoles = ["rpd-done", "rpd-plan", "rpd-req", "rpd-terminal"];
-            const allowedWithTest = [...allowedRoles, "rpd-test"].sort();
-            assert(canonicalJson(roles) === canonicalJson(allowedRoles.sort()) || canonicalJson(roles) === canonicalJson(allowedWithTest), "RPD_SOURCE_ROLE", manifestPath, "RPD source roles must be exact and unique", state.project);
-            const byRole = new Map(parsed.payload.sources.map((source) => [source.role, source]));
-            for (const role of ["rpd-req", "rpd-plan", "rpd-done", "rpd-terminal"]) assert(byRole.has(role), "RPD_SOURCE_ROLE", manifestPath, `RPD verified evidence missing ${role}`, state.project);
-            assert(path2.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path2.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path2.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
-            assert(byRole.get("rpd-req").path === `${requiredPrefix}reqs/req-${derived.story}.md` && byRole.get("rpd-plan").path === `${requiredPrefix}plans/plan-${derived.story}.md` && byRole.get("rpd-done").path === `${requiredPrefix}done/${derived.story}.md` && byRole.get("rpd-terminal").path === `${requiredPrefix}RPD-TERMINAL.md` && (!byRole.has("rpd-test") || byRole.get("rpd-test").path === `${requiredPrefix}tests/test-${derived.story}.md`), "RPD_SOURCE_LAYOUT", manifestPath, "RPD source layout is invalid", state.project);
-            const terminal = readSafe(state.root, byRole.get("rpd-terminal").path, true);
-            try {
-              validateRpdTerminal(terminal);
-            } catch (error) {
-              fail("semantic", "RPD_TERMINAL", manifestPath, error.message, state.project);
-            }
-          }
-          previous.push({ ...result, status: parsed.payload.status, blocker: parsed.payload.blocker });
-        }
-        const last = previous.at(-1) ?? null;
-        assert(task.last_manifest === null && last === null || last && task.last_manifest === last.manifest_id, "MANIFEST_POINTER", attemptRoot, `Task ${task.id} last manifest pointer is stale`, state.project);
-        const expected = last === null ? "in_progress" : last.status === "blocked" ? "in_progress" : last.status;
-        assert(task.status === expected || last?.status === "verified" && ["verified", "done"].includes(task.status), "MANIFEST_LIFECYCLE", attemptRoot, `Task ${task.id} status does not match latest manifest`, state.project);
-        if (last?.status === "blocked") {
-          assert(task.blocked_by.includes(last.blocker), "MANIFEST_BLOCKER", attemptRoot, `Task ${task.id} must store the blocked manifest blocker`, state.project);
-        }
-      }
-    }
-    function validateReverificationBindings(state) {
-      for (const change of state.changes.items) for (const [taskId, value] of Object.entries(change.reverification)) {
-        if (value.status === "pending") continue;
-        const attemptRoot = path2.join(state.root, "handoffs", taskId, value.contract_id);
-        const contractPath = path2.join(attemptRoot, "TASK-CONTRACT.md");
-        const parsedContract = parseAttempt(readSafe(state.root, path2.relative(state.root, contractPath), true), contractPath, "contract");
-        assert(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
-        if (value.status === "complete") {
-          const evidenceNames = fs.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
-          const matched = evidenceNames.some((name) => {
-            const manifestPath = path2.join(attemptRoot, name);
-            const parsed = parseAttempt(readSafe(state.root, path2.relative(state.root, manifestPath), true), manifestPath, "manifest");
-            return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === "verified" && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
-          });
-          assert(matched, "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
-        }
-      }
-    }
-    function loadProject(folder, options = {}) {
-      if (!folder) fail("path", "MISSING_SELECTOR", "", "Project folder is required");
-      let root;
-      try {
-        root = fs.realpathSync(folder);
-      } catch {
-        fail("path", "INVALID_SELECTOR", folder, "Project folder does not exist");
-      }
-      if (!fs.lstatSync(root).isDirectory()) fail("path", "INVALID_SELECTOR", folder, "Project folder must be a directory");
-      checkOptionalDirectories(root);
-      const texts = Object.fromEntries(REQUIRED.map((name) => [name, readSafe(root, name, true)]));
-      for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
-      const logicalRoot = options.logicalRoot ?? root;
-      if (!path2.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const project = parseProject(texts["PROJECT.md"], path2.join(root, "PROJECT.md"), logicalRoot);
-      const taskRecords = parseCollection(texts["TASKS.md"], path2.join(root, "TASKS.md"), { schemaVersions: [1, 2] });
-      const tasks = taskRecords.map((record) => normalizeTask(record, project, path2.join(root, "TASKS.md"), taskRecords.schema_version));
-      function module3(name, kind) {
-        const text = texts[name];
-        if (text === null) return { configured: false, items: [] };
-        const items = parseCollection(text, path2.join(root, name)).map((record) => normalizeSimple(record, kind, project, path2.join(root, name))).sort((a, b) => a.id.localeCompare(b.id));
-        return { configured: true, items };
-      }
-      const state = {
-        root,
-        project,
-        tasks,
-        tasks_schema_version: taskRecords.schema_version,
-        milestones: module3("MILESTONES.md", "milestones"),
-        risks: module3("RISKS.md", "risks"),
-        decisions: module3("DECISIONS.md", "decisions"),
-        sources: module3("SOURCES.md", "sources"),
-        changes: module3("CHANGES.md", "changes")
-      };
-      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path2.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
-      validateGraph(state);
-      state.source_sha256 = sha256({ project: { ...project, root: void 0 }, tasks, milestones: state.milestones.items, risks: state.risks.items, decisions: state.decisions.items, sources: state.sources.items, traceability: state.traceability, changes: state.changes.items });
-      const statusParsed = parseFrontmatter(texts["STATUS.md"], path2.join(root, "STATUS.md"));
-      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path2.join(root, "STATUS.md"), "STATUS frontmatter", project);
-      assert(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path2.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
-      state.status_stale = statusParsed.data.source_sha256 !== state.source_sha256;
-      validateAttempts(state);
-      validateReverificationBindings(state);
-      return state;
-    }
-    function loadProjectIndex(indexPath) {
-      if (fs.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
-      if (fs.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
-      const indexRoot = fs.realpathSync(path2.dirname(indexPath));
-      const text = fs.readFileSync(indexPath, "utf8");
-      const records = parseCollection(text, indexPath);
-      const seenPaths = /* @__PURE__ */ new Set();
-      const projects = [];
-      for (const record of records) {
-        exactKeys(record.raw, ["path"], indexPath, `index ${record.id}`);
-        assert(nonEmpty(record.raw.path) && !path2.isAbsolute(record.raw.path), "INDEX_PATH", indexPath, `Index path for ${record.id} must be relative`);
-        const pieces = record.raw.path.split(/[\\/]/);
-        assert(!pieces.includes("..") && !pieces.includes("") && !pieces.includes("."), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes or is empty`);
-        let cursor = indexRoot;
-        for (const piece of pieces) {
-          cursor = path2.join(cursor, piece);
-          const stat = fs.lstatSync(cursor);
-          assert(!stat.isSymbolicLink(), "INDEX_SYMLINK", indexPath, `Index path for ${record.id} contains a symlink`);
-        }
-        const real = fs.realpathSync(cursor);
-        assert(real.startsWith(`${indexRoot}${path2.sep}`), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes index root`);
-        const pathKey = real.toLowerCase();
-        assert(!seenPaths.has(pathKey), "INDEX_DUPLICATE", indexPath, `Index path for ${record.id} is duplicated`);
-        seenPaths.add(pathKey);
-        const state = loadProject(real);
-        assert(state.project.id === record.id, "INDEX_ID", indexPath, `Index ID ${record.id} does not match target project`, state.project);
-        projects.push({ id: record.id, name: record.title, path: record.raw.path, root: real });
-      }
-      return projects;
-    }
-    function unfinishedDependencies(task, state) {
-      const byId = new Map(state.tasks.map((item) => [item.id, item]));
-      return task.depends_on.filter((id) => byId.get(id).status !== "done");
-    }
-    function blockerItems(state) {
-      return state.tasks.filter((task) => task.blocked_by.length || unfinishedDependencies(task, state).length).map((task) => ({
-        id: task.id,
-        title: task.title,
-        dependency_tasks: unfinishedDependencies(task, state),
-        waiting_on: task.blocked_by
-      })).sort((a, b) => a.id.localeCompare(b.id));
-    }
-    function successCounts(state) {
-      const result = { total: state.project.success_criteria_items.length, covered: 0, verified: 0 };
-      for (const criterion of state.project.success_criteria_items) {
-        const mapped = state.tasks.filter((task) => task.success_criteria.includes(criterion.id));
-        if (mapped.length) result.covered += 1;
-        if (mapped.length && mapped.every((task) => task.status === "done" && task.last_manifest !== null)) result.verified += 1;
-      }
-      return result;
-    }
-    function coverageData(state) {
-      if (!state.traceability.configured) return { schema_version: 1, configured: false };
-      const items = state.traceability.items.map((item) => {
-        const mapped = item.tasks.map((id) => state.tasks.find((task) => task.id === id));
-        return { ...item, covered: mapped.length > 0, verified: mapped.length > 0 && mapped.every((task) => task.status === "done" && task.last_manifest !== null) };
-      });
-      return { schema_version: 1, configured: true, criteria: { total: items.length, covered: items.filter((item) => item.covered).length, verified: items.filter((item) => item.verified).length, uncovered: items.filter((item) => !item.covered).length }, items };
-    }
-    function nextData(state) {
-      if (state.project.status !== "active") return { schema_version: 1, tasks: [] };
-      const candidates = state.tasks.filter((task) => task.status === "ready" && !task.blocked_by.length && !unfinishedDependencies(task, state).length);
-      const taskById = new Map(state.tasks.map((task) => [task.id, task]));
-      const rows = candidates.map((task) => {
-        const unlocks = state.tasks.filter((candidate) => candidate.status === "planned" && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === "done")).length;
-        const reasons = [];
-        if (task.critical) reasons.push("declared critical");
-        if (unlocks) reasons.push(`unlocks ${unlocks}`);
-        reasons.push(task.priority);
-        if (task.milestone === state.project.current_milestone && task.milestone !== null) reasons.push("current milestone");
-        return { id: task.id, title: task.title, critical: task.critical, unlocks, priority: task.priority, milestone: task.milestone, reasons };
-      });
-      rows.sort((a, b) => Number(b.critical) - Number(a.critical) || b.unlocks - a.unlocks || PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) || Number(b.milestone !== null && b.milestone === state.project.current_milestone) - Number(a.milestone !== null && a.milestone === state.project.current_milestone) || a.id.localeCompare(b.id));
-      return { schema_version: 1, tasks: rows };
-    }
-    function statusData(state, asOf = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
-      const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, state.tasks.filter((task) => task.status === status).length]));
-      const blockers = blockerItems(state);
-      const coverage = coverageData(state);
-      return {
-        schema_version: 1,
-        as_of_date: asOf,
-        project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date },
-        tasks: { total: state.tasks.length, by_status: byStatus, actionable: nextData(state).tasks.length, blocked: blockers.length },
-        success: successCounts(state),
-        milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== "complete" })) } : { configured: false },
-        coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
-        risks: state.risks.configured ? { configured: true, open: state.risks.items.filter((item) => item.status === "open").length, high: state.risks.items.filter((item) => item.status === "open" && (item.probability === "high" || item.impact === "high")).length } : { configured: false },
-        decisions: state.decisions.configured ? { configured: true, proposed: state.decisions.items.filter((item) => item.status === "proposed").length } : { configured: false }
-      };
-    }
-    function validateData(state) {
-      return { schema_version: 1, valid: true, warnings: state.status_stale ? [{ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" }] : [], modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, handoffs: fs.existsSync(path2.join(state.root, "handoffs")), reports: fs.existsSync(path2.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length } };
-    }
-    function reportData(state) {
-      const status = statusData(state);
-      delete status.schema_version;
-      const unknowns = [];
-      if (!state.milestones.configured) unknowns.push({ field: "status.milestones", reason: "Milestones are unconfigured" });
-      if (!state.traceability.configured) unknowns.push({ field: "status.coverage", reason: "Traceability is unconfigured" });
-      if (state.project.target_date === null) unknowns.push({ field: "status.project.target_date", reason: "Target date is unknown" });
-      for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: "Forecast is unknown" });
-      const configuredItems = (module3) => module3.configured ? { configured: true, items: module3.items } : { configured: false };
-      const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
-      return { schema_version: 1, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
-    }
-    var KANBAN_LANES = [
-      { id: "planned", title: "Planned", statuses: ["planned"] },
-      { id: "ready", title: "Ready", statuses: ["ready"] },
-      { id: "active", title: "Active", statuses: ["in_progress", "implemented", "verification"] },
-      { id: "verified", title: "Verified", statuses: ["verified"] },
-      { id: "done", title: "Done", statuses: ["done"] }
-    ];
-    function taskEditEligibility(state, task) {
-      if (!["planned", "ready"].includes(task.status)) return { editable: false, reason: "Evidence-backed work must be changed through project update." };
-      if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: "This task has active execution evidence and must be changed through project update." };
-      if (fs.existsSync(path2.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
-      if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: "This task is governed by re-verification state and must be changed through project update." };
-      return { editable: true, reason: null };
-    }
-    function scheduleEditEligibility(state, task) {
-      if (state.project.status === "complete") return { editable: false, reason: "Completed projects cannot be rescheduled in Studio." };
-      const milestone = task.milestone === null ? null : state.milestones.items.find((item) => item.id === task.milestone);
-      if (milestone?.status === "complete") return { editable: false, reason: "Tasks in completed milestones cannot be rescheduled in Studio." };
-      if (task.status === "done") return { editable: false, reason: "Completed tasks cannot be rescheduled in Studio." };
-      return { editable: true, reason: null };
-    }
-    function kanbanData(state, mutationRevision = null) {
-      const status = statusData(state);
-      const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
-      const next = nextData(state).tasks;
-      const nextRank = new Map(next.map((item, index) => [item.id, index + 1]));
-      const tasks = state.tasks.map((task) => {
-        const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
-        const eligibility = taskEditEligibility(state, task);
-        const scheduleEligibility = scheduleEditEligibility(state, task);
-        const scheduleConflicts = task.depends_on.flatMap((dependencyId) => {
-          const dependency = state.tasks.find((item) => item.id === dependencyId);
-          if (!dependency?.scheduled_end || !task.scheduled_start || task.scheduled_start > dependency.scheduled_end) return [];
-          return [{ dependency_id: dependencyId, dependency_end: dependency.scheduled_end, task_start: task.scheduled_start }];
-        });
-        return {
-          id: task.id,
-          title: task.title,
-          outcome: task.outcome,
-          acceptance: task.acceptance,
-          status: task.status,
-          priority: task.priority,
-          milestone: task.milestone,
-          owner: task.owner,
-          executor: task.executor,
-          depends_on: task.depends_on,
-          blocks: task.blocks,
-          blocked_by: task.blocked_by,
-          dependency_blockers: blocker.dependency_tasks,
-          sources: task.sources,
-          success_criteria: task.success_criteria,
-          constraints: task.constraints,
-          critical: task.critical,
-          active_contract: task.active_contract,
-          last_manifest: task.last_manifest,
-          scheduled_start: task.scheduled_start ?? null,
-          scheduled_end: task.scheduled_end ?? null,
-          schedule_conflicts: scheduleConflicts,
-          created: task.created,
-          updated: task.updated,
-          task_revision: task.spec_sha256,
-          next_rank: nextRank.get(task.id) ?? null,
-          editable: eligibility.editable,
-          edit_reason: eligibility.reason,
-          schedule_editable: scheduleEligibility.editable,
-          schedule_edit_reason: scheduleEligibility.reason
-        };
-      });
-      const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
-      return {
-        schema_version: 1,
-        mutation_revision: mutationRevision,
-        semantic_revision: state.source_sha256,
-        project: {
-          id: state.project.id,
-          name: state.project.name,
-          root: state.root,
-          status: state.project.status,
-          owner: state.project.owner,
-          objective: state.project.objective,
-          start_date: state.project.start_date,
-          target_date: state.project.target_date,
-          current_milestone: state.project.current_milestone,
-          profile: state.project.profile
-        },
-        summary: {
-          tasks: status.tasks,
-          success: status.success,
-          coverage: status.coverage,
-          risks: status.risks,
-          decisions: status.decisions,
-          owner_gaps: tasks.filter((task) => task.owner === null).length
-        },
-        warnings: state.status_stale ? [{ code: "STATUS_STALE", message: "STATUS.md is stale; the board is showing validated authoritative state." }] : [],
-        milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, forecast_updated: item.forecast_updated, critical: item.critical })),
-        options: {
-          owners: ownerOptions,
-          priorities: PRIORITIES,
-          milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title })),
-          success_criteria: state.project.success_criteria_items,
-          tasks: tasks.map((task) => ({ id: task.id, title: task.title }))
-        },
-        next,
-        tasks,
-        lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.statuses.includes(task.status)) }))
-      };
-    }
-    function renderStatus(state, generatedAt = (/* @__PURE__ */ new Date()).toISOString()) {
-      if (!validTimestamp(generatedAt)) throw new Error("STATUS generated_at must be RFC3339 UTC");
-      const data = statusData(state, generatedAt.slice(0, 10));
-      return `---
-schema_version: 1
-project_id: ${JSON.stringify(state.project.id)}
-generated_at: ${JSON.stringify(generatedAt)}
-source_sha256: ${JSON.stringify(state.source_sha256)}
----
-
-## Snapshot
-
-${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blocked} blocked.
-`;
-    }
-    function regenerateStatus(folder, generatedAt = (/* @__PURE__ */ new Date()).toISOString(), options = {}) {
-      const state = loadProject(folder, options);
-      fs.writeFileSync(path2.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
-      return loadProject(state.root, options);
-    }
-    module2.exports = { ProjectError, loadProject, loadProjectIndex, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
-  }
-});
-
 // skills/project-manager/scripts/lib/mutations.js
 var require_mutations = __commonJS({
   "skills/project-manager/scripts/lib/mutations.js"(exports2, module2) {
     "use strict";
-    var fs = require("node:fs");
-    var path2 = require("node:path");
-    var crypto2 = require("node:crypto");
+    var fs3 = require("node:fs");
+    var path3 = require("node:path");
+    var crypto3 = require("node:crypto");
     var { canonicalJson } = require_contracts();
+    var PROJECT_WORK_PREFIX = ".project-manager-work-";
+    var PROJECT_WORK_MARKER = ".rpd-project-manager-work-v1";
+    var PROJECT_WORK_MARKER_TEXT = "RPD Project Manager work area v1\n";
     var MutationConflictError = class extends Error {
       constructor(message, currentRevision = null) {
         super(message);
@@ -25276,7 +25342,7 @@ var require_mutations = __commonJS({
     };
     function lstatIfExists(target) {
       try {
-        return fs.lstatSync(target);
+        return fs3.lstatSync(target);
       } catch (error) {
         if (error.code === "ENOENT") return null;
         throw error;
@@ -25294,17 +25360,17 @@ var require_mutations = __commonJS({
       assertProjectDirectoryRoot(root);
       const records = [];
       function walk(folder) {
-        for (const name of fs.readdirSync(folder).sort()) {
-          const full = path2.join(folder, name);
-          const relative = path2.relative(root, full).split(path2.sep).join("/");
-          const stat = fs.lstatSync(full);
+        for (const name of fs3.readdirSync(folder).sort()) {
+          const full = path3.join(folder, name);
+          const relative = path3.relative(root, full).split(path3.sep).join("/");
+          const stat = fs3.lstatSync(full);
           if (stat.isDirectory()) {
             records.push({ path: relative, type: "directory" });
             walk(full);
           } else if (stat.isFile()) {
-            records.push({ path: relative, type: "file", digest: crypto2.createHash("sha256").update(fs.readFileSync(full)).digest("hex") });
+            records.push({ path: relative, type: "file", digest: crypto3.createHash("sha256").update(fs3.readFileSync(full)).digest("hex") });
           } else if (stat.isSymbolicLink()) {
-            records.push({ path: relative, type: "symlink", target: fs.readlinkSync(full) });
+            records.push({ path: relative, type: "symlink", target: fs3.readlinkSync(full) });
           } else {
             const kind = stat.isFIFO() ? "fifo" : stat.isSocket() ? "socket" : stat.isCharacterDevice() ? "character-device" : stat.isBlockDevice() ? "block-device" : "unknown";
             throw new UnsupportedProjectEntryError(relative, kind);
@@ -25313,38 +25379,72 @@ var require_mutations = __commonJS({
       }
       walk(root);
       records.sort((a, b) => a.path.localeCompare(b.path));
-      return crypto2.createHash("sha256").update(canonicalJson(records)).digest("hex");
+      return crypto3.createHash("sha256").update(canonicalJson(records)).digest("hex");
     }
     function isEmptyDirectory(target) {
-      return fs.existsSync(target) && fs.lstatSync(target).isDirectory() && fs.readdirSync(target).length === 0;
+      return fs3.existsSync(target) && fs3.lstatSync(target).isDirectory() && fs3.readdirSync(target).length === 0;
+    }
+    function createProjectWork(parent, prefix, excludedTarget = null) {
+      for (let attempt = 0; attempt < 128; attempt += 1) {
+        const area = path3.join(parent, `${PROJECT_WORK_PREFIX}${crypto3.randomBytes(12).toString("hex")}`);
+        try {
+          fs3.mkdirSync(area, { mode: 448 });
+        } catch (error) {
+          if (error.code === "EEXIST") continue;
+          throw error;
+        }
+        try {
+          if (excludedTarget && fs3.existsSync(excludedTarget) && fs3.realpathSync(excludedTarget) === fs3.realpathSync(area)) {
+            fs3.rmdirSync(area);
+            continue;
+          }
+          fs3.writeFileSync(path3.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
+          return fs3.mkdtempSync(path3.join(area, prefix));
+        } catch (error) {
+          fs3.rmSync(area, { recursive: true, force: true });
+          throw error;
+        }
+      }
+      throw Object.assign(new Error(`Could not allocate an isolated project work area under ${parent}`), { code: "WORK_AREA_EXHAUSTED" });
+    }
+    function cleanupProjectWork(work) {
+      const area = path3.dirname(work);
+      if (fs3.existsSync(work)) fs3.rmSync(work, { recursive: true, force: true });
+      const marker = path3.join(area, PROJECT_WORK_MARKER);
+      if (fs3.existsSync(marker)) fs3.unlinkSync(marker);
+      try {
+        fs3.rmdirSync(area);
+      } catch (error) {
+        if (!["ENOENT", "ENOTEMPTY"].includes(error.code)) throw error;
+      }
     }
     function immutableInventory(root) {
       const inventory = /* @__PURE__ */ new Map();
-      for (const relativeRoot of ["handoffs", path2.join("reports", "history")]) {
+      for (const relativeRoot of ["handoffs", path3.join("reports", "history")]) {
         let walk = function(folder) {
-          inventory.set(path2.relative(root, folder), "directory");
-          for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
-            const full = path2.join(folder, entry.name);
-            const stat = fs.lstatSync(full);
+          inventory.set(path3.relative(root, folder), "directory");
+          for (const entry of fs3.readdirSync(folder, { withFileTypes: true })) {
+            const full = path3.join(folder, entry.name);
+            const stat = fs3.lstatSync(full);
             if (stat.isSymbolicLink()) throw new Error("Immutable history cannot contain symlinks");
             if (stat.isDirectory()) walk(full);
-            else if (stat.isFile()) inventory.set(path2.relative(root, full), crypto2.createHash("sha256").update(fs.readFileSync(full)).digest("hex"));
+            else if (stat.isFile()) inventory.set(path3.relative(root, full), crypto3.createHash("sha256").update(fs3.readFileSync(full)).digest("hex"));
             else throw new Error("Immutable history must contain only files and directories");
           }
         };
-        const start = path2.join(root, relativeRoot);
-        if (!fs.existsSync(start)) continue;
+        const start = path3.join(root, relativeRoot);
+        if (!fs3.existsSync(start)) continue;
         walk(start);
       }
       return inventory;
     }
     function manifestSources(candidate, relative) {
-      const text = fs.readFileSync(path2.join(candidate, relative), "utf8");
+      const text = fs3.readFileSync(path3.join(candidate, relative), "utf8");
       const match = /## Payload\n+```json\n([^\n]+)\n```/.exec(text);
       if (!match) throw new Error(`New manifest lacks canonical payload: ${relative}`);
       const payload = JSON.parse(match[1]);
       if (!Array.isArray(payload.sources)) throw new Error(`New manifest sources are invalid: ${relative}`);
-      return payload.sources.map((source) => path2.normalize(source.path));
+      return payload.sources.map((source) => path3.normalize(source.path));
     }
     function assertImmutablePreserved(before, candidate, beforeState, afterState) {
       const after = immutableInventory(candidate);
@@ -25357,18 +25457,18 @@ var require_mutations = __commonJS({
       }
       for (const relative of after.keys()) {
         if (before.has(relative)) continue;
-        if (relative.startsWith(`reports${path2.sep}history${path2.sep}`)) {
+        if (relative.startsWith(`reports${path3.sep}history${path3.sep}`)) {
           if (after.get(relative) === "directory" || relative.endsWith(".md")) continue;
           throw new Error(`Saved report additions must be Markdown: ${relative}`);
         }
-        const pieces = relative.split(path2.sep);
+        const pieces = relative.split(path3.sep);
         if (pieces[0] !== "handoffs") continue;
         if (pieces.length < 3) {
-          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path2.join("handoffs", task.id, task.active_contract).startsWith(relative));
+          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path3.join("handoffs", task.id, task.active_contract).startsWith(relative));
           if (isValidatedAncestor) continue;
           throw new Error(`Immutable handoff directory is not tied to validated active state: ${relative}`);
         }
-        const contractRoot = pieces.slice(0, 3).join(path2.sep);
+        const contractRoot = pieces.slice(0, 3).join(path3.sep);
         const taskId = pieces[1];
         const contractId = pieces[2];
         const beforeTask = beforeState?.tasks?.find((task) => task.id === taskId);
@@ -25377,16 +25477,16 @@ var require_mutations = __commonJS({
         const newValidatedAttempt = !before.has(contractRoot) && afterTask?.active_contract === contractId;
         if (!existingLiveAttempt && !newValidatedAttempt) throw new Error(`Cannot add to an inactive or terminal immutable attempt: ${relative}`);
         if (after.get(relative) === "directory") {
-          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path2.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
-        } else if (allowed.has(relative) || newValidatedAttempt && relative === path2.join(contractRoot, "TASK-CONTRACT.md")) continue;
+          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path3.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
+        } else if (allowed.has(relative) || newValidatedAttempt && relative === path3.join(contractRoot, "TASK-CONTRACT.md")) continue;
         throw new Error(`Immutable attempt addition is not derived from validated active state: ${relative}`);
       }
     }
     function atomicProjectMutation(target, mutateCandidate, validateCandidate, options = {}) {
-      if (!path2.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
-      const parent = path2.dirname(target);
-      const name = path2.basename(target);
-      if (!fs.existsSync(parent) || !fs.lstatSync(parent).isDirectory()) throw new Error("Project parent directory must exist");
+      if (!path3.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
+      const parent = path3.dirname(target);
+      const name = path3.basename(target);
+      if (!fs3.existsSync(parent) || !fs3.lstatSync(parent).isDirectory()) throw new Error("Project parent directory must exist");
       const targetStat = lstatIfExists(target);
       const exists = targetStat !== null;
       if (exists && !targetStat.isDirectory()) throw new UnsupportedProjectEntryError(".", targetStat.isSymbolicLink() ? "symlink-root" : "non-directory-root");
@@ -25400,18 +25500,18 @@ var require_mutations = __commonJS({
         if (currentRevision !== expectedRevision) throw new MutationConflictError("Project changed before mutation started", currentRevision);
       }
       const beforeState = exists && !initializing ? validateCandidate(target, { logicalRoot: target }) : null;
-      const work = fs.mkdtempSync(path2.join(parent, `.${name}.transaction-`));
-      const candidate = path2.join(work, name);
-      const backup = path2.join(work, `${name}.backup`);
+      const work = createProjectWork(parent, `${name}.transaction-`, target);
+      const candidate = path3.join(work, name);
+      const backup = path3.join(work, `${name}.backup`);
       let targetMoved = false;
       let candidateMoved = false;
       let committed = false;
       try {
         if (exists && !initializing) {
-          fs.cpSync(target, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+          fs3.cpSync(target, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
           assertProjectDirectoryRoot(candidate);
           if (expectedRevision !== null && mutationRevision(candidate) !== expectedRevision) throw new MutationConflictError("Candidate copy does not match the selected project revision", mutationRevision(target));
-        } else fs.mkdirSync(candidate);
+        } else fs3.mkdirSync(candidate);
         const context = { logicalRoot: target };
         mutateCandidate(candidate, context);
         const validation = validateCandidate(candidate, context);
@@ -25422,22 +25522,22 @@ var require_mutations = __commonJS({
           if (currentRevision !== expectedRevision) throw new MutationConflictError("Project changed while the mutation was being prepared", currentRevision);
         }
         if (exists) {
-          fs.renameSync(target, backup);
+          fs3.renameSync(target, backup);
           targetMoved = true;
         }
-        fs.renameSync(candidate, target);
+        fs3.renameSync(candidate, target);
         candidateMoved = true;
         if (options.injectFailureAfterReplace) throw new Error("Injected failure after replacement");
         options.validateLive?.(target, { logicalRoot: target });
         committed = true;
         if (targetMoved) {
           try {
-            fs.rmSync(backup, { recursive: true, force: true });
+            fs3.rmSync(backup, { recursive: true, force: true });
           } catch {
           }
         }
         try {
-          fs.rmSync(work, { recursive: true, force: true });
+          cleanupProjectWork(work);
         } catch {
         }
         return target;
@@ -25445,22 +25545,22 @@ var require_mutations = __commonJS({
         if (committed) return target;
         let restored = false;
         try {
-          if (candidateMoved && fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+          if (candidateMoved && fs3.existsSync(target)) fs3.rmSync(target, { recursive: true, force: true });
           if (options.injectRollbackFailure && targetMoved) throw new Error("Injected rollback failure");
-          if (targetMoved && fs.existsSync(backup)) fs.renameSync(backup, target);
-          else if (options.init === true && exists && !fs.existsSync(target)) fs.mkdirSync(target);
+          if (targetMoved && fs3.existsSync(backup)) fs3.renameSync(backup, target);
+          else if (options.init === true && exists && !fs3.existsSync(target)) fs3.mkdirSync(target);
           restored = true;
         } catch (restoreError) {
-          const recoveryPath = fs.existsSync(backup) ? backup : work;
+          const recoveryPath = fs3.existsSync(backup) ? backup : work;
           const failure = new Error(`${error.message}; rollback failed: ${restoreError.message}; recovery preserved at ${recoveryPath}`);
           failure.recoveryPath = recoveryPath;
           throw failure;
         }
-        if (restored && fs.existsSync(work)) fs.rmSync(work, { recursive: true, force: true });
+        if (restored && fs3.existsSync(work)) cleanupProjectWork(work);
         throw error;
       }
     }
-    module2.exports = { atomicProjectMutation, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };
+    module2.exports = { atomicProjectMutation, createProjectWork, cleanupProjectWork, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };
   }
 });
 
@@ -25468,10 +25568,10 @@ var require_mutations = __commonJS({
 var require_task_editor = __commonJS({
   "skills/project-manager/scripts/lib/task-editor.js"(exports2, module2) {
     "use strict";
-    var fs = require("node:fs");
-    var path2 = require("node:path");
+    var fs3 = require("node:fs");
+    var path3 = require("node:path");
     var { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility } = require_project_state();
-    var { atomicProjectMutation, mutationRevision, MutationConflictError } = require_mutations();
+    var { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require_mutations();
     var PLANNING_FIELDS = [
       "title",
       "outcome",
@@ -25603,9 +25703,9 @@ var require_task_editor = __commonJS({
       return task;
     }
     function applyCandidateEdit(candidate, logicalRoot, taskId, request) {
-      const tasksPath = path2.join(candidate, "TASKS.md");
+      const tasksPath = path3.join(candidate, "TASKS.md");
       const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      fs.writeFileSync(tasksPath, transformTaskDocument(fs.readFileSync(tasksPath, "utf8"), taskId, request.edit, date));
+      fs3.writeFileSync(tasksPath, transformTaskDocument(fs3.readFileSync(tasksPath, "utf8"), taskId, request.edit, date));
       regenerateStatus(candidate, (/* @__PURE__ */ new Date()).toISOString(), { logicalRoot });
       return loadProject(candidate, { logicalRoot });
     }
@@ -25613,18 +25713,18 @@ var require_task_editor = __commonJS({
       const snapshot = loadRevisionedProject3(root);
       validateEnvelope(snapshot, taskId, request);
       const canonicalRoot = snapshot.state.root;
-      const parent = path2.dirname(canonicalRoot);
-      const name = path2.basename(canonicalRoot);
-      const work = fs.mkdtempSync(path2.join(parent, `.${name}.studio-check-`));
-      const candidate = path2.join(work, name);
+      const parent = path3.dirname(canonicalRoot);
+      const name = path3.basename(canonicalRoot);
+      const work = createProjectWork(parent, `${name}.studio-check-`, canonicalRoot);
+      const candidate = path3.join(work, name);
       try {
-        fs.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+        fs3.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
         if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError2("MUTATION_CONFLICT", "Candidate copy did not match the loaded project", { currentRevision: mutationRevision(canonicalRoot) });
         const state = applyCandidateEdit(candidate, canonicalRoot, taskId, request);
         const task = state.tasks.find((item) => item.id === taskId);
         return { valid: true, task: kanbanData(state).tasks.find((item) => item.id === task.id) };
       } finally {
-        fs.rmSync(work, { recursive: true, force: true });
+        cleanupProjectWork(work);
       }
     }
     function saveTaskEdit2(root, taskId, request, options = {}) {
@@ -25666,11 +25766,97 @@ __export(cli_exports, {
 });
 module.exports = __toCommonJS(cli_exports);
 var import_node_http = __toESM(require("node:http"));
-var import_node_path = __toESM(require("node:path"));
+var import_node_fs2 = __toESM(require("node:fs"));
+var import_node_path2 = __toESM(require("node:path"));
 var import_node_child_process = require("node:child_process");
 
-// src/project-manager-studio/server/server.ts
+// src/project-manager-studio/server/project-catalog.ts
 var import_node_crypto = __toESM(require("node:crypto"));
+var import_node_fs = __toESM(require("node:fs"));
+var import_node_path = __toESM(require("node:path"));
+var { parseFrontmatter } = require_project_state();
+var ProjectCatalogError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "ProjectCatalogError";
+    this.code = code;
+  }
+};
+function stale(message) {
+  throw new ProjectCatalogError("PROJECT_SELECTION_STALE", message);
+}
+var ProjectCatalog = class {
+  entries;
+  initialKey;
+  constructor(seeds, initialRoot) {
+    if (seeds.length === 0) throw new ProjectCatalogError("PROJECTS_ROOT_EMPTY", "Studio project catalog cannot be empty");
+    this.entries = seeds.map((seed) => ({ ...seed, key: import_node_crypto.default.randomBytes(24).toString("hex") }));
+    const initial = this.entries.find((entry) => entry.root === initialRoot);
+    if (!initial) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Initial project is not in the Studio catalog");
+    this.initialKey = initial.key;
+    this.validateAll();
+  }
+  data() {
+    for (const entry of this.entries) this.validateEntry(entry);
+    return { schema_version: 1, initial_project_key: this.initialKey, projects: this.entries.map(({ key, id, name }) => ({ key, id, name })) };
+  }
+  resolve(key) {
+    if (typeof key !== "string" || key === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "A server-issued project key is required");
+    const entry = this.entries.find((candidate) => candidate.key === key);
+    if (!entry) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Unknown Studio project key");
+    this.validateEntry(entry);
+    return entry;
+  }
+  decorate(key, data) {
+    const entry = this.entries.find((candidate) => candidate.key === key);
+    if (!entry) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Unknown Studio project key");
+    if (data.project.id !== entry.id || data.project.root !== entry.root) stale(`Project identity changed for ${entry.name}`);
+    return { ...data, project: { ...data.project, key } };
+  }
+  validateAll() {
+    const ids = /* @__PURE__ */ new Set();
+    for (const entry of this.entries) {
+      const normalized = entry.id.toLowerCase();
+      if (ids.has(normalized)) throw new ProjectCatalogError("PROJECT_ID_DUPLICATE", `Project ID is duplicated in Studio catalog: ${entry.id}`);
+      ids.add(normalized);
+    }
+  }
+  validateEntry(entry) {
+    let stat;
+    try {
+      stat = import_node_fs.default.lstatSync(entry.root);
+    } catch {
+      stale(`Project path is no longer available: ${entry.name}`);
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) stale(`Project path is no longer a real directory: ${entry.name}`);
+    let real;
+    try {
+      real = import_node_fs.default.realpathSync(entry.root);
+    } catch {
+      stale(`Project path cannot be resolved: ${entry.name}`);
+    }
+    if (real !== entry.root) stale(`Project path changed: ${entry.name}`);
+    const projectFile = import_node_path.default.join(entry.root, "PROJECT.md");
+    let fileStat;
+    try {
+      fileStat = import_node_fs.default.lstatSync(projectFile);
+    } catch {
+      stale(`Project identity file is missing: ${entry.name}`);
+    }
+    if (fileStat.isSymbolicLink() || !fileStat.isFile()) stale(`Project identity file is unsafe: ${entry.name}`);
+    let id;
+    try {
+      id = parseFrontmatter(import_node_fs.default.readFileSync(projectFile, "utf8"), projectFile).data.id;
+    } catch {
+      stale(`Project identity cannot be read: ${entry.name}`);
+    }
+    if (id !== entry.id) stale(`Project ID changed for ${entry.name}`);
+  }
+};
+
+// src/project-manager-studio/server/server.ts
+var import_node_crypto2 = __toESM(require("node:crypto"));
 var import_express = __toESM(require_express2());
 var { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require_task_editor();
 var SESSION_COOKIE = "pm_studio_session";
@@ -25681,14 +25867,22 @@ function cookies(header) {
   }));
 }
 function apiError(error) {
-  const known = error instanceof TaskEditError || error && typeof error === "object" && "code" in error;
+  const known = error instanceof TaskEditError || error instanceof ProjectCatalogError || error && typeof error === "object" && "code" in error;
   const value = error;
   const code = known ? String(value.code) : "UNEXPECTED";
   const status = ["MUTATION_CONFLICT", "TASK_CONFLICT", "PROJECT_BUSY"].includes(code) ? 409 : code === "TASK_NOT_FOUND" ? 404 : known ? 400 : 500;
   return { status, body: { errors: [{ code, message: error instanceof Error ? error.message : "Unexpected error", ...known ? value : {} }] } };
 }
+function editRequest(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new ProjectCatalogError("INVALID_REQUEST", "Task request must be an object");
+  const value = body;
+  const unknown = Object.keys(value).filter((key) => !["projectKey", "mutationRevision", "taskRevision", "edit"].includes(key));
+  if (unknown.length) throw new ProjectCatalogError("INVALID_REQUEST", `Task request contains unsupported fields: ${unknown.join(", ")}`);
+  if (typeof value.projectKey !== "string" || value.projectKey === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "Task request requires a server-issued project key");
+  return { projectKey: value.projectKey, edit: { mutationRevision: value.mutationRevision, taskRevision: value.taskRevision, edit: value.edit } };
+}
 function createServer(options) {
-  const sessionToken = options.sessionToken ?? import_node_crypto.default.randomBytes(32).toString("hex");
+  const sessionToken = options.sessionToken ?? import_node_crypto2.default.randomBytes(32).toString("hex");
   const app = (0, import_express.default)();
   app.disable("x-powered-by");
   app.use(import_express.default.json({ limit: "256kb" }));
@@ -25704,9 +25898,21 @@ function createServer(options) {
     if (cookies(req.headers.cookie)[SESSION_COOKIE] === sessionToken) return next();
     res.status(401).json({ errors: [{ code: "UNAUTHORIZED", message: "Missing or invalid Studio session." }] });
   });
-  api.get("/project", (_req, res) => {
+  function loadProject(key) {
+    const entry = options.catalog.resolve(key);
+    return options.catalog.decorate(entry.key, loadRevisionedProject(entry.root).data);
+  }
+  api.get("/projects", (_req, res) => {
     try {
-      res.json({ ok: true, data: loadRevisionedProject(options.projectRoot).data });
+      res.json({ ok: true, data: options.catalog.data() });
+    } catch (error) {
+      const result = apiError(error);
+      res.status(result.status).json(result.body);
+    }
+  });
+  api.get("/project", (req, res) => {
+    try {
+      res.json({ ok: true, data: loadProject(req.query.project) });
     } catch (error) {
       const result = apiError(error);
       res.status(result.status).json(result.body);
@@ -25714,7 +25920,9 @@ function createServer(options) {
   });
   api.post("/tasks/:taskId/check", (req, res) => {
     try {
-      res.json({ ok: true, data: checkTaskEdit(options.projectRoot, String(req.params.taskId), req.body) });
+      const request = editRequest(req.body);
+      const entry = options.catalog.resolve(request.projectKey);
+      res.json({ ok: true, data: checkTaskEdit(entry.root, String(req.params.taskId), request.edit) });
     } catch (error) {
       const result = apiError(error);
       res.status(result.status).json(result.body);
@@ -25728,7 +25936,11 @@ function createServer(options) {
   }
   api.put("/tasks/:taskId", async (req, res) => {
     try {
-      const data = await enqueue(() => saveTaskEdit(options.projectRoot, String(req.params.taskId), req.body));
+      const request = editRequest(req.body);
+      const data = await enqueue(() => {
+        const entry = options.catalog.resolve(request.projectKey);
+        return options.catalog.decorate(entry.key, saveTaskEdit(entry.root, String(req.params.taskId), request.edit));
+      });
       res.json({ ok: true, data });
     } catch (error) {
       const result = apiError(error);
@@ -25746,22 +25958,55 @@ function createServer(options) {
 
 // src/project-manager-studio/server/cli.ts
 var { loadRevisionedProject: loadRevisionedProject2 } = require_task_editor();
-var SKILL_DIR = import_node_path.default.resolve(__dirname, "..");
-var CLIENT_DIST_DIR = import_node_path.default.join(SKILL_DIR, "studio", "dist");
+var { loadProjectsRoot } = require_project_state();
+var SKILL_DIR = import_node_path2.default.resolve(__dirname, "..");
+var CLIENT_DIST_DIR = import_node_path2.default.join(SKILL_DIR, "studio", "dist");
+var USAGE = "Usage: project-manager-studio.js [--project <folder>] [--projects-root <folder>] [--port <port>] [--no-open]";
+function valueAfter(argv, index, flag) {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a folder value. ${USAGE}`);
+  return value;
+}
 function parseArgs(argv) {
   let project;
+  let projectsRoot;
   let port;
   let open = true;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--project" && project === void 0) project = argv[++index];
-    else if (arg === "--port" && port === void 0) port = Number(argv[++index]);
+    if (arg === "--project" && project === void 0) project = valueAfter(argv, index++, arg);
+    else if (arg === "--projects-root" && projectsRoot === void 0) projectsRoot = valueAfter(argv, index++, arg);
+    else if (arg === "--port" && port === void 0) port = Number(valueAfter(argv, index++, arg));
     else if (arg === "--no-open" && open) open = false;
-    else throw new Error(`Unknown or duplicate argument: ${arg}`);
+    else throw new Error(`Unknown or duplicate argument: ${arg}. ${USAGE}`);
   }
-  if (!project) throw new Error("Usage: project-manager-studio.js --project <folder> [--port <port>] [--no-open]");
   if (port !== void 0 && (!Number.isInteger(port) || port < 0 || port > 65535)) throw new Error("--port must be an integer from 0 to 65535");
-  return { project: import_node_path.default.resolve(project), port, open };
+  return { project, projectsRoot, port, open };
+}
+function buildCatalog(args) {
+  if (args.project && !args.projectsRoot) {
+    const snapshot = loadRevisionedProject2(import_node_path2.default.resolve(args.project));
+    const seed = { id: snapshot.state.project.id, name: snapshot.state.project.name, root: snapshot.state.root };
+    return new ProjectCatalog([seed], seed.root);
+  }
+  const requestedRoot = import_node_path2.default.resolve(args.projectsRoot ?? ".projects");
+  const discovered = loadProjectsRoot(requestedRoot);
+  let initialRoot = discovered.projects[0].root;
+  if (args.project) {
+    const requestedProject = import_node_path2.default.resolve(args.project);
+    let stat;
+    try {
+      stat = import_node_fs2.default.lstatSync(requestedProject);
+    } catch {
+      throw new Error("Explicit project must be an existing direct child of --projects-root");
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("Explicit project must be a real direct child of --projects-root");
+    const real = import_node_fs2.default.realpathSync(requestedProject);
+    const selected = discovered.projects.find((project) => project.root === real);
+    if (!selected || import_node_path2.default.dirname(real) !== discovered.root) throw new Error("Explicit project must be a direct child of --projects-root");
+    initialRoot = selected.root;
+  }
+  return new ProjectCatalog(discovered.projects, initialRoot);
 }
 function openBrowser(url) {
   try {
@@ -25776,9 +26021,8 @@ function openBrowser(url) {
 }
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const initial = loadRevisionedProject2(args.project);
-  const projectRoot = initial.state.root;
-  const { app, sessionToken } = createServer({ projectRoot, clientDistDir: CLIENT_DIST_DIR });
+  const catalog = buildCatalog(args);
+  const { app, sessionToken } = createServer({ catalog, clientDistDir: CLIENT_DIST_DIR });
   const server = import_node_http.default.createServer(app);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -25799,7 +26043,8 @@ async function main(argv = process.argv.slice(2)) {
   return { url, close };
 }
 if (require.main === module) main().then(({ url }) => console.log(url)).catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  const code = error && typeof error === "object" && "code" in error ? `${String(error.code)}: ` : "";
+  console.error(`${code}${error instanceof Error ? error.message : error}`);
   process.exit(1);
 });
 // Annotate the CommonJS export names for ESM import in node:

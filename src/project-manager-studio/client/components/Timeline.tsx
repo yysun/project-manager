@@ -1,19 +1,22 @@
-// Project Manager Studio Timeline: explicit UTC schedules, milestone markers,
-// dependency-date warnings, and revision-safe draft move/resize interactions.
+// Project Manager Studio Timeline: key-bound UTC schedule saves, milestone
+// markers, dependency warnings, and revision-safe draft move/resize interactions.
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest } from '../../shared/api';
 import { addDays, barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, timelineRange, type DateRange } from '../timeline-model.mjs';
+import type { SelectionRequest } from '../selection-guard.mjs';
 
 interface Props {
   data: KanbanData;
   tasks: KanbanTask[];
   onOpen: (task: KanbanTask, opener: HTMLElement) => void;
-  onSaved: (data: KanbanData) => void;
+  beginMutation: () => SelectionRequest | null;
+  finishMutation: (request: SelectionRequest) => void;
+  onSaved: (data: KanbanData, request: SelectionRequest) => void;
 }
 interface Draft { taskId: string; start: string; end: string }
 interface Drag { task: KanbanTask; mode: 'move' | 'start' | 'end'; originX: number; width: number; start: string; end: string; moved: boolean }
 
-export function Timeline({ data, tasks, onOpen, onSaved }: Props) {
+export function Timeline({ data, tasks, onOpen, beginMutation, finishMutation, onSaved }: Props) {
   const range = useMemo(() => timelineRange(data.tasks, data.project, data.milestones), [data]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,15 +63,17 @@ export function Timeline({ data, tasks, onOpen, onSaved }: Props) {
     if (!draft) return;
     const task = data.tasks.find((item) => item.id === draft.taskId);
     if (!task) return;
+    const operation = beginMutation();
+    if (!operation) { setError('Another project operation is already in progress.'); return; }
     setBusy(true); setError(null);
-    const request: TaskEditRequest = { mutationRevision: data.mutation_revision, taskRevision: task.task_revision, edit: { scheduled_start: draft.start, scheduled_end: draft.end } };
+    const request: TaskEditRequest = { projectKey: data.project.key, mutationRevision: data.mutation_revision, taskRevision: task.task_revision, edit: { scheduled_start: draft.start, scheduled_end: draft.end } };
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
       const body = await response.json();
       if (!response.ok) throw new Error((body.errors as ApiError[] | undefined)?.[0]?.message ?? 'Could not save schedule.');
-      setDraft(null); onSaved(body.data);
+      setDraft(null); onSaved(body.data, operation);
     } catch (value) { setError(value instanceof Error ? value.message : 'Could not save schedule.'); }
-    finally { setBusy(false); }
+    finally { finishMutation(operation); setBusy(false); }
   }
 
   return <section className="timeline-panel" aria-label="Task timeline">

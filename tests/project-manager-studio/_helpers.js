@@ -1,5 +1,5 @@
-/* Shared Studio tests: isolated v1/v2 project fixtures and real built-server
-   process control. Fixtures never mutate repository state. */
+/* Shared Studio tests: isolated project/catalog fixtures and built-server process
+   control for explicit, rooted, and default .projects launch modes. */
 'use strict';
 const fs = require('node:fs');
 const os = require('node:os');
@@ -22,12 +22,15 @@ function makeProject(records = null, id = 'STUDIO') {
   regenerateStatus(root, '2026-08-08T00:00:00Z');
   return root;
 }
-function startStudio(project, extra = []) { return new Promise((resolve, reject) => {
-  const child = spawn(process.execPath, [builtServerPath, '--project', project, '--no-open', '--port', '0', ...extra], { stdio: ['ignore', 'pipe', 'pipe'] });
+function startStudioArgs(args, options = {}) { return new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [builtServerPath, ...args], { cwd: options.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = ''; let stderr = ''; const timer = setTimeout(() => reject(new Error(`Studio timeout\n${stdout}\n${stderr}`)), 6000);
   child.stdout.on('data', (chunk) => { stdout += chunk; const match = /http:\/\/127\.0\.0\.1:\d+\/\?token=[a-f0-9]+/.exec(stdout); if (match) { clearTimeout(timer); const url = new URL(match[0]); resolve({ child, origin: url.origin, token: url.searchParams.get('token') }); } });
   child.stderr.on('data', (chunk) => { stderr += chunk; }); child.once('error', reject); child.once('exit', (code) => { if (!stdout.includes('http://')) reject(new Error(`Studio exited ${code}: ${stderr}`)); });
 }); }
+function startStudio(project, extra = []) { return startStudioArgs(['--project', project, '--no-open', '--port', '0', ...extra]); }
 async function stopStudio(handle) { if (handle.child.exitCode !== null) return; handle.child.kill('SIGTERM'); await new Promise((resolve) => { const timer = setTimeout(resolve, 3000); handle.child.once('exit', () => { clearTimeout(timer); resolve(); }); }); }
 async function handshake(handle) { const response = await fetch(`${handle.origin}/?token=${handle.token}`, { redirect: 'manual' }); return { response, cookie: response.headers.get('set-cookie').split(';')[0] }; }
-module.exports = { builtServerPath, makeProject, startStudio, stopStudio, handshake, collection };
+async function catalog(handle, cookie) { return (await (await fetch(`${handle.origin}/api/projects`, { headers: { Cookie: cookie } })).json()).data; }
+async function getProject(handle, cookie, key) { return (await (await fetch(`${handle.origin}/api/project?project=${encodeURIComponent(key)}`, { headers: { Cookie: cookie } })).json()).data; }
+module.exports = { builtServerPath, makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection };
