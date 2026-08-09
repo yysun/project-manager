@@ -1,5 +1,5 @@
-// Project Manager Studio Timeline: key-bound UTC schedule saves, milestone
-// markers, dependency warnings, and revision-safe draft move/resize interactions.
+// Project Manager Studio Timeline: dense weekly planning grid with key-bound
+// UTC schedule saves, dependency warnings, and revision-safe move/resize drafts.
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest } from '../../shared/api';
 import { addDays, barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, timelineRange, type DateRange } from '../timeline-model.mjs';
@@ -102,9 +102,13 @@ export function Timeline({ data, tasks, onOpen, beginMutation, finishMutation, o
 }
 
 function TimelineScale({ range }: { range: DateRange }) {
-  const total = rangeDays(range); const step = Math.max(1, Math.ceil(total / 12));
-  const ticks = Array.from({ length: Math.floor((total - 1) / step) + 1 }, (_, index) => addDays(range.start, index * step));
-  return <div className="timeline-scale">{ticks.map((date) => <span key={date} style={{ left: `${datePercent(date, range)}%` }}>{date.slice(5)}</span>)}</div>;
+  const total = rangeDays(range);
+  const ticks = Array.from({ length: Math.ceil(total / 7) }, (_, index) => addDays(range.start, index * 7));
+  return <div className="timeline-scale">{ticks.map((date) => {
+    const elapsed = dayDiff(range.start, date); const remaining = total - elapsed;
+    const label = date.split('-').map((part, index) => index === 0 ? part : String(Number(part))).join('/');
+    return <span className="timeline-week" key={date} style={{ left: `${(elapsed / total) * 100}%`, width: `${(Math.min(7, remaining) / total) * 100}%` }}>{label}</span>;
+  })}</div>;
 }
 
 function Markers({ data, range }: { data: KanbanData; range: DateRange }) {
@@ -121,9 +125,9 @@ function Markers({ data, range }: { data: KanbanData; range: DateRange }) {
 
 function TimelineLabel({ task, onOpen }: { task: KanbanTask; onOpen: Props['onOpen'] }) {
   return <button className="timeline-label timeline-task-label" onClick={(event) => onOpen(task, event.currentTarget)}>
-    <span className="task-id">{task.id}</span><strong>{task.title}</strong>
-    <span className="timeline-label-meta"><span className={`state state--${task.status}`}>{task.status.replaceAll('_', ' ')}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span><span>{task.owner ?? 'Unassigned'}</span></span>
-    <span className="timeline-context">{task.milestone ?? 'No milestone'} · {task.depends_on.length ? `After ${task.depends_on.join(', ')}` : 'No dependencies'}</span>
+    <span className="timeline-title-line"><strong>{task.title}</strong><span className="task-id">{task.id}</span></span>
+    <span className="timeline-label-meta"><span className={`state state--${task.status}`}>{task.status.replaceAll('_', ' ')}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span><span>{task.owner ?? 'Unassigned'}</span><span>{task.milestone ?? 'No milestone'}</span></span>
+    {task.depends_on.length > 0 && <span className="timeline-context">After {task.depends_on.join(', ')}</span>}
     {task.dependency_blockers.length > 0 && <span className="timeline-blocker">Blocked by tasks: {task.dependency_blockers.join(', ')}</span>}
     {task.blocked_by.map((reason) => <span className="timeline-blocker" key={reason}>Blocked: {reason}</span>)}
     {task.schedule_conflicts.map((conflict) => <span className="schedule-conflict" key={conflict.dependency_id}>Date conflict: {conflict.dependency_id} ends {conflict.dependency_end}; starts {conflict.task_start}</span>)}
@@ -132,8 +136,9 @@ function TimelineLabel({ task, onOpen }: { task: KanbanTask; onOpen: Props['onOp
 
 function ScheduleBar({ task, range, start, end, draft, onOpen, onBegin, onMove, onFinish, onNudge, suppressClick }: { task: KanbanTask; range: DateRange; start: string; end: string; draft: boolean; onOpen: Props['onOpen']; onBegin: (event: PointerEvent<HTMLElement>, task: KanbanTask, mode: Drag['mode']) => void; onMove: (event: PointerEvent<HTMLElement>) => void; onFinish: () => void; onNudge: (event: KeyboardEvent<HTMLElement>, task: KanbanTask, mode: Drag['mode']) => void; suppressClick: React.MutableRefObject<boolean> }) {
   const geometry = barGeometry(start, end, range);
+  const tone = task.schedule_conflicts.length > 0 || task.blocked_by.length > 0 || task.dependency_blockers.length > 0 ? 'warning' : task.status === 'done' ? 'done' : task.status === 'verified' ? 'review' : ['in_progress', 'implemented', 'verification'].includes(task.status) ? 'active' : 'planned';
   const interaction = (mode: Drag['mode']) => ({ onPointerDown: (event: PointerEvent<HTMLElement>) => onBegin(event, task, mode), onPointerMove: onMove, onPointerUp: onFinish, onPointerCancel: onFinish });
-  return <div className={`timeline-bar ${draft ? 'timeline-bar--draft' : ''} ${task.schedule_editable ? '' : 'timeline-bar--locked'}`} style={{ left: `${geometry.left}%`, width: `${geometry.width}%` }}>
+  return <div className={`timeline-bar timeline-bar--${tone} ${draft ? 'timeline-bar--draft' : ''} ${task.schedule_editable ? '' : 'timeline-bar--locked'}`} style={{ left: `${geometry.left}%`, width: `${geometry.width}%` }}>
     {task.schedule_editable && <button className="bar-handle bar-handle--start" aria-label={`Resize ${task.title} start`} {...interaction('start')} onKeyDown={(event) => onNudge(event, task, 'start')} />}
     <button className="bar-body" title={`${task.title}: ${start} to ${end}`} aria-label={`${task.title}, scheduled ${start} to ${end}${task.schedule_editable ? ', drag or use arrow keys to move' : ''}`} {...interaction('move')} onKeyDown={(event) => onNudge(event, task, 'move')} onClick={(event) => { if (suppressClick.current) { suppressClick.current = false; return; } onOpen(task, event.currentTarget); }}><span>{task.title}</span><small>{start} → {end}</small></button>
     {task.schedule_editable && <button className="bar-handle bar-handle--end" aria-label={`Resize ${task.title} end`} {...interaction('end')} onKeyDown={(event) => onNudge(event, task, 'end')} />}
