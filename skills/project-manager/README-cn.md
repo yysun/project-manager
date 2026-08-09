@@ -6,53 +6,50 @@ Project Manager 将一个文件夹变成可持续维护的项目工作区，让 
 
 ## 快速开始
 
-可以通过 `$project-manager` 调用 Skill，也可以直接使用下面的自然语言项目指令。
+直接告诉 Codex 想实现什么结果，以及项目工作区应放在哪里。自然语言就是操作界面；
+不需要记命令，也不需要运行脚本。需要明确选择此 Skill 时，可以提及 `$project-manager`。
 
 ```text
-project init /absolute/path/.projects/website-launch "安全上线新版网站"
-project plan /absolute/path/.projects/website-launch
-project studio /absolute/path/.projects/website-launch
+使用 $project-manager 在 /work/.projects/website-launch 创建一个项目，目标是安全上线新版网站。
+规划完成这个项目需要做的工作。
+为它打开 Project Manager Studio。
 ```
 
-项目指明确选择的文件夹，而不是它所在的代码仓库。尽量使用明确的绝对路径。
-如果要求使用默认工作区，项目会创建在 `.projects/` 下。
+项目指明确选择的文件夹，而不是它所在的代码仓库。开始处理项目或切换项目时选择该文件夹；
+此后 Codex 会在当前对话中把它作为当前项目。如果要求使用默认工作区，新项目会创建在
+`.projects/` 下。
 
-## 常用指令
+## 可以这样提出需求
 
 | 目标 | 向 Codex 发出的指令 |
 | --- | --- |
-| 创建项目 | `project init <folder> <objective>` |
-| 将目标拆分为任务 | `project plan <folder>` |
-| 新增/更新任务、处置状态、阻塞或证据 | `project update <folder> <change-or-evidence>` |
-| 查看当前事实 | `project status <folder>` |
-| 找出最值得执行的工作 | `project next <folder>` |
-| 审查计划和证据 | `project review <folder>` |
-| 审查单个任务的质量 | `project validate-task <folder> <task-id>` |
-| 生成面向不同受众的报告 | `project report <folder> <operator\|project-manager\|executive\|board>` |
-| 打开看板和时间线 | `project studio [folder]` |
+| 创建项目 | `创建一个安全上线新版网站的项目，使用默认工作区。` |
+| 选择已有项目 | `处理 /work/.projects/website-launch 中的网站上线项目。` |
+| 将目标拆分为任务 | `规划完成这个项目需要做的工作。` |
+| 新增或调整工作 | `新增一个确认上线供应商的任务。` |
+| 记录决策、阻塞或证据 | `记录法务已经批准 TASK-CONTRACTS。` |
+| 查看当前事实 | `显示当前项目的状态。` |
+| 找出最值得执行的工作 | `接下来最应该做什么？` |
+| 审查计划和证据 | `审查这个项目是否存在计划缺口、薄弱证据和隐藏风险。` |
+| 审查单个任务的质量 | `检查 TASK-CONTRACTS 是否定义清楚。` |
+| 生成面向不同受众的报告 | `为这个项目准备一份高管进展报告。` |
+| 打开看板和时间线 | `为当前项目打开 Project Manager Studio。` |
 
-可以直接使用自然语言。例如：
-
-```text
-使用 $project-manager 查看 /work/.projects/launch 中有哪些阻塞项。
-使用 $project-manager 记录法务已经批准 TASK-CONTRACTS。
-使用 $project-manager 新增一个确认上线供应商的任务。
-使用 $project-manager 为 /work/.projects/launch 生成一份高管报告。
-```
+项目文件夹是上下文，不是每次都要重复的参数。只有尚未选择项目，或当前指代可能匹配
+多个项目时，Codex 才会要求确认文件夹。
 
 ## Project Manager Studio
 
-为单个独立项目启动 Studio：
+让 Codex 为单个独立项目打开 Studio：
 
 ```text
-project studio /absolute/path/to/project
+为 /absolute/path/to/project 打开 Project Manager Studio。
 ```
 
-如果当前工作区包含 `.projects/`，也可以不指定文件夹启动 Studio，然后从其中有效的
-一级子项目里选择：
+如果当前工作区包含 `.projects/`，可以要求从其中有效的一级子项目里选择：
 
 ```text
-project studio
+打开 Project Manager Studio，让我从当前工作区选择一个项目。
 ```
 
 Studio 会打开一个受令牌保护的本地页面。看板和时间线共用同一份项目快照、筛选条件、
@@ -118,8 +115,8 @@ Studio 默认把 `in_progress`、`implemented`、`verification` 和 `verified` �
 
 ### 严格度配置
 
-- `minimal` 与 `standard`：从未开始、且符合条件的人工任务可以通过一次 `project update`
-  和明确审批完成；系统仍会原子写入标准的不可变合同与已验证证据清单。
+- `minimal` 与 `standard`：从未开始、且符合条件的人工任务可以通过一次自然语言更新和
+  明确审批完成；系统仍会原子写入标准的不可变合同与已验证证据清单。
 - `controlled`：人工任务也必须按受控流程启动并用证据推进。
 - Agent、External 和 RPD 任务在所有配置中都使用受控执行。
 

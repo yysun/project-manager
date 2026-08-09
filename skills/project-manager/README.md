@@ -6,53 +6,51 @@ skill also includes Project Manager Studio, with Kanban and Timeline views over 
 
 ## Quick start
 
-Invoke the skill as `$project-manager`, or use the natural-language project routes below.
+Tell Codex what outcome you want and where the project workspace should live. Ordinary language is
+the interface; you do not need to learn commands or run scripts. Mention `$project-manager` when you
+want to select the skill explicitly.
 
 ```text
-project init /absolute/path/.projects/website-launch "Launch the new website safely"
-project plan /absolute/path/.projects/website-launch
-project studio /absolute/path/.projects/website-launch
+Use $project-manager to create a project at /work/.projects/website-launch for safely launching the new website.
+Plan the work needed to deliver this project.
+Open Project Manager Studio for it.
 ```
 
-A project is the selected folder, not the surrounding repository. Use an explicit absolute path
-when possible. If you ask for the workspace default, projects are created under `.projects/`.
+A project is the selected folder, not the surrounding repository. Select that folder when starting
+or switching projects; after that, Codex keeps it as the current project for the conversation. If you
+ask for the workspace default, new projects are created under `.projects/`.
 
-## Everyday commands
+## What you can ask
 
 | Goal | What to ask Codex |
 | --- | --- |
-| Create a project | `project init <folder> <objective>` |
-| Break the outcome into work | `project plan <folder>` |
-| Add/update a task, disposition, blocker, or evidence | `project update <folder> <change-or-evidence>` |
-| See current facts | `project status <folder>` |
-| Find the best executable work | `project next <folder>` |
-| Challenge the plan and evidence | `project review <folder>` |
-| Review one task's quality | `project validate-task <folder> <task-id>` |
-| Create an audience report | `project report <folder> <operator\|project-manager\|executive\|board>` |
-| Open Kanban and Timeline | `project studio [folder]` |
+| Create a project | `Create a project for safely launching the new website. Use the default workspace.` |
+| Select an existing project | `Work with the website-launch project at /work/.projects/website-launch.` |
+| Break the outcome into work | `Plan the work needed to deliver this project.` |
+| Add or revise work | `Add a task for confirming the launch vendor.` |
+| Record a decision, blocker, or evidence | `Record that legal approved TASK-CONTRACTS.` |
+| See current facts | `Show me the current project status.` |
+| Find the best executable work | `What should we work on next?` |
+| Challenge the plan and evidence | `Review this project for gaps, weak evidence, and hidden risks.` |
+| Review one task's quality | `Check whether TASK-CONTRACTS is well defined.` |
+| Create an audience report | `Prepare an executive update for this project.` |
+| Open Kanban and Timeline | `Open Project Manager Studio for this project.` |
 
-Natural language is fine. For example:
-
-```text
-Use $project-manager to show what is blocked in /work/.projects/launch.
-Use $project-manager to record that legal approved TASK-CONTRACTS.
-Use $project-manager to add a task for confirming the launch vendor.
-Use $project-manager to prepare an executive report for /work/.projects/launch.
-```
+The folder is project context, not a parameter you must repeat. Codex asks for it only when no project
+has been selected or when the reference could match more than one project.
 
 ## Project Manager Studio
 
-Run Studio for one isolated project:
+Ask Codex to open Studio for one isolated project:
 
 ```text
-project studio /absolute/path/to/project
+Open Project Manager Studio for /absolute/path/to/project.
 ```
 
-Run Studio without a folder from a workspace containing `.projects/` to select among its valid
-direct-child projects:
+From a workspace containing `.projects/`, ask to choose among its valid direct-child projects:
 
 ```text
-project studio
+Open Project Manager Studio and let me choose a project from this workspace.
 ```
 
 Studio opens a token-protected local page. Kanban and Timeline share the same project snapshot,
@@ -128,9 +126,9 @@ The detailed lifecycle, contract, and manifest remain visible in task inspection
 
 ### Rigor profiles
 
-- `minimal` and `standard`: eligible never-started human tasks may be completed in one `project update`
-  using a specific approval. Project Manager still writes the normal immutable contract and verified
-  manifest atomically.
+- `minimal` and `standard`: eligible never-started human tasks may be completed in one natural-language
+  update using a specific approval. Project Manager still writes the normal immutable contract and
+  verified manifest atomically.
 - `controlled`: human work must be started and advanced through governed evidence stages.
 - Agent, external, and RPD tasks are governed in every profile.
 
