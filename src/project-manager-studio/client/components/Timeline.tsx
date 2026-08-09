@@ -126,7 +126,7 @@ function Markers({ data, range }: { data: KanbanData; range: DateRange }) {
 function TimelineLabel({ task, onOpen }: { task: KanbanTask; onOpen: Props['onOpen'] }) {
   return <button className="timeline-label timeline-task-label" onClick={(event) => onOpen(task, event.currentTarget)}>
     <span className="timeline-title-line"><strong>{task.title}</strong><span className="task-id">{task.id}</span></span>
-    <span className="timeline-label-meta"><span className={`state state--${task.status}`}>{task.status.replaceAll('_', ' ')}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span><span>{task.owner ?? 'Unassigned'}</span><span>{task.milestone ?? 'No milestone'}</span></span>
+    <span className="timeline-label-meta"><span className={`state state--${task.display_status}`}>{task.display_status.replaceAll('_', ' ')}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span><span>{task.owner ?? 'Unassigned'}</span><span>{task.milestone ?? 'No milestone'}</span></span>
     {task.depends_on.length > 0 && <span className="timeline-context">After {task.depends_on.join(', ')}</span>}
     {task.dependency_blockers.length > 0 && <span className="timeline-blocker">Blocked by tasks: {task.dependency_blockers.join(', ')}</span>}
     {task.blocked_by.map((reason) => <span className="timeline-blocker" key={reason}>Blocked: {reason}</span>)}
@@ -136,7 +136,7 @@ function TimelineLabel({ task, onOpen }: { task: KanbanTask; onOpen: Props['onOp
 
 function ScheduleBar({ task, range, start, end, draft, onOpen, onBegin, onMove, onFinish, onNudge, suppressClick }: { task: KanbanTask; range: DateRange; start: string; end: string; draft: boolean; onOpen: Props['onOpen']; onBegin: (event: PointerEvent<HTMLElement>, task: KanbanTask, mode: Drag['mode']) => void; onMove: (event: PointerEvent<HTMLElement>) => void; onFinish: () => void; onNudge: (event: KeyboardEvent<HTMLElement>, task: KanbanTask, mode: Drag['mode']) => void; suppressClick: React.MutableRefObject<boolean> }) {
   const geometry = barGeometry(start, end, range);
-  const tone = task.schedule_conflicts.length > 0 || task.blocked_by.length > 0 || task.dependency_blockers.length > 0 ? 'warning' : task.status === 'done' ? 'done' : task.status === 'verified' ? 'review' : ['in_progress', 'implemented', 'verification'].includes(task.status) ? 'active' : 'planned';
+  const tone = task.schedule_conflicts.length > 0 || task.blocked_by.length > 0 || task.dependency_blockers.length > 0 ? 'warning' : task.display_status === 'done' ? 'done' : task.display_status === 'active' ? 'active' : task.display_status === 'deferred' || task.display_status === 'cancelled' ? 'review' : 'planned';
   const interaction = (mode: Drag['mode']) => ({ onPointerDown: (event: PointerEvent<HTMLElement>) => onBegin(event, task, mode), onPointerMove: onMove, onPointerUp: onFinish, onPointerCancel: onFinish });
   return <div className={`timeline-bar timeline-bar--${tone} ${draft ? 'timeline-bar--draft' : ''} ${task.schedule_editable ? '' : 'timeline-bar--locked'}`} style={{ left: `${geometry.left}%`, width: `${geometry.width}%` }}>
     {task.schedule_editable && <button className="bar-handle bar-handle--start" aria-label={`Resize ${task.title} start`} {...interaction('start')} onKeyDown={(event) => onNudge(event, task, 'start')} />}

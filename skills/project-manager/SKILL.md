@@ -5,7 +5,7 @@ description: Plan, coordinate, track, review, and report folder-native projects.
 
 # Project Manager
 
-**Version:** `1.0.1`
+**Version:** `1.1.0`
 **Repository:** https://github.com/yysun/rpd
 **Source:** https://github.com/yysun/rpd/tree/main/skills/project-manager
 
@@ -18,7 +18,7 @@ Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblin
 ## Operating boundary
 
 - Project Manager owns project state, decomposition, dependency coordination, prioritization, blockers, evidence ingestion, impact analysis, and reporting.
-- Executors own task work. Human, agent, external, and RPD providers use the same Task Contract → Evidence Manifest boundary.
+- Executors own task work. Governed execution and lightweight human completion both persist through the same Task Contract → Evidence Manifest boundary.
 - RPD is optional and owns `understand → implement → test → correct → verify` for a software task. Do not reproduce RPD inside this skill.
 - Git, source code, issue trackers, and storage providers are optional context. Never make them authoritative project state.
 
@@ -28,7 +28,7 @@ Use these nine user-facing routes. Natural language is preferred; do not force a
 
 1. `project init <folder> <objective-or-source>` — create the minimal three-file project atomically. Read [init.md](references/init.md).
 2. `project plan <folder>` — clarify success, decompose outcomes, and establish dependencies. Read [plan.md](references/plan.md).
-3. `project update <folder> <change-or-evidence>` — update state, issue a Task Contract, or ingest evidence. Read [track.md](references/track.md); for task structure also read [tasks.md](references/tasks.md).
+3. `project update <folder> <change-or-evidence>` — add/update a task, change disposition, issue a Task Contract, complete eligible human work, or ingest evidence. Read [track.md](references/track.md); for task structure also read [tasks.md](references/tasks.md).
 4. `project status <folder>` — calculate current facts with `project-status.js`.
 5. `project next <folder>` — rank executable work with `project-next.js`.
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
@@ -60,6 +60,7 @@ Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, 
 
 - Make the outcome and project success criteria explicit before expanding structure.
 - Keep a small task compact: title, outcome, and acceptance criteria are usually enough; defaults supply the rest.
+- Treat “add this task” as `project update`; do not add another route.
 - Use stable project-owned IDs. External tracker IDs are display-only mappings.
 - Resolve dependencies within the selected project only.
 - Distinguish explicit blocker descriptions from unfinished dependency task IDs.
@@ -67,7 +68,7 @@ Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, 
 
 ## Coordinate
 
-Choose an enabled executor per task. Starting work means issuing one immutable Task Contract bound to the selected project, current task specification, current sources, and provider evidence requirements. Contract issuance alone authorizes `ready → in_progress`.
+Choose an enabled executor per task. Require active disposition before issuing a contract or ingesting a manifest. Starting governed work means issuing one immutable Task Contract bound to the selected project, current task specification, current sources, and provider evidence requirements. Contract issuance alone authorizes `ready → in_progress`.
 
 For RPD:
 
@@ -81,15 +82,24 @@ Never infer executor success from a closed issue, commit, file presence, or conf
 
 ## Track
 
-Only a validated Evidence Manifest may advance work to `implemented`, `verification`, `verified`, or `done`. Validate its contract ID, task specification hash, source bindings, sequence, transition, typed evidence, acceptance mappings, and replay fingerprint.
+Only a validated Evidence Manifest may advance governed work to `implemented`, `verification`, `verified`, or `done`. Validate its contract ID, task specification hash, source bindings, sequence, transition, typed evidence, acceptance mappings, and replay fingerprint.
+
+Profiles select human rigor, not separate lifecycle engines:
+
+- `minimal` and `standard`: a never-started active human task may be completed in one update when one specific approval satisfies its evidence requirements, every dependency is done, no blocker exists, and every bound source is verifiable. Use `project-complete-human.js`; it atomically creates the existing contract/verified-manifest audit trail and marks the task done.
+- `controlled`: human work must use governed start and evidence progression.
+- Every `agent`, `external`, and `rpd` task uses governed execution in every profile.
 
 Lifecycle: `planned → ready → in_progress → implemented → verification → verified → done`.
+
+Ordinary presentation projects this as `Planned → Ready → Active → Done`. Keep internal stages available in audit detail.
 
 - Blocking is separate from lifecycle.
 - `done` requires a current verified manifest, completed dependencies, and no blockers.
 - If dependencies clear after verification, revalidate the stored verified manifest and advance without inventing a new one.
 - Preserve immutable attempts. A blocked retry creates a new contract.
 - On source or task-spec change, regress stale active state and preserve history.
+- Disposition is orthogonal: `deferred` pauses actionability and may reactivate; `cancelled` is terminal. Neither satisfies dependencies or success. Evidence observed after deferral/cancellation cannot advance lifecycle.
 
 ## Report
 
@@ -121,6 +131,8 @@ Studio is one local operating surface with sibling Kanban and Timeline views. Sp
 explicit `scheduled_start`/`scheduled_end` planning metadata and may be edited for eligible
 non-completed work, including active evidence-backed tasks, without changing Task Contract identity.
 Studio does not edit actual execution dates, task IDs, evidence, attempts, or re-verification state.
+Disposition has separate authority: eligible unfinished work may move between active/deferred or to
+terminal cancelled without changing Task Contract identity.
 “Check changes” is deterministic whole-project validation; “Copy LLM review command” only copies the
 semantic route above and does not call a model.
 

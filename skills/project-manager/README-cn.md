@@ -23,7 +23,7 @@ project studio /absolute/path/.projects/website-launch
 | --- | --- |
 | 创建项目 | `project init <folder> <objective>` |
 | 将目标拆分为任务 | `project plan <folder>` |
-| 记录变更、阻塞或证据 | `project update <folder> <change-or-evidence>` |
+| 新增/更新任务、处置状态、阻塞或证据 | `project update <folder> <change-or-evidence>` |
 | 查看当前事实 | `project status <folder>` |
 | 找出最值得执行的工作 | `project next <folder>` |
 | 审查计划和证据 | `project review <folder>` |
@@ -36,6 +36,7 @@ project studio /absolute/path/.projects/website-launch
 ```text
 使用 $project-manager 查看 /work/.projects/launch 中有哪些阻塞项。
 使用 $project-manager 记录法务已经批准 TASK-CONTRACTS。
+使用 $project-manager 新增一个确认上线供应商的任务。
 使用 $project-manager 为 /work/.projects/launch 生成一份高管报告。
 ```
 
@@ -59,7 +60,7 @@ Studio 会打开一个受令牌保护的本地页面。看板和时间线共用�
 
 ### 看板
 
-- 用看板查看任务生命周期：Planned、Ready、Active、Verified 和 Done。
+- 用看板查看普通流程：Planned、Ready、Active 和 Done；Deferred 与 Cancelled 作为旁路状态显示。
 - 按优先级、负责人和阻塞状态搜索或筛选。
 - 打开任务可查看目标、验收条件、依赖、阻塞、证据状态和计划时间。
 - 只有从未开始过的任务才能修改任务定义字段，或在 `planned` 与 `ready` 之间切换。
@@ -97,6 +98,7 @@ Project Manager 明确区分规划权限与执行证据：
 
 - 从未开始过的任务可以修改规划字段，并使用 `planned` 或 `ready` 状态。
 - 符合条件且尚未完成的任务，即使已经开始执行，仍可重新排期。
+- 符合条件且尚未完成的任务可以独立延期、恢复或终止取消，不会混入任务定义或排期权限。
 - 已完成任务、属于已完成里程碑的任务，以及已完成项目中的任务，都不能在 Studio 中重新排期。
 - Studio 不会编辑任务 ID、实际执行日期、合同、清单、证据、执行尝试或重新验证状态。
 - **Check changes** 会在不保存的情况下校验完整的候选项目。
@@ -111,6 +113,24 @@ planned → ready → in_progress → implemented → verification → verified 
 开始执行需要 Task Contract。后续生命周期推进需要经过验证的 Evidence Manifest。
 一次提交、一个已关闭工单或一句肯定的状态说明，本身都不能作为完成证据。
 
+Studio 默认把 `in_progress`、`implemented`、`verification` 和 `verified` 投影为 **Active**；
+任务详情仍保留完整生命周期、合同和证据清单。
+
+### 严格度配置
+
+- `minimal` 与 `standard`：从未开始、且符合条件的人工任务可以通过一次 `project update`
+  和明确审批完成；系统仍会原子写入标准的不可变合同与已验证证据清单。
+- `controlled`：人工任务也必须按受控流程启动并用证据推进。
+- Agent、External 和 RPD 任务在所有配置中都使用受控执行。
+
+如果任务存在阻塞、未完成依赖、已有执行历史、已延期/取消，或一条审批无法满足自定义证据
+要求，轻量完成会拒绝执行。
+
+### 延期与取消
+
+处置状态独立于生命周期。延期会暂停任务，之后可恢复；取消是终态。两者都不会进入下一任务
+推荐；取消也不会满足依赖或证明项目成功。
+
 ## 项目文件
 
 每个项目最初包含三个文件：
@@ -124,7 +144,7 @@ planned → ready → in_progress → implemented → verification → verified 
 
 ## 任务排期
 
-已排期任务使用 `TASKS.md` schema v2 保存包含首尾日期的时间范围：
+已排期任务使用 `TASKS.md` schema v2 或 v3 保存包含首尾日期的时间范围：
 
 ```json
 {"outcome":"上线素材已经准备完成。","acceptance":["市场团队批准所有素材。"],"scheduled_start":"2026-09-08","scheduled_end":"2026-09-12"}
@@ -132,6 +152,9 @@ planned → ready → in_progress → implemented → verification → verified 
 
 两个排期字段必须同时存在或同时缺省，并且开始日期不能晚于结束日期。第一次保存排期时，
 只会把 `TASKS.md` 从 schema v1 升级到 v2。清空全部任务排期不会自动降级文件版本。
+
+第一次修改处置状态会把 TASKS 升级到 schema v3，并保留已有排期。Schema v3 只持久化
+非 active 的处置状态及其 RFC3339 变更时间。
 
 ## 常见问题
 

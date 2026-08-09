@@ -14,12 +14,13 @@ interface Props { data: KanbanData; task: KanbanTask; opener: HTMLElement | null
 
 function initialEdit(task: KanbanTask): TaskEdit {
   const schedule = task.schedule_editable ? { scheduled_start: task.scheduled_start, scheduled_end: task.scheduled_end } : {};
-  if (!task.editable) return schedule;
+  const coordination = task.disposition_editable ? { disposition: task.disposition } : {};
+  if (!task.editable) return { ...coordination, ...schedule };
   return {
     title: task.title, outcome: task.outcome, acceptance: task.acceptance, status: task.status as 'planned' | 'ready',
     priority: task.priority, milestone: task.milestone, owner: task.owner, depends_on: task.depends_on,
     blocked_by: task.blocked_by, success_criteria: task.success_criteria, constraints: task.constraints, critical: task.critical,
-    ...schedule,
+    ...coordination, ...schedule,
   };
 }
 
@@ -90,13 +91,14 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
       </header>
       <div className="dialog-scroll">
         <div className="task-meta-strip">
-          <span className={`state state--${task.status}`}>{task.status.replaceAll('_', ' ')}</span>
+          <span className={`state state--${task.display_status}`}>{task.display_status.replaceAll('_', ' ')}</span>
           <span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span>
           <span>{valueOrDash(task.owner)}</span>
           {task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}
         </div>
         {!task.editable && <div className="read-only-note"><strong>Specification and status are read-only</strong><p>{task.edit_reason}</p></div>}
         {!task.schedule_editable && <div className="read-only-note"><strong>Schedule is read-only</strong><p>{task.schedule_edit_reason}</p></div>}
+        {!task.disposition_editable && <div className="read-only-note"><strong>Disposition is read-only</strong><p>{task.disposition_edit_reason}</p></div>}
         <div className="dialog-grid">
           <div className="editor-column">
             {task.editable ? <>
@@ -117,11 +119,15 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
               <label className="field"><span>Explicit blockers <small>One per line</small></span><textarea rows={3} value={(edit.blocked_by ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, blocked_by: lines(e.target.value).sort() })} /></label>
               <label className="field"><span>Constraints <small>One per line</small></span><textarea rows={3} value={(edit.constraints ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, constraints: lines(e.target.value) })} /></label>
             </> : <ReadOnlyTask task={task} />}
+            {task.disposition_editable ? <section className="schedule-editor" aria-labelledby="disposition-editor-title"><div className="section-heading"><div><span className="eyebrow">Coordination state</span><h3 id="disposition-editor-title">Disposition</h3></div></div><label className="field"><span>Disposition</span><select value={edit.disposition} onChange={(e) => setEdit({ ...edit, disposition: e.target.value as KanbanTask['disposition'] })}><option value="active">Active</option><option value="deferred">Deferred</option><option value="cancelled">Cancelled</option></select></label><p>Deferral pauses actionability. Cancellation is terminal and does not satisfy dependencies or success criteria.</p></section> : null}
             {task.schedule_editable ? <section className="schedule-editor" aria-labelledby="schedule-editor-title"><div className="section-heading"><div><span className="eyebrow">Planning metadata</span><h3 id="schedule-editor-title">Schedule</h3></div><button className="clear-button" type="button" onClick={() => setEdit({ ...edit, scheduled_start: null, scheduled_end: null })}>Clear dates</button></div><div className="field-row"><label className="field"><span>Scheduled start</span><input type="date" value={edit.scheduled_start ?? ''} onChange={(e) => setEdit({ ...edit, scheduled_start: e.target.value || null })} /></label><label className="field"><span>Scheduled end</span><input type="date" value={edit.scheduled_end ?? ''} onChange={(e) => setEdit({ ...edit, scheduled_end: e.target.value || null })} /></label></div><p>Scheduled dates are editable planning metadata. Actual execution dates come from evidence.</p></section> : <div className="read-only-content"><h3>Schedule</h3><p>{task.scheduled_start && task.scheduled_end ? `${task.scheduled_start} → ${task.scheduled_end}` : 'Unscheduled'}</p></div>}
           </div>
           <aside className="evidence-column">
             <h3>Execution context</h3>
             <Definition label="Executor" value={task.executor.provider} />
+            <Definition label="Detailed lifecycle" value={task.status.replaceAll('_', ' ')} />
+            <Definition label="Disposition" value={task.disposition} />
+            <Definition label="Disposition changed" value={valueOrDash(task.disposition_changed_at)} />
             <Definition label="Milestone" value={valueOrDash(task.milestone)} />
             <Definition label="Dependencies" value={task.depends_on.join(', ') || 'None'} />
             <Definition label="Dependency blockers" value={task.dependency_blockers.join(', ') || 'None'} />
@@ -140,7 +146,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
       </div>
       <footer className="dialog-actions">
         <button className="secondary-button" onClick={onClose}>Close</button>
-        {(task.editable || task.schedule_editable) && <><button className="secondary-button" disabled={busy !== null} onClick={() => invoke('check')}>{busy === 'check' ? 'Checking…' : 'Check changes'}</button><button className="primary-button" disabled={busy !== null} onClick={() => invoke('save')}>{busy === 'save' ? 'Saving…' : 'Save task'}</button></>}
+        {(task.editable || task.schedule_editable || task.disposition_editable) && <><button className="secondary-button" disabled={busy !== null} onClick={() => invoke('check')}>{busy === 'check' ? 'Checking…' : 'Check changes'}</button><button className="primary-button" disabled={busy !== null} onClick={() => invoke('save')}>{busy === 'save' ? 'Saving…' : 'Save task'}</button></>}
       </footer>
     </section>
   </div>;

@@ -23,7 +23,7 @@ when possible. If you ask for the workspace default, projects are created under 
 | --- | --- |
 | Create a project | `project init <folder> <objective>` |
 | Break the outcome into work | `project plan <folder>` |
-| Record a change, blocker, or evidence | `project update <folder> <change-or-evidence>` |
+| Add/update a task, disposition, blocker, or evidence | `project update <folder> <change-or-evidence>` |
 | See current facts | `project status <folder>` |
 | Find the best executable work | `project next <folder>` |
 | Challenge the plan and evidence | `project review <folder>` |
@@ -36,6 +36,7 @@ Natural language is fine. For example:
 ```text
 Use $project-manager to show what is blocked in /work/.projects/launch.
 Use $project-manager to record that legal approved TASK-CONTRACTS.
+Use $project-manager to add a task for confirming the launch vendor.
 Use $project-manager to prepare an executive report for /work/.projects/launch.
 ```
 
@@ -59,7 +60,7 @@ filters, task details, validation, and save boundary.
 
 ### Kanban
 
-- Use Kanban to see lifecycle flow: Planned, Ready, Active, Verified, and Done.
+- Use Kanban to see ordinary flow: Planned, Ready, Active, and Done, with Deferred and Cancelled side states.
 - Search or filter by priority, owner, and blockers.
 - Open a task to inspect its outcome, acceptance criteria, dependencies, blockers, evidence state,
   and schedule.
@@ -103,6 +104,7 @@ Project Manager deliberately separates planning authority from execution evidenc
 
 - Never-started tasks may edit planning fields and use `planned` or `ready` status.
 - Eligible unfinished tasks may be rescheduled even after execution has started.
+- Eligible unfinished tasks may be deferred/reactivated or terminally cancelled independently from specification and schedule edits.
 - Completed tasks, tasks in completed milestones, and tasks in completed projects cannot be
   rescheduled in Studio.
 - Studio never edits task IDs, actual execution dates, contracts, manifests, evidence, attempts, or
@@ -121,6 +123,25 @@ Starting work requires a Task Contract. Later lifecycle progress requires valida
 Manifests. A commit, closed ticket, or confident status message is not completion evidence by
 itself.
 
+Studio normally projects `in_progress`, `implemented`, `verification`, and `verified` as **Active**.
+The detailed lifecycle, contract, and manifest remain visible in task inspection.
+
+### Rigor profiles
+
+- `minimal` and `standard`: eligible never-started human tasks may be completed in one `project update`
+  using a specific approval. Project Manager still writes the normal immutable contract and verified
+  manifest atomically.
+- `controlled`: human work must be started and advanced through governed evidence stages.
+- Agent, external, and RPD tasks are governed in every profile.
+
+The lightweight path rejects blockers, incomplete dependencies, existing attempts, deferred/cancelled
+work, custom evidence one approval cannot prove, and unverifiable bound sources.
+
+### Deferred and cancelled work
+
+Disposition is separate from lifecycle. Deferred work is paused and may be reactivated. Cancellation is
+terminal. Neither state is next work; cancellation does not satisfy dependencies or prove success.
+
 ## Project files
 
 Every project starts with three files:
@@ -134,7 +155,7 @@ immutable execution attempts only when the project needs them.
 
 ## Task schedules
 
-A scheduled task stores an inclusive date range in `TASKS.md` schema v2:
+A scheduled task stores an inclusive date range in `TASKS.md` schema v2 or v3:
 
 ```json
 {"outcome":"Launch assets are ready.","acceptance":["Marketing approves every asset."],"scheduled_start":"2026-09-08","scheduled_end":"2026-09-12"}
@@ -143,6 +164,9 @@ A scheduled task stores an inclusive date range in `TASKS.md` schema v2:
 Both schedule fields must be present or both absent, and the start cannot be later than the end.
 The first saved schedule upgrades only `TASKS.md` from schema v1 to v2. Clearing all task schedules
 does not silently downgrade the file.
+
+The first disposition change upgrades TASKS to schema v3 while preserving schedules. Schema v3 stores
+only non-active dispositions with their RFC3339 change timestamp.
 
 ## Common problems
 

@@ -13,4 +13,6 @@ Plan from outcome to executable work:
 
 Do not create schedule precision from task counts. A milestone forecast is valid only with a forecast date, update date, and evidence.
 
-Project completion requires every task done, every configured milestone complete, and every project success criterion mapped to at least one done task.
+Project completion requires every task evidence-backed done or terminally cancelled, every configured
+milestone complete, and every project success criterion mapped to at least one non-cancelled done task.
+Cancellation never satisfies a dependency or success criterion.

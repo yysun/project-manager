@@ -1,9 +1,9 @@
 /**
  * Responsibility: same-filesystem candidate/backup transactions for skill-led
  * project initialization and updates. Invariants: validate before exposure and
- * restore exact prior bytes after any failed replacement. Recent change: exact
- * tree revisions, verbatim candidate copies, and an isolated sibling work area
- * prevent stale swaps and catalog poisoning after interrupted transactions.
+ * restore exact prior bytes after any failed replacement. Recent changes: exact
+ * tree revisions, verbatim candidate copies, isolated sibling work areas, and
+ * before/after disposition guards prevent stale swaps and terminal-state bypass.
  */
 'use strict';
 
@@ -168,6 +168,18 @@ function assertImmutablePreserved(before, candidate, beforeState, afterState) {
   }
 }
 
+function assertDispositionTransitions(beforeState, afterState) {
+  if (!Array.isArray(beforeState?.tasks) || !Array.isArray(afterState?.tasks)) return;
+  const afterById = new Map(afterState.tasks.map((task) => [task.id, task]));
+  for (const beforeTask of beforeState.tasks) {
+    if ((beforeTask.disposition ?? 'active') !== 'cancelled') continue;
+    const afterTask = afterById.get(beforeTask.id);
+    if (!afterTask || (afterTask.disposition ?? 'active') !== 'cancelled') {
+      throw new Error(`Cancellation is terminal for task ${beforeTask.id}`);
+    }
+  }
+}
+
 function atomicProjectMutation(target, mutateCandidate, validateCandidate, options = {}) {
   if (!path.isAbsolute(target)) throw new Error('Project mutation target must be absolute');
   const parent = path.dirname(target); const name = path.basename(target);
@@ -198,6 +210,7 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
     mutateCandidate(candidate, context);
     const validation = validateCandidate(candidate, context);
     if (validation?.status_stale === true) throw new Error('Mutation candidate must regenerate STATUS.md before apply');
+    assertDispositionTransitions(beforeState, validation);
     assertImmutablePreserved(immutableBefore, candidate, beforeState, validation);
     if (exists && expectedRevision !== null) {
       const currentRevision = mutationRevision(target);
@@ -231,4 +244,4 @@ function atomicProjectMutation(target, mutateCandidate, validateCandidate, optio
   }
 }
 
-module.exports = { atomicProjectMutation, createProjectWork, cleanupProjectWork, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };
+module.exports = { atomicProjectMutation, assertDispositionTransitions, createProjectWork, cleanupProjectWork, isEmptyDirectory, immutableInventory, mutationRevision, MutationConflictError, UnsupportedProjectEntryError };

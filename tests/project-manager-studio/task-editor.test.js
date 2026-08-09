@@ -1,5 +1,5 @@
-/* Task-editor contracts: exact revisions, split planning/schedule authority,
-   v1-to-v2 migration, protected history, conflicts, copy fidelity, and rollback. */
+/* Task-editor contracts: exact revisions, split planning/disposition/schedule authority,
+   v1-v3 migration, protected history, conflicts, copy fidelity, and rollback. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -36,6 +36,22 @@ test('schedule edits migrate v1 to v2, clear canonically, and preserve task iden
   let text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'); assert.match(text, /schema_version: 2/); assert.match(text, /"scheduled_start":"2026-08-10"/); assert.match(text, /Human note stays here\./);
   saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: null, scheduled_end: null }));
   text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'); assert.match(text, /schema_version: 2/); assert.doesNotMatch(text, /scheduled_start|scheduled_end/); assert.equal(loadProject(root).tasks[0].spec_sha256, beforeHash);
+});
+
+test('disposition edits upgrade to v3, preserve schedules and identity, and make cancellation terminal', () => {
+  const root = makeProject(); const original = loadProject(root).tasks[0]; const originalHash = original.spec_sha256;
+  saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' }));
+  let data = saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { disposition: 'deferred' }));
+  let task = data.tasks.find((item) => item.id === 'TASK-PLAN'); let text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8');
+  assert.match(text, /schema_version: 3/); assert.match(text, /"scheduled_start":"2026-08-10"/); assert.match(text, /"disposition":"deferred"/);
+  assert.equal(task.task_revision, originalHash); assert.equal(task.display_status, 'deferred'); assert.equal(task.disposition_editable, true); assert.equal(task.next_rank, null);
+
+  data = saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { disposition: 'active' })); task = data.tasks.find((item) => item.id === 'TASK-PLAN'); text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8');
+  assert.equal(task.disposition, 'active'); assert.equal(task.display_status, 'planned'); assert.doesNotMatch(text, /disposition_changed_at/); assert.match(text, /schema_version: 3/);
+
+  data = saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { disposition: 'cancelled' })); task = data.tasks.find((item) => item.id === 'TASK-PLAN');
+  assert.equal(task.display_status, 'cancelled'); assert.equal(task.disposition_editable, false); assert.equal(task.schedule_editable, false);
+  assert.throws(() => saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { disposition: 'active' })), (error) => error.code === 'TASK_DISPOSITION_READ_ONLY');
 });
 
 test('partial, mixed, reversed, and stale schedules fail without live mutation', () => {

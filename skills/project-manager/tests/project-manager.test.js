@@ -2,7 +2,8 @@
  * Responsibility: executable contract tests for folder isolation, deterministic
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
  * Invariants: temporary fixtures only; no repository mutation. Recent changes:
- * cover TASKS v2 schedules, Studio projection, and strict projects-root discovery.
+ * cover TASKS v3 dispositions, rigor policies, lightweight human completion,
+ * Studio projection, and strict projects-root discovery.
  */
 'use strict';
 
@@ -13,13 +14,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, regenerateStatus,
+  loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
   renderRpdPrompt, validateManifest, validateEvidenceRequirements, validateTaskContract, formatTaskContract, formatEvidenceManifest, snapshotRpdEvidence,
 } = require('../scripts/lib/contracts');
 const { atomicProjectMutation, createProjectWork, cleanupProjectWork } = require('../scripts/lib/mutations');
+const { completeHumanTask, loadStableProject } = require('../scripts/lib/human-completion');
 
 const SCRIPT_ROOT = path.join(__dirname, '..', 'scripts');
 
@@ -88,6 +90,105 @@ test('minimal generic project validates without Git, milestones, traceability, o
   assert.equal(reportData(state).unknowns.some((item) => item.field === 'status.coverage'), true);
 });
 
+test('profile policy keeps governed execution universal while simplifying ordinary human completion', () => {
+  assert.deepEqual(profilePolicy('minimal'), { human_completion: 'lightweight', delegated_execution: 'governed' });
+  assert.deepEqual(profilePolicy('standard'), { human_completion: 'lightweight', delegated_execution: 'governed' });
+  assert.deepEqual(profilePolicy('controlled'), { human_completion: 'governed', delegated_execution: 'governed' });
+  for (const profile of ['minimal', 'standard']) {
+    const base = temp(); const root = createProject(base, `HUMAN-${profile.toUpperCase()}`, [task('TASK-APPROVE', 'Approve', 'The decision is confirmed.', ['The owner approves the decision.'], { status: 'planned', success_criteria: ['SC-OUTCOME'] })], { profile });
+    const result = completeHumanTask(root, 'TASK-APPROVE', { ref: 'owner-signoff', result: 'Owner approved the final decision.', observed_at: '2026-08-08T01:00:00Z' });
+    const state = loadProject(root); const completed = state.tasks[0];
+    assert.equal(result.status, 'done'); assert.equal(completed.status, 'done'); assert.equal(completed.active_contract, result.contract_id); assert.equal(completed.last_manifest, result.manifest_id);
+    assert.equal(fs.existsSync(path.join(root, 'handoffs', completed.id, result.contract_id, 'TASK-CONTRACT.md')), true);
+    assert.equal(fs.existsSync(path.join(root, 'handoffs', completed.id, result.contract_id, 'EVIDENCE-001.md')), true);
+    assert.equal(statusData(state).project.policy.human_completion, 'lightweight'); assert.equal(state.status_stale, false);
+  }
+  const revisions = ['before-a', 'after-a', 'stable', 'stable']; let revisionIndex = 0;
+  const stable = loadStableProject('/synthetic', 3, () => revisions[revisionIndex++], () => ({ read_at: revisionIndex }));
+  assert.deepEqual(stable, { state: { read_at: 3 }, mutation_revision: 'stable' });
+});
+
+test('lightweight human completion rejects unprovable work and rolls back exact bytes', () => {
+  const controlled = createProject(temp(), 'CONTROLLED-HUMAN', [task('TASK-A', 'A', 'A is complete.', ['A is approved.'])], { profile: 'controlled' });
+  let before = treeHash(controlled);
+  assert.throws(() => completeHumanTask(controlled, 'TASK-A', { ref: 'approval', result: 'Approved.', observed_at: '2026-08-08T01:00:00Z' }), (error) => error.code === 'CONTROLLED_PROFILE');
+  assert.equal(treeHash(controlled), before);
+
+  const custom = createProject(temp(), 'CUSTOM-HUMAN', [task('TASK-A', 'A', 'A is complete.', ['A is approved.'], { evidence_requirements: [{ stage: 'verified', any_of: ['review'], minimum: 1 }] })]);
+  before = treeHash(custom);
+  assert.throws(() => completeHumanTask(custom, 'TASK-A', { ref: 'approval', result: 'Approved.', observed_at: '2026-08-08T01:00:00Z' }), (error) => error.code === 'EVIDENCE_REQUIRES_GOVERNED');
+  assert.equal(treeHash(custom), before);
+
+  const rollback = createProject(temp(), 'ROLLBACK-HUMAN', [task('TASK-A', 'A', 'A is complete.', ['A is approved.'])]); before = treeHash(rollback);
+  assert.throws(() => completeHumanTask(rollback, 'TASK-A', { ref: 'approval', result: 'Approved.', observed_at: '2026-08-08T01:00:00Z' }, { injectFailureAfterReplace: true }), /Injected failure/);
+  assert.equal(treeHash(rollback), before);
+
+  const sourced = createProject(temp(), 'SOURCED-HUMAN', [task('TASK-A', 'A', 'A is complete.', ['A is approved.'], { sources: ['SRC-LIVE'] })]);
+  fs.writeFileSync(path.join(sourced, 'SOURCES.md'), collection([{ id: 'SRC-LIVE', title: 'Live source', data: { kind: 'document', location: 'brief.md', role: 'scope', status: 'current', version: null, sha256: null } }])); regenerateStatus(sourced, '2026-08-08T00:30:00Z'); before = treeHash(sourced);
+  assert.throws(() => completeHumanTask(sourced, 'TASK-A', { ref: 'approval', result: 'Approved.', observed_at: '2026-08-08T01:00:00Z' }), (error) => error.code === 'SOURCE_UNVERIFIABLE');
+  assert.equal(treeHash(sourced), before);
+});
+
+test('TASKS v3 dispositions preserve schedules and separate actionability, blockers, and mappings', () => {
+  const records = [
+    task('TASK-READY', 'Ready', 'Ready outcome.', ['Ready accepted.'], { status: 'ready', blocks: [] }),
+    task('TASK-DEFERRED', 'Deferred', 'Deferred outcome.', ['Deferred accepted.'], { status: 'planned', disposition: 'deferred', disposition_changed_at: '2026-08-08T01:00:00Z', blocked_by: ['Paused externally'], success_criteria: ['SC-OUTCOME'], scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' }),
+    task('TASK-CANCELLED', 'Cancelled', 'Cancelled outcome.', ['Cancelled accepted.'], { status: 'planned', disposition: 'cancelled', disposition_changed_at: '2026-08-08T01:00:00Z', blocks: ['TASK-WAITING'], blocked_by: ['No longer funded'], success_criteria: ['SC-OUTCOME'] }),
+    task('TASK-WAITING', 'Waiting', 'Waiting outcome.', ['Waiting accepted.'], { status: 'planned', depends_on: ['TASK-CANCELLED'], blocked_by: [], blocks: [] }),
+  ];
+  const root = createProject(temp(), 'DISPOSITIONS', records); fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records, 3)); regenerateStatus(root, '2026-08-08T01:01:00Z');
+  const state = loadProject(root); const status = statusData(state); const report = reportData(state); const board = kanbanData(state);
+  assert.deepEqual(nextData(state).tasks.map((item) => item.id), ['TASK-READY']);
+  assert.deepEqual(blockerItems(state).map((item) => item.id), ['TASK-WAITING']);
+  assert.deepEqual(status.tasks.by_disposition, { active: 2, deferred: 1, cancelled: 1 });
+  assert.equal(status.schema_version, 2); assert.equal(report.schema_version, 2); assert.equal(status.success.covered, 1); assert.equal(status.success.verified, 0);
+  assert.deepEqual(board.lanes.map((lane) => [lane.id, lane.tasks.map((item) => item.id)]), [
+    ['planned', ['TASK-WAITING']], ['ready', ['TASK-READY']], ['active', []], ['done', []], ['deferred', ['TASK-DEFERRED']], ['cancelled', ['TASK-CANCELLED']],
+  ]);
+  assert.equal(state.tasks.find((item) => item.id === 'TASK-DEFERRED').scheduled_end, '2026-08-12');
+
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records, 2));
+  assert.throws(() => loadProject(root), /unknown fields: disposition, disposition_changed_at/);
+  const split = structuredClone(records); delete split[1].data.disposition_changed_at; fs.writeFileSync(path.join(root, 'TASKS.md'), collection(split, 3));
+  assert.throws(() => loadProject(root), /disposition must contain both/);
+});
+
+test('disposition freezes later evidence and cancellation closes scope without proving it', () => {
+  const base = temp(); const root = createProject(base, 'FROZEN', [task('TASK-A', 'A', 'A outcome.', ['Outcome is accepted.'], { status: 'planned' })]);
+  const initial = loadProject(root); const model = initial.tasks[0]; const contract = buildTaskContract(initial.project, model, [], '2026-08-08T00:00:00Z');
+  const attempt = path.join(root, 'handoffs', model.id, contract.contract_id); fs.mkdirSync(attempt, { recursive: true }); fs.writeFileSync(path.join(attempt, 'TASK-CONTRACT.md'), formatTaskContract(contract));
+  const deferred = task('TASK-A', 'A', 'A outcome.', ['Outcome is accepted.'], { status: 'in_progress', active_contract: contract.contract_id, disposition: 'deferred', disposition_changed_at: '2026-08-08T00:01:00Z' });
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([deferred], 3)); regenerateStatus(root, '2026-08-08T00:01:00Z'); assert.doesNotThrow(() => loadProject(root));
+  const approval = { kind: 'approval', ref: 'late', result: 'Late approval.', sha256: null };
+  const late = formatEvidenceManifest(manifest(contract, 'verified', 1, [approval], [approval], { observed_at: '2026-08-08T00:02:00Z' }), contract);
+  fs.writeFileSync(path.join(attempt, 'EVIDENCE-001.md'), late.document); deferred.data.status = 'verified'; deferred.data.last_manifest = late.manifest_id; fs.writeFileSync(path.join(root, 'TASKS.md'), collection([deferred], 3));
+  assert.throws(() => loadProject(root), /evidence was observed after its deferred disposition/);
+
+  const closed = createProject(temp(), 'CLOSED-SCOPE', [
+    task('TASK-DONE', 'Done', 'Done outcome.', ['Done accepted.'], { status: 'planned', milestone: 'M-END', success_criteria: ['SC-OUTCOME'] }),
+    task('TASK-CANCELLED', 'Cancelled', 'Cancelled outcome.', ['Cancelled accepted.'], { status: 'planned', milestone: 'M-END', disposition: 'cancelled', disposition_changed_at: '2026-08-08T00:00:00Z', success_criteria: ['SC-OUTCOME'] }),
+  ]);
+  fs.writeFileSync(path.join(closed, 'TASKS.md'), collection([
+    task('TASK-DONE', 'Done', 'Done outcome.', ['Done accepted.'], { status: 'planned', milestone: 'M-END', success_criteria: ['SC-OUTCOME'] }),
+    task('TASK-CANCELLED', 'Cancelled', 'Cancelled outcome.', ['Cancelled accepted.'], { status: 'planned', milestone: 'M-END', disposition: 'cancelled', disposition_changed_at: '2026-08-08T00:00:00Z', success_criteria: ['SC-OUTCOME'] }),
+  ], 3));
+  fs.writeFileSync(path.join(closed, 'MILESTONES.md'), collection([{ id: 'M-END', title: 'End', data: { status: 'planned' } }])); regenerateStatus(closed, '2026-08-08T00:00:01Z');
+  completeHumanTask(closed, 'TASK-DONE', { ref: 'owner', result: 'Done work accepted.', observed_at: '2026-08-08T00:02:00Z' });
+  fs.writeFileSync(path.join(closed, 'MILESTONES.md'), collection([{ id: 'M-END', title: 'End', data: { status: 'complete' } }]));
+  fs.writeFileSync(path.join(closed, 'PROJECT.md'), fs.readFileSync(path.join(closed, 'PROJECT.md'), 'utf8').replace('status: "active"', 'status: "complete"'));
+  regenerateStatus(closed, '2026-08-08T00:03:00Z'); const closedState = loadProject(closed);
+  assert.equal(closedState.project.status, 'complete'); assert.deepEqual(successCounts(closedState), { total: 1, covered: 1, verified: 1 });
+
+  const terminal = createProject(temp(), 'TERMINAL-CANCEL', [task('TASK-CANCELLED', 'Cancelled', 'Cancelled outcome.', ['Cancelled accepted.'], { disposition: 'cancelled', disposition_changed_at: '2026-08-08T00:00:00Z' })]);
+  fs.writeFileSync(path.join(terminal, 'TASKS.md'), collection([task('TASK-CANCELLED', 'Cancelled', 'Cancelled outcome.', ['Cancelled accepted.'], { disposition: 'cancelled', disposition_changed_at: '2026-08-08T00:00:00Z' })], 3)); regenerateStatus(terminal, '2026-08-08T00:00:01Z');
+  const terminalBefore = treeHash(terminal);
+  assert.throws(() => atomicProjectMutation(terminal, (candidate, context) => {
+    fs.writeFileSync(path.join(candidate, 'TASKS.md'), collection([task('TASK-CANCELLED', 'Cancelled', 'Cancelled outcome.', ['Cancelled accepted.'])]));
+    regenerateStatus(candidate, '2026-08-08T00:01:00Z', context);
+  }, loadProject), /Cancellation is terminal for task TASK-CANCELLED/);
+  assert.equal(treeHash(terminal), terminalBefore);
+});
+
 test('Kanban projection groups exact lifecycle state and exposes truthful edit eligibility', () => {
   const base = temp();
   const root = createProject(base, 'KANBAN', [
@@ -97,7 +198,7 @@ test('Kanban projection groups exact lifecycle state and exposes truthful edit e
   regenerateStatus(root, '2026-08-08T00:00:00Z');
   const board = kanbanData(loadProject(root), 'a'.repeat(64));
   assert.equal(board.mutation_revision, 'a'.repeat(64));
-  assert.deepEqual(board.lanes.map((lane) => [lane.id, lane.tasks.length]), [['planned', 1], ['ready', 1], ['active', 0], ['verified', 0], ['done', 0]]);
+  assert.deepEqual(board.lanes.map((lane) => [lane.id, lane.tasks.length]), [['planned', 1], ['ready', 1], ['active', 0], ['done', 0], ['deferred', 0], ['cancelled', 0]]);
   assert.equal(board.lanes[0].tasks[0].status, 'planned'); assert.equal(board.lanes[0].tasks[0].editable, true);
   assert.equal(board.summary.owner_gaps, 1); assert.equal(board.summary.coverage.configured, false);
 });
@@ -113,6 +214,7 @@ test('v1 schedule support preserves legacy source hashes and schedule denial bou
   const activeProject = { project: { status: 'active' }, milestones: { items: [] } };
   assert.deepEqual(scheduleEditEligibility(activeProject, { status: 'done', milestone: null }), { editable: false, reason: 'Completed tasks cannot be rescheduled in Studio.' });
   assert.deepEqual(scheduleEditEligibility({ project: { status: 'active' }, milestones: { items: [{ id: 'M-DONE', status: 'complete' }] } }, { status: 'in_progress', milestone: 'M-DONE' }), { editable: false, reason: 'Tasks in completed milestones cannot be rescheduled in Studio.' });
+  assert.deepEqual(dispositionEditEligibility({ project: { status: 'active' }, milestones: { items: [{ id: 'M-DONE', status: 'complete' }] } }, { status: 'planned', milestone: 'M-DONE', disposition: 'active' }), { editable: false, reason: 'Tasks in completed milestones cannot change disposition.' });
   assert.deepEqual(scheduleEditEligibility({ project: { status: 'complete' }, milestones: { items: [] } }, { status: 'in_progress', milestone: null }), { editable: false, reason: 'Completed projects cannot be rescheduled in Studio.' });
 });
 

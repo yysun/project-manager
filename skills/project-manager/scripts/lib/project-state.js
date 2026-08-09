@@ -3,8 +3,8 @@
  * then calculate deterministic status, ranking, blockers, coverage, and Studio views.
  * Invariants: read-only operation, selected-root isolation, exact schema versions,
  * and schedule metadata that never changes execution-contract identity.
- * Recent changes: add TASKS v2 schedules, shared Kanban/Timeline projection,
- * and strict direct-child discovery for Studio project roots.
+ * Recent changes: add rigor-profile policy, TASKS v3 dispositions, lightweight
+ * human completion support, and ordinary lifecycle projection for Studio.
  */
 'use strict';
 
@@ -17,6 +17,7 @@ const REQUIRED = ['PROJECT.md', 'TASKS.md', 'STATUS.md'];
 const OPTIONAL_FILES = ['MILESTONES.md', 'RISKS.md', 'DECISIONS.md', 'SOURCES.md', 'TRACEABILITY.md', 'CHANGES.md'];
 const OPTIONAL_DIRS = ['handoffs', path.join('reports', 'history')];
 const TASK_STATUSES = ['planned', 'ready', 'in_progress', 'implemented', 'verification', 'verified', 'done'];
+const TASK_DISPOSITIONS = ['active', 'deferred', 'cancelled'];
 const PROVIDERS = ['human', 'rpd', 'agent', 'external'];
 const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
@@ -55,6 +56,29 @@ function validDate(value) {
   if (!DATE.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function profilePolicy(profile) {
+  return {
+    human_completion: profile === 'controlled' ? 'governed' : 'lightweight',
+    delegated_execution: 'governed',
+  };
+}
+
+function taskDisposition(task) {
+  return task.disposition ?? 'active';
+}
+
+function displayStatus(task) {
+  const disposition = taskDisposition(task);
+  if (disposition !== 'active') return disposition;
+  if (task.status === 'done') return 'done';
+  if (task.status === 'planned' || task.status === 'ready') return task.status;
+  return 'active';
+}
+
+function taskClosed(task) {
+  return task.status === 'done' || taskDisposition(task) === 'cancelled';
 }
 
 function namespacedId(value, prefix) {
@@ -200,7 +224,8 @@ function parseProject(text, filePath, root) {
 
 function normalizeTask(record, project, filePath, schemaVersion = 1) {
   const allowed = ['outcome', 'acceptance', 'status', 'priority', 'milestone', 'owner', 'executor', 'depends_on', 'blocks', 'blocked_by', 'sources', 'success_criteria', 'constraints', 'evidence_requirements', 'external_refs', 'critical', 'active_contract', 'last_manifest', 'created', 'updated'];
-  if (schemaVersion === 2) allowed.push('scheduled_start', 'scheduled_end');
+  if (schemaVersion >= 2) allowed.push('scheduled_start', 'scheduled_end');
+  if (schemaVersion === 3) allowed.push('disposition', 'disposition_changed_at');
   exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
   assert(nonEmpty(record.raw.outcome), 'TASK_OUTCOME', filePath, `Task ${record.id} requires outcome`, project);
   uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
@@ -244,6 +269,12 @@ function normalizeTask(record, project, filePath, schemaVersion = 1) {
     task.scheduled_start = record.raw.scheduled_start ?? null;
     task.scheduled_end = record.raw.scheduled_end ?? null;
   }
+  if (schemaVersion === 3) {
+    task.scheduled_start = record.raw.scheduled_start ?? null;
+    task.scheduled_end = record.raw.scheduled_end ?? null;
+    task.disposition = record.raw.disposition ?? 'active';
+    task.disposition_changed_at = record.raw.disposition_changed_at ?? null;
+  }
   assert(TASK_STATUSES.includes(task.status), 'TASK_STATUS', filePath, `Task ${task.id} has invalid status`, project);
   assert(PRIORITIES.includes(task.priority), 'TASK_PRIORITY', filePath, `Task ${task.id} has invalid priority`, project);
   assert(task.milestone === null || namespacedId(task.milestone, 'M-'), 'TASK_MILESTONE', filePath, `Task ${task.id} has invalid milestone`, project);
@@ -258,6 +289,16 @@ function normalizeTask(record, project, filePath, schemaVersion = 1) {
     assert(validDate(task.scheduled_start) && validDate(task.scheduled_end), 'TASK_SCHEDULE', filePath, `Task ${task.id} schedule dates are invalid`, project);
     assert(task.scheduled_start <= task.scheduled_end, 'TASK_SCHEDULE', filePath, `Task ${task.id} scheduled_start must not be after scheduled_end`, project);
   }
+  const dispositionKeys = ['disposition', 'disposition_changed_at'].filter((key) => Object.hasOwn(record.raw, key));
+  assert(dispositionKeys.length === 0 || dispositionKeys.length === 2, 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition must contain both disposition and disposition_changed_at`, project);
+  if (schemaVersion === 3 && dispositionKeys.length === 2) {
+    assert(['deferred', 'cancelled'].includes(task.disposition), 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition must be deferred or cancelled when persisted`, project);
+    assert(validTimestamp(task.disposition_changed_at), 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition_changed_at must be RFC3339 UTC`, project);
+  }
+  if (schemaVersion === 3 && dispositionKeys.length === 0) {
+    assert(task.disposition === 'active' && task.disposition_changed_at === null, 'TASK_DISPOSITION', filePath, `Task ${task.id} active disposition must be implicit`, project);
+  }
+  assert(TASK_DISPOSITIONS.includes(taskDisposition(task)), 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition is invalid`, project);
   assert(task.created === null || validDate(task.created), 'INVALID_DATE', filePath, `Task ${task.id} created is invalid`, project);
   assert(task.updated === null || validDate(task.updated), 'INVALID_DATE', filePath, `Task ${task.id} updated is invalid`, project);
   assert(task.external_refs && typeof task.external_refs === 'object' && !Array.isArray(task.external_refs), 'TASK_EXTERNAL_REFS', filePath, `Task ${task.id} external_refs must be an object`, project);
@@ -371,8 +412,11 @@ function validateGraph(state) {
     const active = task.active_contract !== null;
     assert((['planned', 'ready'].includes(task.status) && !active && task.last_manifest === null) || (!['planned', 'ready'].includes(task.status) && active), 'TASK_LIFECYCLE', 'TASKS.md', `Task ${task.id} lifecycle pointers are inconsistent`, state.project);
     assert(!['implemented', 'verification', 'verified', 'done'].includes(task.status) || task.last_manifest !== null, 'TASK_LIFECYCLE', 'TASKS.md', `Task ${task.id} requires a manifest pointer`, state.project);
-    if (task.status === 'ready') assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === 'done'), 'TASK_READY', 'TASKS.md', `Task ${task.id} cannot be ready while blocked`, state.project);
-    if (task.status === 'done') assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === 'done'), 'TASK_DONE', 'TASKS.md', `Task ${task.id} cannot be done while blocked or dependency-incomplete`, state.project);
+    if (task.status === 'ready' && taskDisposition(task) === 'active') assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === 'done'), 'TASK_READY', 'TASKS.md', `Task ${task.id} cannot be ready while blocked`, state.project);
+    if (task.status === 'done') {
+      assert(taskDisposition(task) === 'active', 'TASK_DONE', 'TASKS.md', `Task ${task.id} cannot be done with a non-active disposition`, state.project);
+      assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === 'done'), 'TASK_DONE', 'TASKS.md', `Task ${task.id} cannot be done while blocked or dependency-incomplete`, state.project);
+    }
   }
   const visiting = new Set(); const visited = new Set();
   function visit(id) {
@@ -386,7 +430,7 @@ function validateGraph(state) {
   assert(activeMilestones.length <= 1, 'MILESTONE_ACTIVE', 'MILESTONES.md', 'Only one milestone may be active', state.project);
   if (activeMilestones.length === 1) assert(state.project.current_milestone === activeMilestones[0].id, 'MILESTONE_CURRENT', 'PROJECT.md', 'Current milestone must match active milestone', state.project);
   if (activeMilestones.length === 0) assert(state.project.current_milestone === null, 'MILESTONE_CURRENT', 'PROJECT.md', 'Current milestone must be null when no milestone is active', state.project);
-  for (const milestone of state.milestones.items.filter((item) => item.status === 'complete')) assert(state.tasks.filter((task) => task.milestone === milestone.id).every((task) => task.status === 'done'), 'MILESTONE_COMPLETE', 'MILESTONES.md', `Milestone ${milestone.id} has unfinished tasks`, state.project);
+  for (const milestone of state.milestones.items.filter((item) => item.status === 'complete')) assert(state.tasks.filter((task) => task.milestone === milestone.id).every(taskClosed), 'MILESTONE_COMPLETE', 'MILESTONES.md', `Milestone ${milestone.id} has unfinished tasks`, state.project);
   for (const risk of state.risks.items) assert(risk.milestone === null || milestoneIds.has(risk.milestone), 'RISK_REFERENCE', 'RISKS.md', `Risk ${risk.id} has unknown milestone`, state.project);
   const typed = { project: new Set([state.project.id]), task: new Set(byId.keys()), milestone: milestoneIds, risk: riskIds, source: sourceIds, success: successIds };
   for (const decision of state.decisions.items) for (const reference of decision.affects) {
@@ -414,9 +458,9 @@ function validateGraph(state) {
     if (value.status === 'complete') assert(target.status === 'done' && target.active_contract === value.contract_id && target.last_manifest === value.manifest_id, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} re-verification is not complete on its bound evidence`, state.project);
   }
   if (state.project.status === 'complete') {
-    assert(state.tasks.every((task) => task.status === 'done'), 'PROJECT_COMPLETE', 'PROJECT.md', 'Complete project has unfinished tasks', state.project);
+    assert(state.tasks.every(taskClosed), 'PROJECT_COMPLETE', 'PROJECT.md', 'Complete project has unfinished tasks', state.project);
     assert(state.milestones.items.every((item) => item.status === 'complete'), 'PROJECT_COMPLETE', 'PROJECT.md', 'Complete project has unfinished milestones', state.project);
-    for (const criterion of successIds) assert(state.tasks.some((task) => task.status === 'done' && task.success_criteria.includes(criterion)), 'PROJECT_COMPLETE', 'PROJECT.md', `Success criterion ${criterion} is not backed by done work`, state.project);
+    for (const criterion of successIds) assert(state.tasks.some((task) => taskDisposition(task) !== 'cancelled' && task.status === 'done' && task.success_criteria.includes(criterion)), 'PROJECT_COMPLETE', 'PROJECT.md', `Success criterion ${criterion} is not backed by done work`, state.project);
   }
 }
 
@@ -429,6 +473,9 @@ function validateAttempts(state) {
     const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
     const allowHistoricalRoot = task.status === 'done';
     try { validateTaskContract(contract, { allowHistoricalRoot }); } catch (error) { fail('semantic', 'CONTRACT_INVALID', contractPath, error.message, state.project); }
+    if (taskDisposition(task) !== 'active') {
+      assert(Date.parse(contract.payload.created_at) <= Date.parse(task.disposition_changed_at), 'DISPOSITION_EXECUTION', contractPath, `Task ${task.id} contract was issued after its ${taskDisposition(task)} disposition`, state.project);
+    }
     const executing = task.status !== 'done';
     assert(contract.contract_id === task.active_contract && contract.payload.project.id === state.project.id && (!executing || contract.payload.project.root === state.project.root) && contract.payload.task.id === task.id && contract.payload.task.spec_sha256 === task.spec_sha256, 'CONTRACT_BINDING', contractPath, `Task ${task.id} contract binding or active root is stale`, state.project);
     const liveBindings = task.sources.map((id) => {
@@ -460,6 +507,9 @@ function validateAttempts(state) {
       let result;
       try { result = validateManifest(parsed.payload, contract, previous, { allowHistoricalRoot }); } catch (error) { fail('semantic', 'MANIFEST_INVALID', manifestPath, error.message, state.project); }
       assert(parsed.envelope.manifest_id === result.manifest_id && parsed.envelope.evidence_sha256 === result.evidence_sha256, 'MANIFEST_HASH', manifestPath, 'Manifest envelope hash mismatch', state.project);
+      if (taskDisposition(task) !== 'active') {
+        assert(Date.parse(parsed.payload.observed_at) <= Date.parse(task.disposition_changed_at), 'DISPOSITION_EXECUTION', manifestPath, `Task ${task.id} evidence was observed after its ${taskDisposition(task)} disposition`, state.project);
+      }
       for (const source of parsed.payload.sources) {
         const sourceBytes = readSafeBuffer(state.root, source.path, true);
         assert(sha256(sourceBytes) === source.sha256, 'MANIFEST_SOURCE_HASH', manifestPath, `Manifest source ${source.path} hash mismatch`, state.project);
@@ -478,7 +528,7 @@ function validateAttempts(state) {
         const terminal = readSafe(state.root, byRole.get('rpd-terminal').path, true);
         try { validateRpdTerminal(terminal); } catch (error) { fail('semantic', 'RPD_TERMINAL', manifestPath, error.message, state.project); }
       }
-      previous.push({ ...result, status: parsed.payload.status, blocker: parsed.payload.blocker });
+      previous.push({ ...result, status: parsed.payload.status, blocker: parsed.payload.blocker, observed_at: parsed.payload.observed_at });
     }
     const last = previous.at(-1) ?? null;
     assert((task.last_manifest === null && last === null) || (last && task.last_manifest === last.manifest_id), 'MANIFEST_POINTER', attemptRoot, `Task ${task.id} last manifest pointer is stale`, state.project);
@@ -519,7 +569,7 @@ function loadProject(folder, options = {}) {
   const logicalRoot = options.logicalRoot ?? root;
   if (!path.isAbsolute(logicalRoot)) fail('path', 'INVALID_LOGICAL_ROOT', logicalRoot, 'Logical project root must be absolute');
   const project = parseProject(texts['PROJECT.md'], path.join(root, 'PROJECT.md'), logicalRoot);
-  const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2] });
+  const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2, 3] });
   const tasks = taskRecords.map((record) => normalizeTask(record, project, path.join(root, 'TASKS.md'), taskRecords.schema_version));
   function module(name, kind) {
     const text = texts[name];
@@ -632,7 +682,7 @@ function unfinishedDependencies(task, state) {
 }
 
 function blockerItems(state) {
-  return state.tasks.filter((task) => task.blocked_by.length || unfinishedDependencies(task, state).length).map((task) => ({
+  return state.tasks.filter((task) => taskDisposition(task) === 'active' && (task.blocked_by.length || unfinishedDependencies(task, state).length)).map((task) => ({
     id: task.id, title: task.title, dependency_tasks: unfinishedDependencies(task, state), waiting_on: task.blocked_by,
   })).sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -640,7 +690,7 @@ function blockerItems(state) {
 function successCounts(state) {
   const result = { total: state.project.success_criteria_items.length, covered: 0, verified: 0 };
   for (const criterion of state.project.success_criteria_items) {
-    const mapped = state.tasks.filter((task) => task.success_criteria.includes(criterion.id));
+    const mapped = state.tasks.filter((task) => taskDisposition(task) !== 'cancelled' && task.success_criteria.includes(criterion.id));
     if (mapped.length) result.covered += 1;
     if (mapped.length && mapped.every((task) => task.status === 'done' && task.last_manifest !== null)) result.verified += 1;
   }
@@ -650,7 +700,7 @@ function successCounts(state) {
 function coverageData(state) {
   if (!state.traceability.configured) return { schema_version: 1, configured: false };
   const items = state.traceability.items.map((item) => {
-    const mapped = item.tasks.map((id) => state.tasks.find((task) => task.id === id));
+    const mapped = item.tasks.map((id) => state.tasks.find((task) => task.id === id)).filter((task) => taskDisposition(task) !== 'cancelled');
     return { ...item, covered: mapped.length > 0, verified: mapped.length > 0 && mapped.every((task) => task.status === 'done' && task.last_manifest !== null) };
   });
   return { schema_version: 1, configured: true, criteria: { total: items.length, covered: items.filter((item) => item.covered).length, verified: items.filter((item) => item.verified).length, uncovered: items.filter((item) => !item.covered).length }, items };
@@ -658,10 +708,10 @@ function coverageData(state) {
 
 function nextData(state) {
   if (state.project.status !== 'active') return { schema_version: 1, tasks: [] };
-  const candidates = state.tasks.filter((task) => task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state).length);
+  const candidates = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state).length);
   const taskById = new Map(state.tasks.map((task) => [task.id, task]));
   const rows = candidates.map((task) => {
-    const unlocks = state.tasks.filter((candidate) => candidate.status === 'planned' && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === 'done')).length;
+    const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === 'active' && candidate.status === 'planned' && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === 'done')).length;
     const reasons = [];
     if (task.critical) reasons.push('declared critical');
     if (unlocks) reasons.push(`unlocks ${unlocks}`);
@@ -675,12 +725,13 @@ function nextData(state) {
 
 function statusData(state, asOf = new Date().toISOString().slice(0, 10)) {
   const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, state.tasks.filter((task) => task.status === status).length]));
+  const byDisposition = Object.fromEntries(TASK_DISPOSITIONS.map((disposition) => [disposition, state.tasks.filter((task) => taskDisposition(task) === disposition).length]));
   const blockers = blockerItems(state);
   const coverage = coverageData(state);
   return {
-    schema_version: 1, as_of_date: asOf,
-    project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date },
-    tasks: { total: state.tasks.length, by_status: byStatus, actionable: nextData(state).tasks.length, blocked: blockers.length },
+    schema_version: 2, as_of_date: asOf,
+    project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date, profile: state.project.profile, policy: profilePolicy(state.project.profile) },
+    tasks: { total: state.tasks.length, by_status: byStatus, by_disposition: byDisposition, actionable: nextData(state).tasks.length, blocked: blockers.length },
     success: successCounts(state),
     milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== 'complete' })) } : { configured: false },
     coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
@@ -702,18 +753,20 @@ function reportData(state) {
   for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: 'Forecast is unknown' });
   const configuredItems = (module) => module.configured ? { configured: true, items: module.items } : { configured: false };
   const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
-  return { schema_version: 1, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
+  return { schema_version: 2, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
 }
 
 const KANBAN_LANES = [
-  { id: 'planned', title: 'Planned', statuses: ['planned'] },
-  { id: 'ready', title: 'Ready', statuses: ['ready'] },
-  { id: 'active', title: 'Active', statuses: ['in_progress', 'implemented', 'verification'] },
-  { id: 'verified', title: 'Verified', statuses: ['verified'] },
-  { id: 'done', title: 'Done', statuses: ['done'] },
+  { id: 'planned', title: 'Planned', display_statuses: ['planned'] },
+  { id: 'ready', title: 'Ready', display_statuses: ['ready'] },
+  { id: 'active', title: 'Active', display_statuses: ['active'] },
+  { id: 'done', title: 'Done', display_statuses: ['done'] },
+  { id: 'deferred', title: 'Deferred', display_statuses: ['deferred'] },
+  { id: 'cancelled', title: 'Cancelled', display_statuses: ['cancelled'] },
 ];
 
 function taskEditEligibility(state, task) {
+  if (taskDisposition(task) !== 'active') return { editable: false, reason: 'Reactivate deferred work before changing its specification; cancelled work is terminal.' };
   if (!['planned', 'ready'].includes(task.status)) return { editable: false, reason: 'Evidence-backed work must be changed through project update.' };
   if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: 'This task has active execution evidence and must be changed through project update.' };
   if (fs.existsSync(path.join(state.root, 'handoffs', task.id))) return { editable: false, reason: 'This task has attempt history and must be changed through project update.' };
@@ -726,6 +779,16 @@ function scheduleEditEligibility(state, task) {
   const milestone = task.milestone === null ? null : state.milestones.items.find((item) => item.id === task.milestone);
   if (milestone?.status === 'complete') return { editable: false, reason: 'Tasks in completed milestones cannot be rescheduled in Studio.' };
   if (task.status === 'done') return { editable: false, reason: 'Completed tasks cannot be rescheduled in Studio.' };
+  if (taskDisposition(task) === 'cancelled') return { editable: false, reason: 'Cancelled tasks cannot be rescheduled in Studio.' };
+  return { editable: true, reason: null };
+}
+
+function dispositionEditEligibility(state, task) {
+  if (state.project.status === 'complete') return { editable: false, reason: 'Completed projects cannot change task disposition.' };
+  const milestone = task.milestone === null ? null : state.milestones.items.find((item) => item.id === task.milestone);
+  if (milestone?.status === 'complete') return { editable: false, reason: 'Tasks in completed milestones cannot change disposition.' };
+  if (task.status === 'done') return { editable: false, reason: 'Completed tasks cannot change disposition.' };
+  if (taskDisposition(task) === 'cancelled') return { editable: false, reason: 'Cancellation is terminal.' };
   return { editable: true, reason: null };
 }
 
@@ -738,6 +801,7 @@ function kanbanData(state, mutationRevision = null) {
     const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
     const eligibility = taskEditEligibility(state, task);
     const scheduleEligibility = scheduleEditEligibility(state, task);
+    const dispositionEligibility = dispositionEditEligibility(state, task);
     const scheduleConflicts = task.depends_on.flatMap((dependencyId) => {
       const dependency = state.tasks.find((item) => item.id === dependencyId);
       if (!dependency?.scheduled_end || !task.scheduled_start || task.scheduled_start > dependency.scheduled_end) return [];
@@ -749,6 +813,9 @@ function kanbanData(state, mutationRevision = null) {
       outcome: task.outcome,
       acceptance: task.acceptance,
       status: task.status,
+      disposition: taskDisposition(task),
+      disposition_changed_at: task.disposition_changed_at ?? null,
+      display_status: displayStatus(task),
       priority: task.priority,
       milestone: task.milestone,
       owner: task.owner,
@@ -774,11 +841,13 @@ function kanbanData(state, mutationRevision = null) {
       edit_reason: eligibility.reason,
       schedule_editable: scheduleEligibility.editable,
       schedule_edit_reason: scheduleEligibility.reason,
+      disposition_editable: dispositionEligibility.editable,
+      disposition_edit_reason: dispositionEligibility.reason,
     };
   });
   const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
   return {
-    schema_version: 1,
+    schema_version: 2,
     mutation_revision: mutationRevision,
     semantic_revision: state.source_sha256,
     project: {
@@ -792,6 +861,7 @@ function kanbanData(state, mutationRevision = null) {
       target_date: state.project.target_date,
       current_milestone: state.project.current_milestone,
       profile: state.project.profile,
+      policy: profilePolicy(state.project.profile),
     },
     summary: {
       tasks: status.tasks,
@@ -812,7 +882,7 @@ function kanbanData(state, mutationRevision = null) {
     },
     next,
     tasks,
-    lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.statuses.includes(task.status)) })),
+    lanes: KANBAN_LANES.map((lane) => ({ ...lane, tasks: tasks.filter((task) => lane.display_statuses.includes(task.display_status)) })),
   };
 }
 
@@ -828,4 +898,9 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
   return loadProject(state.root, options);
 }
 
-module.exports = { ProjectError, loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection, successCounts };
+module.exports = {
+  ProjectError, loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData,
+  blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility,
+  dispositionEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
+  successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,
+};

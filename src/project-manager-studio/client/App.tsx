@@ -133,7 +133,7 @@ export function App() {
         <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
       </section>; })}
     </section> : <Timeline key={data.project.key} data={data} tasks={filtered} onOpen={(task, opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={acceptProjectData} />}
-    <footer className="footer-note"><span>Folder-native state</span><span>·</span><span>Evidence-backed lifecycle</span><span>·</span><span>Planning/status edits: never-started tasks</span><span>·</span><span>Schedule edits: eligible unfinished work</span></footer>
+    <footer className="footer-note"><span>Folder-native state</span><span>·</span><span>Ordinary view, evidence-backed detail</span><span>·</span><span>Planning/status edits: never-started tasks</span><span>·</span><span>Disposition and schedule have separate authority</span></footer>
     {selected && <TaskDialog key={`${data.project.key}:${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={(next, request) => { if (!guard.current.accepts(request, next.project.key)) return; setData(next); const updated = next.tasks.find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated, formRevision: next.mutation_revision }); }} />}
   </main>;
 }
@@ -143,6 +143,6 @@ function Metric({ label, value, detail, tone, compact }: { label: string; value:
 function TaskCard({ task, onOpen }: { task: KanbanTask; onOpen: (opener: HTMLElement) => void }) { const blocked = task.blocked_by.length + task.dependency_blockers.length; return <button className={`task-card ${task.next_rank ? 'task-card--next' : ''}`} onClick={(event) => onOpen(event.currentTarget)}>
   <div className="task-card-top"><span className="task-id">{task.id}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span></div>
   <h3>{task.title}</h3><p>{task.outcome}</p>
-  <div className="task-badges"><span className={`state state--${task.status}`}>{task.status.replaceAll('_', ' ')}</span>{task.critical && <span className="critical-chip">Critical</span>}{blocked > 0 && <span className="blocked-chip">{blocked} blocked</span>}{task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}</div>
+  <div className="task-badges"><span className={`state state--${task.display_status}`}>{task.display_status.replaceAll('_', ' ')}</span>{task.critical && <span className="critical-chip">Critical</span>}{blocked > 0 && <span className="blocked-chip">{blocked} blocked</span>}{task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}</div>
   <div className="task-card-footer"><span className={task.owner ? '' : 'owner-gap'}>{task.owner ?? 'Unassigned'}</span><span>{task.milestone ?? 'No milestone'}</span></div>
 </button>; }

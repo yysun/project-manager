@@ -23,9 +23,20 @@ Providers:
 
 External tracker identifiers belong in `external_refs`. They are display-only and cannot participate in dependencies, lifecycle, or identity.
 
+## Profiles and disposition
+
+- `minimal` and `standard` allow one-step reported completion for eligible never-started human work.
+- `controlled` requires governed execution for humans. Non-human executors are always governed.
+
+Task disposition is independent from lifecycle. Absence means `active`. TASKS schema v3 stores only
+non-active dispositions as the exact pair `disposition:"deferred|cancelled"` and
+`disposition_changed_at:"RFC3339 UTC"`. Deferred work is not actionable but may reactivate. Cancellation
+is terminal. Neither state satisfies a dependency or proves success; cancelled mappings are ignored by
+coverage. Evidence observed after the disposition timestamp cannot advance the task.
+
 ## Scheduling
 
-Task schedules are optional planning metadata in `TASKS.md` schema v2:
+Task schedules are optional planning metadata in `TASKS.md` schema v2 or v3:
 
 ```json
 {"outcome":"All move-day vendors are confirmed.","acceptance":["Every vendor has acknowledged the schedule."],"scheduled_start":"2026-09-01","scheduled_end":"2026-09-03"}
@@ -36,10 +47,12 @@ than end. Ranges are inclusive. Clearing a schedule deletes both keys. Schedule 
 execution time, effort, progress, evidence, or forecast, and is excluded from the task specification
 hash and immutable Task Contract.
 
-The first persisted schedule upgrades `TASKS.md` from schema v1 to v2. V1 remains exact and rejects
-schedule keys. V2 is not silently downgraded after schedules are cleared. To use an older v1 reader,
-clear every schedule with the current reader, verify no schedule keys remain, change only the
-`TASKS.md` frontmatter version to 1, validate the project, and regenerate `STATUS.md`.
+The first persisted schedule upgrades `TASKS.md` from schema v1 to v2. The first disposition change
+upgrades v1/v2 to v3 and preserves schedules. V1 remains exact and rejects schedule/disposition keys;
+v2 rejects disposition keys. Versions are not silently downgraded after fields are cleared. To use an older v1 reader,
+reactivate every deferred task (cancelled tasks cannot be downgraded), clear every schedule with the current reader,
+verify no schedule or disposition keys remain, change only the `TASKS.md` frontmatter version to 1, validate the
+project, and regenerate `STATUS.md`.
 
 Studio may reschedule non-completed work unless the project or assigned milestone is complete.
 Specification and status authority remains separate: only genuinely never-started tasks may edit

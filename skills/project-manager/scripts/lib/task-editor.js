@@ -1,6 +1,6 @@
 /**
  * Responsibility: revision-safe Studio projection, dry-run task checking, and
- * atomic specification and schedule edits. Invariants: separate edit authority,
+ * atomic specification, disposition, and schedule edits. Invariants: separate edit authority,
  * exact field allowlists, coherent snapshots, preserved narrative/history, and
  * no live write before full candidate validation, and isolated check workspaces.
  */
@@ -8,7 +8,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility } = require('./project-state');
+const { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require('./project-state');
 const { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require('./mutations');
 
 const PLANNING_FIELDS = [
@@ -16,7 +16,8 @@ const PLANNING_FIELDS = [
   'depends_on', 'blocked_by', 'success_criteria', 'constraints', 'critical',
 ];
 const SCHEDULE_FIELDS = ['scheduled_start', 'scheduled_end'];
-const EDITABLE_FIELDS = [...PLANNING_FIELDS, ...SCHEDULE_FIELDS];
+const COORDINATION_FIELDS = ['disposition'];
+const EDITABLE_FIELDS = [...PLANNING_FIELDS, ...COORDINATION_FIELDS, ...SCHEDULE_FIELDS];
 
 class TaskEditError extends Error {
   constructor(code, message, details = {}) {
@@ -51,12 +52,13 @@ function renderRecord(record) {
   return `## ${record.id} - ${record.title}${eol}${eol}\`\`\`json${eol}${JSON.stringify(record.raw)}${eol}\`\`\``;
 }
 
-function transformTaskDocument(text, taskId, edit, date) {
+function transformTaskDocument(text, taskId, edit, date, observedAt = null) {
   assertExactKeys(edit, EDITABLE_FIELDS, 'edit');
   if (Object.keys(edit).length === 0) throw new TaskEditError('INVALID_REQUEST', 'edit must change at least one field');
   const records = parseTaskRecords(text);
   const target = records.find((record) => record.id === taskId);
   if (!target) throw new TaskEditError('TASK_NOT_FOUND', `Unknown task: ${taskId}`);
+  const dispositionChanged = Object.hasOwn(edit, 'disposition') && edit.disposition !== (target.raw.disposition ?? 'active');
   if (Object.hasOwn(edit, 'title')) {
     if (typeof edit.title !== 'string' || edit.title.trim() === '') throw new TaskEditError('INVALID_REQUEST', 'title must be non-empty');
     target.title = edit.title.trim();
@@ -69,6 +71,17 @@ function transformTaskDocument(text, taskId, edit, date) {
       delete target.raw.scheduled_start; delete target.raw.scheduled_end;
     } else {
       target.raw.scheduled_start = edit.scheduled_start; target.raw.scheduled_end = edit.scheduled_end;
+    }
+  }
+  if (Object.hasOwn(edit, 'disposition')) {
+    if (!['active', 'deferred', 'cancelled'].includes(edit.disposition)) throw new TaskEditError('INVALID_REQUEST', 'disposition must be active, deferred, or cancelled');
+    if (!dispositionChanged) {
+      // Preserve the original timestamp and schema when a wider Studio edit resubmits disposition unchanged.
+    } else if (edit.disposition === 'active') {
+      delete target.raw.disposition; delete target.raw.disposition_changed_at;
+    } else {
+      if (typeof observedAt !== 'string') throw new TaskEditError('INVALID_REQUEST', 'disposition changes require an observation timestamp');
+      target.raw.disposition = edit.disposition; target.raw.disposition_changed_at = observedAt;
     }
   }
   target.raw.updated = date;
@@ -84,7 +97,9 @@ function transformTaskDocument(text, taskId, edit, date) {
     if (changed) output = `${output.slice(0, record.start)}${renderRecord(record)}${output.slice(record.end)}`;
   }
   const hasSchedule = SCHEDULE_FIELDS.every((key) => Object.hasOwn(edit, key)) && edit.scheduled_start !== null;
-  if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
+  const hasDisposition = dispositionChanged;
+  if (hasDisposition) output = output.replace(/^(schema_version: )[12](\r?)$/m, (_match, prefix, cr) => `${prefix}3${cr}`);
+  else if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
   return output;
 }
 
@@ -116,11 +131,18 @@ function validateEnvelope(snapshot, taskId, request) {
   const keys = Object.keys(request.edit);
   if (keys.length === 0) throw new TaskEditError('INVALID_REQUEST', 'edit must change at least one field');
   const planning = keys.some((key) => PLANNING_FIELDS.includes(key));
+  const coordination = keys.some((key) => COORDINATION_FIELDS.includes(key));
   const schedule = keys.some((key) => SCHEDULE_FIELDS.includes(key));
   if (planning) {
     const eligibility = taskEditEligibility(snapshot.state, task);
     if (!eligibility.editable) throw new TaskEditError('TASK_READ_ONLY', eligibility.reason);
     if (Object.hasOwn(request.edit, 'status') && !['planned', 'ready'].includes(request.edit.status)) throw new TaskEditError('INVALID_REQUEST', 'Studio status edits are limited to planned and ready');
+  }
+  if (coordination) {
+    const eligibility = dispositionEditEligibility(snapshot.state, task);
+    if (!eligibility.editable) throw new TaskEditError('TASK_DISPOSITION_READ_ONLY', eligibility.reason);
+    if (!['active', 'deferred', 'cancelled'].includes(request.edit.disposition)) throw new TaskEditError('INVALID_REQUEST', 'disposition must be active, deferred, or cancelled');
+    if (taskDisposition(task) === 'cancelled' && request.edit.disposition !== 'cancelled') throw new TaskEditError('TASK_DISPOSITION_READ_ONLY', 'Cancellation is terminal.');
   }
   if (schedule) {
     if (!SCHEDULE_FIELDS.every((key) => Object.hasOwn(request.edit, key))) throw new TaskEditError('INVALID_REQUEST', 'scheduled_start and scheduled_end must be edited together');
@@ -136,9 +158,10 @@ function validateEnvelope(snapshot, taskId, request) {
 
 function applyCandidateEdit(candidate, logicalRoot, taskId, request) {
   const tasksPath = path.join(candidate, 'TASKS.md');
-  const date = new Date().toISOString().slice(0, 10);
-  fs.writeFileSync(tasksPath, transformTaskDocument(fs.readFileSync(tasksPath, 'utf8'), taskId, request.edit, date));
-  regenerateStatus(candidate, new Date().toISOString(), { logicalRoot });
+  const observedAt = new Date().toISOString();
+  const date = observedAt.slice(0, 10);
+  fs.writeFileSync(tasksPath, transformTaskDocument(fs.readFileSync(tasksPath, 'utf8'), taskId, request.edit, date, observedAt));
+  regenerateStatus(candidate, observedAt, { logicalRoot });
   return loadProject(candidate, { logicalRoot });
 }
 
@@ -181,6 +204,6 @@ function saveTaskEdit(root, taskId, request, options = {}) {
 }
 
 module.exports = {
-  EDITABLE_FIELDS, PLANNING_FIELDS, SCHEDULE_FIELDS, TaskEditError, transformTaskDocument, loadRevisionedProject,
-  checkTaskEdit, saveTaskEdit,
+  EDITABLE_FIELDS, PLANNING_FIELDS, COORDINATION_FIELDS, SCHEDULE_FIELDS, TaskEditError, parseTaskRecords,
+  renderRecord, transformTaskDocument, loadRevisionedProject, checkTaskEdit, saveTaskEdit,
 };

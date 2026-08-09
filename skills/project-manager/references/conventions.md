@@ -1,6 +1,6 @@
 # Project State Contract
 
-This reference defines the v1 project/optional-module contract and v1/v2 task collection contracts.
+This reference defines the v1 project/optional-module contract and v1/v2/v3 task collection contracts.
 Scripts fail closed on unsupported versions, unknown fields, malformed records, escaping paths, and
 inconsistent lifecycle.
 
@@ -30,6 +30,16 @@ Defaults: planned, P2, human executor, null owner/milestone/schedule/audit dates
 
 Ready requires finished dependencies and no explicit blockers. Contract issuance is the only evidence-free transition and starts work. Later transitions require the latest valid manifest. Done additionally requires completed dependencies and no blockers.
 
+Profiles select the human completion policy: minimal/standard allow atomic lightweight completion for
+eligible never-started human tasks; controlled requires governed human execution. Agent, external, and
+RPD execution is governed in every profile. Lightweight completion still creates the exact existing Task
+Contract and first verified Evidence Manifest; it never permits an evidence-free done state.
+
+Disposition is orthogonal to lifecycle. Absence means active. Deferred and cancelled tasks are not
+actionable; cancelled tasks are closed for milestone/project completion but do not satisfy dependencies
+or success. Cancelled mappings are removed before success/traceability calculation. A criterion needs at
+least one remaining mapping and every remaining mapping evidence-backed done to be verified.
+
 ## Evidence boundary
 
 Contracts and manifests use canonical compact JSON with recursively sorted object keys. IDs are SHA-256 hashes of canonical payloads. Attempt files are immutable.
@@ -40,7 +50,7 @@ Replay fingerprint is SHA-256 of canonical `{evidence,acceptance_evidence,source
 
 ## Deterministic outputs
 
-All six scripts are read-only and support `node <script> <project-folder> [--json] [--help]`. Exit 0 is success, 1 is semantic invalidity, and 2 is selector/path/I/O/grammar failure. JSON failures never contain `data`; success never contains `errors`.
+All six reporting/validation scripts are read-only and support `node <script> <project-folder> [--json] [--help]`. Exit 0 is success, 1 is semantic invalidity, and 2 is selector/path/I/O/grammar failure. JSON failures never contain `data`; success never contains `errors`. Status and report data use schema version 2 to expose profile policy and disposition counts while retaining detailed lifecycle counts.
 
 See each script's output and `--help` for the locked envelope. Optional modules report `{configured:false}` rather than invented zeroes.
 
@@ -63,6 +73,13 @@ keys are absent or both are valid date-only strings, and start must not be after
 are inclusive. Schedule fields are planning metadata excluded from the task specification hash and
 Task Contract. V1 rejects them; v2 rejects explicit nulls and partial pairs.
 
+`TASKS.md` schema v3 is the strict superset of v2. It permits the same schedule pair plus
+`disposition` and `disposition_changed_at`. The disposition pair is absent for active work or exactly
+`"deferred"|"cancelled"` plus an RFC3339 UTC timestamp. Explicit active/null and partial pairs are
+rejected. Disposition fields are excluded from the task specification hash. A non-active task's contract
+and every stored manifest must not be newer than its disposition timestamp. V1/v2 reject disposition fields
+and retain their prior normalized shape so unchanged STATUS caches do not become stale.
+
 For both task schemas, `outcome` and `acceptance` are required. Executor is `{provider,root,scope}`:
 human uses null root/scope; external roots use `scope:"absolute"`; a project-contained executor uses
 `scope:"project"` and a safe relative root. Evidence requirement groups are exactly
@@ -71,7 +88,7 @@ cumulative stage order.
 
 ## Exact optional schemas
 
-All optional record files remain collection frontmatter `schema_version: 1`; task schema v2 is valid
+All optional record files remain collection frontmatter `schema_version: 1`; task schemas v2/v3 are valid
 only for `TASKS.md`.
 
 - Milestone: `{status:"planned|active|complete",target_date:null|date,forecast_date:null|date,forecast_updated:null|date,forecast_evidence:[evidence records],critical:boolean}`. Forecast fields are all absent/null or all populated.
@@ -129,3 +146,14 @@ atomicProjectMutation(projectRoot, (candidate, context) => {
 ```
 
 The helper rejects stale STATUS, changed/deleted immutable handoffs or saved reports, non-empty init targets, and invalid candidates. It derives legal additions from validated before/after task state and the sources referenced by a new valid manifest; callers cannot authorize raw history paths. Brand-new validated contract subtrees and collision-free Markdown reports are allowed. Inactive/terminal attempts accept no additions. If rollback cannot finish, the helper preserves and reports the recovery path instead of deleting the backup.
+
+`scripts/lib/human-completion.js` is the only lightweight completion helper. Its internal CLI adapter is:
+
+```bash
+node <absolute-skill-dir>/scripts/project-complete-human.js <project-folder> <task-id> --ref <approval-ref> --result <approval-result> [--observed-at <RFC3339-UTC>] --json
+```
+
+It is a `project update` implementation detail, not another user-facing route. It requires a minimal or
+standard active project, a never-started active human task, completed dependencies, no blockers/history,
+one approval-satisfiable evidence policy, and verifiable bound sources. It uses the same atomic candidate,
+immutable attempt, STATUS regeneration, and rollback boundary as other mutations.
