@@ -43,7 +43,7 @@
 .timeline-blocker,.schedule-conflict { display:block; margin-top:3px; color:#8d3a31; font-size:8px; font-weight:750; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .timeline-scale { position:sticky; top:0; z-index:7; min-height:38px; background:#f7f8f8; overflow:hidden; }
 .timeline-week { position:absolute; inset-block:0; display:flex; align-items:center; justify-content:center; border-left:1px solid var(--timeline-week); color:#1f2923; font:750 10px/1 ui-monospace,SFMono-Regular,monospace; white-space:nowrap; }
-.timeline-track { position:relative; background-color:#fff; background-image:linear-gradient(to right,rgba(211,218,221,.34) 1px,transparent 1px),linear-gradient(to right,var(--timeline-week) 1px,transparent 1px); background-size:calc(100% / var(--timeline-days)) 100%,calc(700% / var(--timeline-days)) 100%; }
+.timeline-track { position:relative; overflow:hidden; background-color:#fff; background-image:linear-gradient(to right,rgba(211,218,221,.34) 1px,transparent 1px),linear-gradient(to right,var(--timeline-week) 1px,transparent 1px); background-size:calc(100% / var(--timeline-days)) 100%,calc(700% / var(--timeline-days)) 100%; }
 .timeline-marker { position:absolute; z-index:1; top:0; bottom:0; width:1px; background:#69756d; opacity:.55; }
 .timeline-marker--target { width:2px; background:var(--amber); }
 .timeline-marker--forecast { width:0; border-left:2px dashed var(--red); background:transparent; opacity:.72; }

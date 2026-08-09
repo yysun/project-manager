@@ -15,6 +15,13 @@ function cookies(header: string | undefined): Record<string, string> {
   }));
 }
 
+function safeEqual(candidate: unknown, expected: string): boolean {
+  if (typeof candidate !== 'string') return false;
+  const candidateBuffer = Buffer.from(candidate);
+  const expectedBuffer = Buffer.from(expected);
+  return candidateBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(candidateBuffer, expectedBuffer);
+}
+
 function apiError(error: unknown): { status: number; body: { errors: Array<Record<string, unknown>> } } {
   const known = error instanceof TaskEditError || error instanceof ProjectCatalogError || (error && typeof error === 'object' && 'code' in error);
   const value = error as Record<string, unknown>;
@@ -41,14 +48,14 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
   app.get('/', (req: Request, res: Response, next: NextFunction) => {
     const token = req.query.token;
     if (token === undefined) return next();
-    if (token !== sessionToken) return void res.status(401).send('Invalid session token.');
+    if (!safeEqual(token, sessionToken)) return void res.status(401).send('Invalid session token.');
     res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/`);
     res.redirect(302, '/');
   });
 
   const api = express.Router();
   api.use((req: Request, res: Response, next: NextFunction) => {
-    if (cookies(req.headers.cookie)[SESSION_COOKIE] === sessionToken) return next();
+    if (safeEqual(cookies(req.headers.cookie)[SESSION_COOKIE], sessionToken)) return next();
     res.status(401).json({ errors: [{ code: 'UNAUTHORIZED', message: 'Missing or invalid Studio session.' }] });
   });
 

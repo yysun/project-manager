@@ -11,9 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { canonicalJson } = require('./contracts');
-const PROJECT_WORK_PREFIX = '.project-manager-work-';
-const PROJECT_WORK_MARKER = '.rpd-project-manager-work-v1';
-const PROJECT_WORK_MARKER_TEXT = 'RPD Project Manager work area v1\n';
+const { PROJECT_WORK_PREFIX, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require('./work-area');
 
 class MutationConflictError extends Error {
   constructor(message, currentRevision = null) {

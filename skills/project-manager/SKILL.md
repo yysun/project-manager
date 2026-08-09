@@ -5,7 +5,7 @@ description: Plan, coordinate, track, review, and report folder-native projects.
 
 # Project Manager
 
-**Version:** `1.0.0`
+**Version:** `1.0.1`
 **Repository:** https://github.com/yysun/rpd
 **Source:** https://github.com/yysun/rpd/tree/main/skills/project-manager
 
@@ -32,7 +32,7 @@ Use these nine user-facing routes. Natural language is preferred; do not force a
 4. `project status <folder>` — calculate current facts with `project-status.js`.
 5. `project next <folder>` — rank executable work with `project-next.js`.
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
-7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage.
+7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage. Read [review.md](references/review.md).
 8. `project validate-task <folder> <task-id>` — validate the folder, then use LLM judgment to review task quality. Read [tasks.md](references/tasks.md).
 9. `project studio [folder]` — launch local Project Manager Studio with Kanban and Timeline views;
    an explicit folder is isolated, while no folder uses selectable direct children of `.projects`.

@@ -6,6 +6,9 @@ import type { SelectionRequest } from '../selection-guard.mjs';
 
 function lines(value: string): string[] { return value.split('\n').map((item) => item.trim()).filter(Boolean); }
 function valueOrDash(value: string | null): string { return value ?? 'Not set'; }
+// Matches the bare-path convention used throughout SKILL.md/README.md routes;
+// only quotes when the path actually needs it (contains whitespace).
+function quoteArg(value: string): string { return /\s/.test(value) ? `"${value.replace(/[\\"]/g, '\\$&')}"` : value; }
 
 interface Props { data: KanbanData; task: KanbanTask; opener: HTMLElement | null; onClose: () => void; beginMutation: () => SelectionRequest | null; finishMutation: (request: SelectionRequest) => void; onSaved: (data: KanbanData, request: SelectionRequest) => void }
 
@@ -28,7 +31,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const reviewCommand = `project validate-task ${JSON.stringify(data.project.root)} ${task.id}`;
+  const reviewCommand = `project validate-task ${quoteArg(data.project.root)} ${task.id}`;
   const request = useMemo<TaskEditRequest>(() => ({ projectKey: data.project.key, mutationRevision: data.mutation_revision, taskRevision: task.task_revision, edit }), [data.project.key, data.mutation_revision, task.task_revision, edit]);
 
   useEffect(() => {
@@ -37,7 +40,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
     for (const element of siblings) element.inert = true;
     closeRef.current?.focus();
     return () => { for (const element of siblings) element.inert = false; opener?.focus(); };
-  }, [onClose, opener]);
+  }, [opener]);
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }

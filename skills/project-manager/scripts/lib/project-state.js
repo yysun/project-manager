@@ -11,6 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require('./contracts');
+const { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require('./work-area');
 
 const REQUIRED = ['PROJECT.md', 'TASKS.md', 'STATUS.md'];
 const OPTIONAL_FILES = ['MILESTONES.md', 'RISKS.md', 'DECISIONS.md', 'SOURCES.md', 'TRACEABILITY.md', 'CHANGES.md'];
@@ -21,9 +22,6 @@ const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const HASH = /^[a-f0-9]{64}$/;
-const PROJECT_WORK_NAME = /^\.project-manager-work-[a-f0-9]{24}$/;
-const PROJECT_WORK_MARKER = '.rpd-project-manager-work-v1';
-const PROJECT_WORK_MARKER_TEXT = 'RPD Project Manager work area v1\n';
 
 class ProjectError extends Error {
   constructor(kind, code, filePath, message, project = null) {
@@ -548,7 +546,6 @@ function loadProject(folder, options = {}) {
 }
 
 function loadProjectIndex(indexPath) {
-  if (fs.lstatSync(indexPath).isSymbolicLink()) fail('path', 'INDEX_SYMLINK', indexPath, 'Discovery index cannot be a symlink');
   if (fs.lstatSync(indexPath).isSymbolicLink()) fail('path', 'INDEX_SYMLINK', indexPath, 'Discovery index cannot be a symlink');
   const indexRoot = fs.realpathSync(path.dirname(indexPath));
   const text = fs.readFileSync(indexPath, 'utf8');

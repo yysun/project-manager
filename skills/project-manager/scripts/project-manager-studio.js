@@ -512,6 +512,18 @@ ${canonicalJson(payload)}
   }
 });
 
+// skills/project-manager/scripts/lib/work-area.js
+var require_work_area = __commonJS({
+  "skills/project-manager/scripts/lib/work-area.js"(exports2, module2) {
+    "use strict";
+    var PROJECT_WORK_PREFIX = ".project-manager-work-";
+    var PROJECT_WORK_NAME = /^\.project-manager-work-[a-f0-9]{24}$/;
+    var PROJECT_WORK_MARKER = ".rpd-project-manager-work-v1";
+    var PROJECT_WORK_MARKER_TEXT = "RPD Project Manager work area v1\n";
+    module2.exports = { PROJECT_WORK_PREFIX, PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT };
+  }
+});
+
 // skills/project-manager/scripts/lib/project-state.js
 var require_project_state = __commonJS({
   "skills/project-manager/scripts/lib/project-state.js"(exports2, module2) {
@@ -519,6 +531,7 @@ var require_project_state = __commonJS({
     var fs3 = require("node:fs");
     var path3 = require("node:path");
     var { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
+    var { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
     var REQUIRED = ["PROJECT.md", "TASKS.md", "STATUS.md"];
     var OPTIONAL_FILES = ["MILESTONES.md", "RISKS.md", "DECISIONS.md", "SOURCES.md", "TRACEABILITY.md", "CHANGES.md"];
     var OPTIONAL_DIRS = ["handoffs", path3.join("reports", "history")];
@@ -528,9 +541,6 @@ var require_project_state = __commonJS({
     var ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
     var DATE = /^\d{4}-\d{2}-\d{2}$/;
     var HASH = /^[a-f0-9]{64}$/;
-    var PROJECT_WORK_NAME = /^\.project-manager-work-[a-f0-9]{24}$/;
-    var PROJECT_WORK_MARKER = ".rpd-project-manager-work-v1";
-    var PROJECT_WORK_MARKER_TEXT = "RPD Project Manager work area v1\n";
     var ProjectError = class extends Error {
       constructor(kind, code, filePath, message, project = null) {
         super(message);
@@ -1105,7 +1115,6 @@ var require_project_state = __commonJS({
       return state;
     }
     function loadProjectIndex(indexPath) {
-      if (fs3.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
       if (fs3.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
       const indexRoot = fs3.realpathSync(path3.dirname(indexPath));
       const text = fs3.readFileSync(indexPath, "utf8");
@@ -25321,9 +25330,7 @@ var require_mutations = __commonJS({
     var path3 = require("node:path");
     var crypto3 = require("node:crypto");
     var { canonicalJson } = require_contracts();
-    var PROJECT_WORK_PREFIX = ".project-manager-work-";
-    var PROJECT_WORK_MARKER = ".rpd-project-manager-work-v1";
-    var PROJECT_WORK_MARKER_TEXT = "RPD Project Manager work area v1\n";
+    var { PROJECT_WORK_PREFIX, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
     var MutationConflictError = class extends Error {
       constructor(message, currentRevision = null) {
         super(message);
@@ -25866,6 +25873,12 @@ function cookies(header) {
     return index < 0 ? [part, ""] : [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
   }));
 }
+function safeEqual(candidate, expected) {
+  if (typeof candidate !== "string") return false;
+  const candidateBuffer = Buffer.from(candidate);
+  const expectedBuffer = Buffer.from(expected);
+  return candidateBuffer.length === expectedBuffer.length && import_node_crypto2.default.timingSafeEqual(candidateBuffer, expectedBuffer);
+}
 function apiError(error) {
   const known = error instanceof TaskEditError || error instanceof ProjectCatalogError || error && typeof error === "object" && "code" in error;
   const value = error;
@@ -25889,13 +25902,13 @@ function createServer(options) {
   app.get("/", (req, res, next) => {
     const token = req.query.token;
     if (token === void 0) return next();
-    if (token !== sessionToken) return void res.status(401).send("Invalid session token.");
+    if (!safeEqual(token, sessionToken)) return void res.status(401).send("Invalid session token.");
     res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/`);
     res.redirect(302, "/");
   });
   const api = import_express.default.Router();
   api.use((req, res, next) => {
-    if (cookies(req.headers.cookie)[SESSION_COOKIE] === sessionToken) return next();
+    if (safeEqual(cookies(req.headers.cookie)[SESSION_COOKIE], sessionToken)) return next();
     res.status(401).json({ errors: [{ code: "UNAUTHORIZED", message: "Missing or invalid Studio session." }] });
   });
   function loadProject(key) {
