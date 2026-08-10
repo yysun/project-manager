@@ -78,6 +78,12 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
     catch { setErrors([{ code: 'CLIPBOARD', message: 'Could not copy. Select the command below manually.' }]); }
   }
 
+  async function copyRpdCommand() {
+    if (!task.rpd_command) return;
+    try { await navigator.clipboard.writeText(task.rpd_command); setNotice('RPD command copied. Studio did not start execution.'); }
+    catch { setErrors([{ code: 'CLIPBOARD', message: 'Could not copy. Select the RPD command below manually.' }]); }
+  }
+
   function toggleList(field: 'depends_on' | 'success_criteria', value: string) {
     const current = (edit[field] ?? []) as string[];
     setEdit({ ...edit, [field]: current.includes(value) ? current.filter((item) => item !== value) : [...current, value].sort() });
@@ -137,6 +143,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
             <Definition label="Scheduled start" value={valueOrDash(task.scheduled_start)} />
             <Definition label="Scheduled end" value={valueOrDash(task.scheduled_end)} />
             <Definition label="Updated" value={valueOrDash(task.updated)} />
+            {task.rpd_command && <><button className="secondary-button full" onClick={copyRpdCommand}>Copy RPD command</button><code className="review-command">{task.rpd_command}</code></>}
             <button className="secondary-button full" onClick={copyReview}>Copy LLM review command</button>
             <code className="review-command">{reviewCommand}</code>
           </aside>

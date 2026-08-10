@@ -720,6 +720,30 @@ test('RPD story collision expands deterministically and prompt binds both readab
   assert.equal(renderRpdPrompt(input), prompt);
 });
 
+test('Studio exposes a concise RPD command only for runnable issued contracts', () => {
+  const record = task('TASK-RPD', 'RPD work', 'Produce the outcome.', ['Outcome is accepted.'], { status: 'ready', executor: { provider: 'rpd', root: 'executor', scope: 'project' } });
+  const root = createProject(temp(), 'RPD-STUDIO', [record], { adapters: ['human', 'rpd'] });
+  fs.mkdirSync(path.join(root, 'executor'));
+  const initial = loadProject(root); const model = initial.tasks[0];
+  const executionRoot = path.join(initial.project.root, 'executor');
+  const contract = buildTaskContract(initial.project, model, [], '2026-08-08T00:00:00Z');
+  const story = deriveStory(initial.project.id, model.id, contract.contract_id);
+  const contractPath = path.join(initial.project.root, 'handoffs', model.id, contract.contract_id, 'TASK-CONTRACT.md');
+  fs.mkdirSync(path.dirname(contractPath), { recursive: true });
+  const relativeContract = path.relative(initial.project.root, contractPath).split(path.sep).join('/');
+  const prompt = renderRpdPrompt({ project_id: initial.project.id, task_id: model.id, contract_id: contract.contract_id, story, executor_root: executionRoot, contract_absolute_path: contractPath, contract_relative_path: relativeContract, acceptance: model.acceptance, constraints: model.constraints, evidence_requirements: model.evidence_requirements });
+  fs.writeFileSync(contractPath, formatTaskContract(contract, { story, executor_prompt: prompt, executor_prompt_sha256: sha256(prompt) }));
+  record.data.status = 'in_progress'; record.data.active_contract = contract.contract_id;
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([record]));
+
+  const projected = kanbanData(loadProject(root)).tasks[0];
+  assert.equal(projected.rpd_command, `RPD ${story} using task contract ${JSON.stringify(contractPath)}.`);
+
+  record.data.disposition = 'deferred'; record.data.disposition_changed_at = '2026-08-08T00:01:00Z';
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([record], 3));
+  assert.equal(kanbanData(loadProject(root)).tasks[0].rpd_command, null);
+});
+
 test('RPD verified state requires exact-story project-local snapshots and untampered prompt/source hashes', () => {
   const base = temp(); const root = createProject(base, 'SOFTWARE', [], { adapters: ['human', 'rpd'] }); const selectedRoot = fs.realpathSync(root); const executor = temp();
   const model = normalizedTask('rpd', executor); model.success_criteria = ['SC-OUTCOME']; model.spec_sha256 = taskSpecHash(model);

@@ -589,6 +589,13 @@ var require_project_state = __commonJS({
     function taskClosed(task) {
       return task.status === "done" || taskDisposition(task) === "cancelled";
     }
+    function rpdCommand(state, task) {
+      if (task.executor.provider !== "rpd" || task.active_contract === null || task.status === "done" || taskDisposition(task) !== "active") return null;
+      const contractPath = path3.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
+      const contractDoc = readSafe(state.root, path3.relative(state.root, contractPath), true);
+      const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
+      return `RPD ${parsedContract.envelope.story} using task contract ${JSON.stringify(contractPath)}.`;
+    }
     function namespacedId(value, prefix) {
       return ID.test(value) && value.startsWith(prefix);
     }
@@ -1396,6 +1403,7 @@ var require_project_state = __commonJS({
           critical: task.critical,
           active_contract: task.active_contract,
           last_manifest: task.last_manifest,
+          rpd_command: rpdCommand(state, task),
           scheduled_start: task.scheduled_start ?? null,
           scheduled_end: task.scheduled_end ?? null,
           schedule_conflicts: scheduleConflicts,
