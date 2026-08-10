@@ -58,10 +58,10 @@
 .bar-body span,.bar-body small { display:block; white-space:nowrap; overflow:visible; }
 .bar-body span { font-size:10px; font-weight:700; line-height:38px; }
 .bar-body small { display:none; }
-.bar-handle { position:absolute; z-index:3; top:8px; bottom:8px; width:6px; border:0; border-radius:1px; background:#174f3a; opacity:.16; cursor:ew-resize; touch-action:none; }
-.timeline-bar:hover .bar-handle,.bar-handle:focus-visible { opacity:.72; }
-.bar-handle--start { left:2px; }
-.bar-handle--end { right:2px; }
+.bar-handle { position:absolute; z-index:3; top:0; bottom:0; width:8px; border:0; border-radius:1px; background:transparent; cursor:ew-resize; touch-action:none; }
+.bar-handle:focus-visible { background:#174f3a; opacity:.72; }
+.bar-handle--start { left:0; }
+.bar-handle--end { right:0; }
 .unscheduled-button { position:absolute; top:8px; left:8px; border:1px dashed #a9b2b5; border-radius:1px; padding:7px 10px; background:#f8faf9; color:var(--muted); cursor:pointer; font-size:9px; }
 .timeline-no-range { padding:20px; }
 .timeline-no-range>p { color:var(--muted); font-size:11px; }
