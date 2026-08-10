@@ -2,10 +2,12 @@
 // bundle, restarting the server on every successful rebuild via an onEnd hook
 // (node --watch does not reliably notice esbuild's rewritten output file).
 // vite watches and rebuilds the client. Pass CLI args through to the server,
-// e.g. `npm run pm-studio:dev -- --project /abs/path`. Defaults to the
-// checked-in demo project when no --project/--projects-root is passed.
+// e.g. `npm run pm-studio:dev -- --project /abs/path`. With no selector it
+// materializes a disposable demo because Task Contracts bind absolute roots.
 import * as esbuild from 'esbuild';
-import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,7 +17,28 @@ const serverOut = path.join(root, 'skills/project-manager/scripts/project-manage
 const vitePath = path.join(root, 'node_modules/.bin/vite');
 const passedArgs = process.argv.slice(2);
 const hasProjectArg = passedArgs.includes('--project') || passedArgs.includes('--projects-root');
-const serverArgs = hasProjectArg ? passedArgs : ['--project', path.join(root, 'demo/pm-studio-demo'), ...passedArgs];
+let disposableDemoRoot = null;
+
+function createDisposableDemo() {
+  const fixtureScript = path.join(root, 'tests/project-manager-studio/create-browser-fixture.js');
+  const result = spawnSync(process.execPath, [fixtureScript, '--project-only'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.status}`;
+    throw new Error(`Could not create the Project Manager Studio demo: ${detail}`);
+  }
+  let fixture;
+  try { fixture = JSON.parse(result.stdout.trim()); } catch {
+    throw new Error('Could not create the Project Manager Studio demo: fixture output was not valid JSON');
+  }
+  if (!fixture.project) throw new Error('Could not create the Project Manager Studio demo: project root was missing');
+  disposableDemoRoot = fixture.project;
+  return fixture.project;
+}
+
+const serverArgs = hasProjectArg ? passedArgs : ['--project', createDisposableDemo(), ...passedArgs];
 
 let shuttingDown = false;
 let serverChild = null;
@@ -57,6 +80,13 @@ async function shutdown() {
   if (viteChild && viteChild.exitCode === null) viteChild.kill('SIGTERM');
   if (serverChild && serverChild.exitCode === null) serverChild.kill('SIGTERM');
   await ctx.dispose();
+  if (disposableDemoRoot) {
+    const temporaryRoot = `${path.resolve(os.tmpdir())}${path.sep}`;
+    const resolvedDemoRoot = path.resolve(disposableDemoRoot);
+    if (resolvedDemoRoot.startsWith(temporaryRoot) && path.basename(resolvedDemoRoot).startsWith('pm-studio-')) {
+      fs.rmSync(resolvedDemoRoot, { recursive: true, force: true });
+    }
+  }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

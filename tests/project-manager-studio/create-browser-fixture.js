@@ -48,6 +48,10 @@ for (const [id, status] of Object.entries(desired)) {
 }
 milestoneRecords.find((item) => item.id === 'M-CLOSED').data.status = 'complete'; fs.writeFileSync(path.join(root, 'MILESTONES.md'), collection(milestoneRecords));
 fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records, 2)); regenerateStatus(root, '2026-08-08T00:02:00Z'); loadProject(root);
+if (process.argv.includes('--project-only')) {
+  process.stdout.write(`${JSON.stringify({ project: root })}\n`);
+  process.exit(0);
+}
 const sibling = makeProject(null, 'SIBLING');
 const completedRecords = [{ id: 'TASK-COMPLETE', title: 'Complete work', data: { outcome: 'Work is complete.', acceptance: ['Work is accepted.'], status: 'planned', success_criteria: ['SC-OUTCOME'], milestone: 'M-COMPLETE' } }];
 const completedSeed = structuredClone(completedRecords); delete completedSeed[0].data.milestone;
