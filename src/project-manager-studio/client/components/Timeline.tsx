@@ -77,10 +77,7 @@ export function Timeline({ data, tasks, onOpen, beginMutation, finishMutation, o
   }
 
   return <section className="timeline-panel" aria-label="Task timeline">
-    <header className="timeline-heading">
-      <div><span className="eyebrow">Planning metadata</span><h2>Timeline</h2><p><strong>Required setup:</strong> set project start and target dates in PROJECT.md. Task dates are scheduled, not actual; dependency conflicts warn without blocking lifecycle.</p><div className="milestone-legend" aria-label="Project and milestone schedule"><span tabIndex={0}><strong>Project</strong> · start {data.project.start_date ?? 'unknown'} · target {data.project.target_date ?? 'unknown'}</span>{data.milestones.length === 0 ? <span tabIndex={0}>Milestones unconfigured</span> : data.milestones.map((milestone) => <span tabIndex={0} key={milestone.id}><strong>{milestone.title}</strong> · target {milestone.target_date ?? 'unknown'} · forecast {milestone.forecast_date ?? 'unknown'}</span>)}</div></div>
-      {draft && <div className="timeline-draft-actions" role="status"><span>{draft.start} → {draft.end}</span><button className="secondary-button" disabled={busy} onClick={() => { setDraft(null); setError(null); }}>Cancel</button><button className="primary-button" disabled={busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save schedule'}</button></div>}
-    </header>
+    {draft && <div className="timeline-draft-actions" role="status"><span>{draft.start} → {draft.end}</span><button className="secondary-button" disabled={busy} onClick={() => { setDraft(null); setError(null); }}>Cancel</button><button className="primary-button" disabled={busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save schedule'}</button></div>}
     {error && <div className="error-banner" role="alert">Schedule save failed: {error}</div>}
     {!range ? <div className="timeline-no-range"><strong>No dated work yet</strong><p>Open a task to add its scheduled start and end. No dates are inferred.</p>{ordered.map((task) => <TimelineLabel key={task.id} task={task} onOpen={onOpen} />)}</div> : <div className="timeline-scroll">
       <div className="timeline-grid" style={{ '--timeline-days': rangeDays(range) } as React.CSSProperties}>

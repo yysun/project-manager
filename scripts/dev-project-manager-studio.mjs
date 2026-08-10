@@ -2,7 +2,8 @@
 // bundle, restarting the server on every successful rebuild via an onEnd hook
 // (node --watch does not reliably notice esbuild's rewritten output file).
 // vite watches and rebuilds the client. Pass CLI args through to the server,
-// e.g. `npm run pm-studio:dev -- --project /abs/path`.
+// e.g. `npm run pm-studio:dev -- --project /abs/path`. Defaults to the
+// checked-in demo project when no --project/--projects-root is passed.
 import * as esbuild from 'esbuild';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -12,7 +13,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const serverEntry = path.join(root, 'src/project-manager-studio/server/cli.ts');
 const serverOut = path.join(root, 'skills/project-manager/scripts/project-manager-studio.js');
 const vitePath = path.join(root, 'node_modules/.bin/vite');
-const serverArgs = process.argv.slice(2);
+const passedArgs = process.argv.slice(2);
+const hasProjectArg = passedArgs.includes('--project') || passedArgs.includes('--projects-root');
+const serverArgs = hasProjectArg ? passedArgs : ['--project', path.join(root, 'demo/pm-studio-demo'), ...passedArgs];
 
 let shuttingDown = false;
 let serverChild = null;

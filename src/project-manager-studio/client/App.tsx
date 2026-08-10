@@ -108,7 +108,13 @@ export function App() {
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><div className="mark">PM</div><div><span>Project Manager</span><strong>Studio</strong></div></div>
-      <div className="project-heading"><ProjectSelect catalog={catalog!} selectedKey={selectedKey} disabled={false} onChange={switchProject} /><div className="project-title"><span className="eyebrow">{data.project.id} · {data.project.profile}</span><h1>{data.project.name}</h1><p>{data.project.objective}</p></div></div>
+      <div className="project-heading">
+        <div className="project-select-col">
+          <ProjectSelect catalog={catalog!} selectedKey={selectedKey} disabled={false} onChange={switchProject} />
+          <div className="project-dates"><span>Start {data.project.start_date ?? '—'}</span><span aria-hidden="true">·</span><span>Target {data.project.target_date ?? '—'}</span></div>
+        </div>
+        <div className="project-title"><span className="eyebrow">{data.project.id} · {data.project.profile}</span><h1>{data.project.name}</h1><p>{data.project.objective}</p></div>
+      </div>
       <div className="topbar-actions">
         <nav className="view-switcher" aria-label="Project views"><button aria-current={view === 'kanban' ? 'page' : undefined} onClick={() => setView('kanban')}>Kanban</button><button aria-current={view === 'timeline' ? 'page' : undefined} onClick={() => setView('timeline')}>Timeline</button></nav>
         <button className="refresh-button" onClick={refreshProject} disabled={loading || mutationPending}><span aria-hidden="true">↻</span> {loading ? 'Refreshing…' : 'Refresh'}</button>
