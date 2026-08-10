@@ -22,6 +22,7 @@ export function App() {
   const [owner, setOwner] = useState('all');
   const [blockedOnly, setBlockedOnly] = useState(false);
   const [view, setViewState] = useState<StudioView>(viewFromUrl);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
   const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
 
   const loadProject = useCallback(async (request: SelectionRequest) => {
@@ -108,18 +109,29 @@ export function App() {
     <header className="topbar">
       <div className="brand"><div className="mark">PM</div><div><span>Project Manager</span><strong>Studio</strong></div></div>
       <div className="project-heading"><ProjectSelect catalog={catalog!} selectedKey={selectedKey} disabled={false} onChange={switchProject} /><div className="project-title"><span className="eyebrow">{data.project.id} · {data.project.profile}</span><h1>{data.project.name}</h1><p>{data.project.objective}</p></div></div>
-      <button className="refresh-button" onClick={refreshProject} disabled={loading || mutationPending}><span aria-hidden="true">↻</span> {loading ? 'Refreshing…' : 'Refresh'}</button>
+      <div className="topbar-actions">
+        <nav className="view-switcher" aria-label="Project views"><button aria-current={view === 'kanban' ? 'page' : undefined} onClick={() => setView('kanban')}>Kanban</button><button aria-current={view === 'timeline' ? 'page' : undefined} onClick={() => setView('timeline')}>Timeline</button></nav>
+        <button className="refresh-button" onClick={refreshProject} disabled={loading || mutationPending}><span aria-hidden="true">↻</span> {loading ? 'Refreshing…' : 'Refresh'}</button>
+      </div>
     </header>
     {data.warnings.map((warning) => <div className="warning-banner" role="status" key={warning.code}>{warning.message}</div>)}
     {error && <div className="error-banner" role="alert">Refresh failed: {error}</div>}
-    <section className="summary-grid" aria-label="Project summary">
-      <Metric label="Total tasks" value={data.summary.tasks.total} detail={`${data.summary.tasks.actionable} actionable`} />
-      <Metric label="Blocked" value={data.summary.tasks.blocked} detail="dependency or explicit" tone={data.summary.tasks.blocked ? 'warn' : 'good'} />
-      <Metric label="Success verified" value={`${data.summary.success.verified}/${data.summary.success.total}`} detail={`${data.summary.success.covered} covered`} />
-      <Metric label="Owner gaps" value={data.summary.owner_gaps} detail="tasks need an owner" tone={data.summary.owner_gaps ? 'warn' : 'good'} />
-      <Metric label="Target" value={data.project.target_date ?? 'Unknown'} detail={data.project.current_milestone ?? 'No active milestone'} compact />
+    <section className="summary-panel">
+      <button type="button" className="summary-toggle" aria-expanded={!summaryCollapsed} aria-controls="summary-grid" onClick={() => setSummaryCollapsed((value) => !value)}>
+        <span className="summary-toggle-icon" aria-hidden="true">▾</span><span>Summary</span>
+      </button>
+      <div className={`summary-collapse ${summaryCollapsed ? 'collapsed' : ''}`}>
+        <div className="summary-collapse-inner">
+          <div className="summary-grid" id="summary-grid" role="group" aria-label="Project summary">
+            <Metric label="Total tasks" value={data.summary.tasks.total} detail={`${data.summary.tasks.actionable} actionable`} />
+            <Metric label="Blocked" value={data.summary.tasks.blocked} detail="dependency or explicit" tone={data.summary.tasks.blocked ? 'warn' : 'good'} />
+            <Metric label="Success verified" value={`${data.summary.success.verified}/${data.summary.success.total}`} detail={`${data.summary.success.covered} covered`} />
+            <Metric label="Owner gaps" value={data.summary.owner_gaps} detail="tasks need an owner" tone={data.summary.owner_gaps ? 'warn' : 'good'} />
+            <Metric label="Target" value={data.project.target_date ?? 'Unknown'} detail={data.project.current_milestone ?? 'No active milestone'} compact />
+          </div>
+        </div>
+      </div>
     </section>
-    <nav className="view-switcher" aria-label="Project views"><button aria-current={view === 'kanban' ? 'page' : undefined} onClick={() => setView('kanban')}>Kanban</button><button aria-current={view === 'timeline' ? 'page' : undefined} onClick={() => setView('timeline')}>Timeline</button></nav>
     <section className="toolbar" aria-label="Task filters">
       <label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="Search tasks" placeholder="Search ID, title, outcome, owner…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
       <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as Priority | 'all')}><option value="all">All priorities</option>{data.options.priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
