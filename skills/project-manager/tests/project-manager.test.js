@@ -720,7 +720,7 @@ test('RPD story collision expands deterministically and prompt binds both readab
   assert.equal(renderRpdPrompt(input), prompt);
 });
 
-test('Studio exposes a concise RPD command only for runnable issued contracts', () => {
+test('Studio exposes a concise RPD command for every task and prefers issued contracts', () => {
   const record = task('TASK-RPD', 'RPD work', 'Produce the outcome.', ['Outcome is accepted.'], { status: 'ready', executor: { provider: 'rpd', root: 'executor', scope: 'project' } });
   const root = createProject(temp(), 'RPD-STUDIO', [record], { adapters: ['human', 'rpd'] });
   fs.mkdirSync(path.join(root, 'executor'));
@@ -741,7 +741,10 @@ test('Studio exposes a concise RPD command only for runnable issued contracts', 
 
   record.data.disposition = 'deferred'; record.data.disposition_changed_at = '2026-08-08T00:01:00Z';
   fs.writeFileSync(path.join(root, 'TASKS.md'), collection([record], 3));
-  assert.equal(kanbanData(loadProject(root)).tasks[0].rpd_command, null);
+  assert.equal(kanbanData(loadProject(root)).tasks[0].rpd_command, projected.rpd_command);
+
+  const genericRoot = createProject(temp(), 'RPD-FALLBACK', [task('TASK-ANY', 'Any work', 'Produce any outcome.', ['Outcome is accepted.'])]);
+  assert.equal(kanbanData(loadProject(genericRoot)).tasks[0].rpd_command, `RPD "Any work" using project task ${JSON.stringify(path.join(fs.realpathSync(genericRoot), 'TASKS.md'))}.`);
 });
 
 test('RPD verified state requires exact-story project-local snapshots and untampered prompt/source hashes', () => {

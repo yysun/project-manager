@@ -13,7 +13,7 @@ export interface KanbanTask {
   executor: { provider: string; root: string | null; scope: string | null };
   depends_on: string[]; blocks: string[]; blocked_by: string[]; dependency_blockers: string[];
   sources: string[]; success_criteria: string[]; constraints: string[]; critical: boolean;
-  active_contract: string | null; last_manifest: string | null; rpd_command: string | null; created: string | null;
+  active_contract: string | null; last_manifest: string | null; rpd_command: string; created: string | null;
   scheduled_start: string | null; scheduled_end: string | null;
   schedule_conflicts: Array<{ dependency_id: string; dependency_end: string; task_start: string }>;
   updated: string | null; task_revision: string; next_rank: number | null;

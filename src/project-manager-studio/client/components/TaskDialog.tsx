@@ -27,6 +27,7 @@ function initialEdit(task: KanbanTask): TaskEdit {
 export function TaskDialog({ data, task, opener, onClose, beginMutation, finishMutation, onSaved }: Props) {
   const [edit, setEdit] = useState<TaskEdit>(() => initialEdit(task));
   const [busy, setBusy] = useState<'check' | 'save' | null>(null);
+  const [copied, setCopied] = useState<'rpd' | 'review' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [errors, setErrors] = useState<ApiError[]>([]);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -42,6 +43,12 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
     closeRef.current?.focus();
     return () => { for (const element of siblings) element.inert = false; opener?.focus(); };
   }, [opener]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(null), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
@@ -74,14 +81,13 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
   }
 
   async function copyReview() {
-    try { await navigator.clipboard.writeText(reviewCommand); setNotice('LLM review command copied. Studio did not call a model.'); }
-    catch { setErrors([{ code: 'CLIPBOARD', message: 'Could not copy. Select the command below manually.' }]); }
+    try { await navigator.clipboard.writeText(reviewCommand); setCopied('review'); setNotice(null); }
+    catch { setErrors([{ code: 'CLIPBOARD', message: 'Could not copy. Select the LLM review command in Execution context.' }]); }
   }
 
   async function copyRpdCommand() {
-    if (!task.rpd_command) return;
-    try { await navigator.clipboard.writeText(task.rpd_command); setNotice('RPD command copied. Studio did not start execution.'); }
-    catch { setErrors([{ code: 'CLIPBOARD', message: 'Could not copy. Select the RPD command below manually.' }]); }
+    try { await navigator.clipboard.writeText(task.rpd_command); setCopied('rpd'); setNotice(null); }
+    catch { setErrors([{ code: 'CLIPBOARD', message: 'Could not copy. Select the RPD command in Execution context.' }]); }
   }
 
   function toggleList(field: 'depends_on' | 'success_criteria', value: string) {
@@ -143,17 +149,22 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
             <Definition label="Scheduled start" value={valueOrDash(task.scheduled_start)} />
             <Definition label="Scheduled end" value={valueOrDash(task.scheduled_end)} />
             <Definition label="Updated" value={valueOrDash(task.updated)} />
-            {task.rpd_command && <><button className="secondary-button full" onClick={copyRpdCommand}>Copy RPD command</button><code className="review-command">{task.rpd_command}</code></>}
-            <button className="secondary-button full" onClick={copyReview}>Copy LLM review command</button>
-            <code className="review-command">{reviewCommand}</code>
+            <Definition label="RPD command" value={task.rpd_command} mono />
+            <Definition label="LLM review command" value={reviewCommand} mono />
           </aside>
         </div>
         {errors.length > 0 && <div className="error-panel" role="alert"><strong>Changes need attention</strong><ul>{errors.map((error, index) => <li key={`${error.code}-${index}`}>{error.message}</li>)}</ul></div>}
         {notice && <p className="success-notice" role="status">{notice}</p>}
       </div>
       <footer className="dialog-actions">
-        <button className="secondary-button" onClick={onClose}>Close</button>
-        {(task.editable || task.schedule_editable || task.disposition_editable) && <><button className="secondary-button" disabled={busy !== null} onClick={() => invoke('check')}>{busy === 'check' ? 'Checking…' : 'Check changes'}</button><button className="primary-button" disabled={busy !== null} onClick={() => invoke('save')}>{busy === 'save' ? 'Saving…' : 'Save task'}</button></>}
+        <div className="copy-actions">
+          <button className="secondary-button" onClick={copyRpdCommand}>{copied === 'rpd' ? 'Copied' : 'Copy RPD command'}</button>
+          <button className="secondary-button" onClick={copyReview}>{copied === 'review' ? 'Copied' : 'Copy LLM review command'}</button>
+        </div>
+        <div className="task-actions">
+          <button className="secondary-button" onClick={onClose}>Close</button>
+          {(task.editable || task.schedule_editable || task.disposition_editable) && <><button className="secondary-button" disabled={busy !== null} onClick={() => invoke('check')}>{busy === 'check' ? 'Checking…' : 'Check changes'}</button><button className="primary-button" disabled={busy !== null} onClick={() => invoke('save')}>{busy === 'save' ? 'Saving…' : 'Save task'}</button></>}
+        </div>
       </footer>
     </section>
   </div>;
