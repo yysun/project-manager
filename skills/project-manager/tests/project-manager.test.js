@@ -315,7 +315,7 @@ test('discovery index finds multiple projects but rejects duplicate, stale, mism
 
 test('projects-root discovery is direct, deterministic, and rejects invalid catalogs', () => {
   const base = temp(); const root = path.join(base, '.projects'); fs.mkdirSync(root);
-  createProject(root, 'SECOND', []); createProject(root, 'FIRST', []); fs.writeFileSync(path.join(root, '.DS_Store'), 'ignored');
+  createProject(root, 'SECOND', []); createProject(root, 'FIRST', []); fs.writeFileSync(path.join(root, '.DS_Store'), 'ignored'); fs.mkdirSync(path.join(root, '.git'));
   assert.deepEqual(loadProjectsRoot(root).projects.map((item) => [item.id, item.child]), [['FIRST', 'first'], ['SECOND', 'second']]);
   const interrupted = path.join(root, `.project-manager-work-${'a'.repeat(24)}`); fs.mkdirSync(interrupted);
   assert.deepEqual(loadProjectsRoot(root).projects.map((item) => item.id), ['FIRST', 'SECOND']);

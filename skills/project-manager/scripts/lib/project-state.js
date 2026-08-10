@@ -643,6 +643,9 @@ function loadProjectsRoot(folder) {
   const root = fs.realpathSync(folder);
   const projects = [];
   for (const name of fs.readdirSync(root).sort()) {
+    // A projects root may itself be version-controlled. Git's metadata is
+    // infrastructure for the catalog, not a candidate project folder.
+    if (name === '.git') continue;
     const target = path.join(root, name); const stat = fs.lstatSync(target);
     const projectFile = path.join(target, 'PROJECT.md');
     let hasProjectFile = false;

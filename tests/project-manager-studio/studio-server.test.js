@@ -187,6 +187,12 @@ test('catalog startup rejects malformed, symlinked, and duplicate-ID children di
   result = runFailure(['--projects-root', duplicateRoot, '--no-open'], workspace); assert.match(result.stderr, /PROJECT_ID_DUPLICATE/);
 });
 
+test('catalog startup ignores Git metadata when the projects root is version-controlled', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-git-root-')); const projectsRoot = path.join(workspace, '.projects'); fs.mkdirSync(projectsRoot); fs.mkdirSync(path.join(projectsRoot, '.git')); placeProject(projectsRoot, 'alpha', 'ALPHA');
+  const handle = await startStudioArgs(['--projects-root', projectsRoot, '--no-open', '--port', '0']);
+  try { assert.match(handle.origin, /^http:\/\/127\.0\.0\.1:/); } finally { await stopStudio(handle); }
+});
+
 test('packaged startup rejects unsafe reserved work roots instead of hiding malformed children', () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-work-root-')); const root = path.join(workspace, '.projects'); fs.mkdirSync(root); placeProject(root, 'alpha', 'ALPHA');
   const reserved = path.join(root, `.project-manager-work-${'a'.repeat(24)}`); fs.mkdirSync(reserved); fs.writeFileSync(path.join(reserved, 'unexpected'), 'malformed child');

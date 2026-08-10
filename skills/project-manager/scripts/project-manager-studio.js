@@ -1208,6 +1208,7 @@ var require_project_state = __commonJS({
       const root = fs3.realpathSync(folder);
       const projects = [];
       for (const name of fs3.readdirSync(root).sort()) {
+        if (name === ".git") continue;
         const target = path3.join(root, name);
         const stat = fs3.lstatSync(target);
         const projectFile = path3.join(target, "PROJECT.md");
