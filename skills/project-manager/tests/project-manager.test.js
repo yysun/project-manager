@@ -83,7 +83,7 @@ test('minimal generic project validates without Git, milestones, traceability, o
   const root = createProject(base, 'ROLLOUT', [task('TASK-LAUNCH', 'Launch', 'Launch safely.', ['Stakeholders approve launch.'], { status: 'ready', success_criteria: ['SC-OUTCOME'] })]);
   const state = loadProject(root);
   assert.equal(state.project.id, 'ROLLOUT');
-  assert.deepEqual(validateData(state).modules, { milestones: false, risks: false, decisions: false, sources: false, traceability: false, changes: false, handoffs: false, reports: false });
+  assert.deepEqual(validateData(state).modules, { milestones: false, risks: false, decisions: false, sources: false, traceability: false, changes: false, assumptions: false, issues: false, stakeholders: false, lessons: false, closure: false, handoffs: false, reports: false });
   assert.deepEqual(statusData(state).milestones, { configured: false });
   assert.deepEqual(coverageData(state), { schema_version: 1, configured: false });
   assert.equal(nextData(state).tasks[0].id, 'TASK-LAUNCH');
@@ -141,7 +141,7 @@ test('TASKS v3 dispositions preserve schedules and separate actionability, block
   assert.deepEqual(nextData(state).tasks.map((item) => item.id), ['TASK-READY']);
   assert.deepEqual(blockerItems(state).map((item) => item.id), ['TASK-WAITING']);
   assert.deepEqual(status.tasks.by_disposition, { active: 2, deferred: 1, cancelled: 1 });
-  assert.equal(status.schema_version, 2); assert.equal(report.schema_version, 2); assert.equal(status.success.covered, 1); assert.equal(status.success.verified, 0);
+  assert.equal(status.schema_version, 3); assert.equal(report.schema_version, 3); assert.equal(status.success.covered, 1); assert.equal(status.success.verified, 0);
   assert.deepEqual(board.lanes.map((lane) => [lane.id, lane.tasks.map((item) => item.id)]), [
     ['planned', ['TASK-WAITING']], ['ready', ['TASK-READY']], ['active', []], ['done', []], ['deferred', ['TASK-DEFERRED']], ['cancelled', ['TASK-CANCELLED']],
   ]);
@@ -280,10 +280,10 @@ test('every CLI requires one selector and emits exact selected identity without 
     assert.equal(Object.hasOwn(envelope, 'errors'), false);
     const expected = {
       'project-validate.js': ['schema_version', 'valid', 'warnings', 'modules', 'counts'],
-      'project-status.js': ['schema_version', 'as_of_date', 'project', 'tasks', 'success', 'milestones', 'coverage', 'risks', 'decisions'],
+      'project-status.js': ['schema_version', 'as_of_date', 'project', 'tailoring', 'tasks', 'success', 'milestones', 'coverage', 'risks', 'decisions', 'assumptions', 'issues', 'stakeholders', 'lessons', 'closure'],
       'project-next.js': ['schema_version', 'tasks'], 'project-blocked.js': ['schema_version', 'tasks'],
       'project-coverage.js': ['schema_version', 'configured'],
-      'project-report-data.js': ['schema_version', 'status', 'risks', 'decisions', 'sources', 'changes', 'ownership', 'blockers', 'next', 'forecasts', 'unknowns'],
+      'project-report-data.js': ['schema_version', 'status', 'risks', 'decisions', 'sources', 'changes', 'assumptions', 'issues', 'stakeholders', 'lessons', 'closure', 'ownership', 'blockers', 'next', 'forecasts', 'unknowns'],
     };
     assert.deepEqual(Object.keys(envelope.data), expected[script]);
   }
@@ -866,4 +866,185 @@ test('isolated work roots cannot alias a project and clean independently', () =>
   cleanupProjectWork(first); assert.equal(fs.existsSync(secondArea), true, 'one cleanup cannot remove another operation work root');
   cleanupProjectWork(second);
   assert.deepEqual(fs.readdirSync(base).filter((name) => /^\.project-manager-work-[a-f0-9]{24}$/.test(name)), [path.basename(root)], 'only the legitimate exact-pattern project remains');
+});
+
+const AREAS = ['integration', 'scope', 'schedule', 'cost', 'quality', 'resource', 'communications', 'risk', 'procurement', 'stakeholder'];
+
+function tailoring(overrides = {}) {
+  return Object.fromEntries(AREAS.map((area) => [area, { applied: true, rationale: null, decided: '2026-08-11', ...(overrides[area] ?? {}) }]));
+}
+
+function v2Project(base, id, records = [], tailoringOverrides = {}, projectOverrides = {}) {
+  return createProject(base, id, records, { schema_version: 2, tailoring: tailoring(tailoringOverrides), ...projectOverrides });
+}
+
+function writeModule(root, name, records, schemaVersion = 1) {
+  fs.writeFileSync(path.join(root, name), collection(records, schemaVersion));
+}
+
+function loadError(root) {
+  try { loadProject(root); return null; } catch (error) { return error; }
+}
+
+test('PROJECT v2 tailoring is declare-only, exact, and fails closed on an incomplete or dishonest declaration', () => {
+  const base = temp();
+  const ok = v2Project(base, 'TAILORED', [], { cost: { applied: false, rationale: 'No budget; effort absorbed by standing team.' } });
+  const state = loadProject(ok);
+  assert.equal(state.project.tailoring.integration.applied, true);
+  const summary = statusData(state).tailoring;
+  assert.equal(summary.declared, true);
+  assert.deepEqual(summary.tailored_out, [{ area: 'cost', rationale: 'No budget; effort absorbed by standing team.', decided: '2026-08-11' }]);
+  assert.equal(summary.applied.includes('cost'), false);
+  assert.equal(reportData(state).unknowns.some((item) => item.field === 'tailoring.cost' && /No budget/.test(item.reason)), true);
+
+  // Declaring an area out without a reason is the exact failure tailoring exists to prevent.
+  const noRationale = v2Project(base, 'NORATIONALE', [], { cost: { applied: false, rationale: null } });
+  assert.match(loadError(noRationale).message, /tailored out and requires a rationale/);
+  const emptyRationale = v2Project(base, 'EMPTYRATIONALE', [], { cost: { applied: false, rationale: '   ' } });
+  assert.match(loadError(emptyRationale).message, /rationale/);
+
+  const missingArea = createProject(base, 'MISSINGAREA', [], { schema_version: 2, tailoring: (() => { const value = tailoring(); delete value.procurement; return value; })() });
+  assert.match(loadError(missingArea).message, /tailoring has unknown fields|must declare knowledge area procurement/);
+  const unknownArea = createProject(base, 'UNKNOWNAREA', [], { schema_version: 2, tailoring: { ...tailoring(), governance: { applied: true, rationale: null, decided: '2026-08-11' } } });
+  assert.match(loadError(unknownArea).message, /unknown fields: governance/);
+  const badApplied = v2Project(base, 'BADAPPLIED', [], { scope: { applied: 'yes' } });
+  assert.match(loadError(badApplied).message, /applied must be boolean/);
+  const badDecided = v2Project(base, 'BADDECIDED', [], { scope: { decided: '2026-02-30' } });
+  assert.match(loadError(badDecided).message, /decided must be a date-only value/);
+  const badEntry = createProject(base, 'BADENTRY', [], { schema_version: 2, tailoring: { ...tailoring(), scope: { applied: true } } });
+  assert.match(loadError(badEntry).message, /tailoring scope fields|tailoring scope has unknown|missing/i);
+});
+
+test('PROJECT v1 keeps its exact field set, rejects tailoring, and needs no migration', () => {
+  const base = temp();
+  const legacy = createProject(base, 'LEGACY', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  const state = loadProject(legacy);
+  assert.equal(state.project.schema_version, 1);
+  assert.equal(Object.hasOwn(state.project, 'tailoring'), false);
+  assert.deepEqual(statusData(state).tailoring, { declared: false });
+  assert.equal(reportData(state).unknowns.some((item) => item.field === 'tailoring' && /undeclared/.test(item.reason)), true);
+  const smuggled = createProject(base, 'SMUGGLED', [], { tailoring: tailoring() });
+  assert.match(loadError(smuggled).message, /unknown fields: tailoring/);
+  assert.equal(loadError(createProject(base, 'BADVERSION', [], { schema_version: 3 })).code, 'SCHEMA_VERSION');
+});
+
+test('installing PMI modules cannot stale an existing STATUS cache', () => {
+  const base = temp();
+  const root = createProject(base, 'HASHSTABLE', [task('TASK-A', 'A', 'Done.', ['Accepted.'], { success_criteria: ['SC-OUTCOME'] })]);
+  writeModule(root, 'RISKS.md', [{ id: 'RISK-ONE', title: 'Slip', data: { status: 'open', probability: 'high', impact: 'high', mitigation: 'Add buffer.', owner: 'Ana', milestone: null } }]);
+  const before = loadProject(root).source_sha256;
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  assert.equal(loadProject(root).status_stale, false);
+  // Adding an unconfigured-module capability must not perturb the hash of a project that uses none of them.
+  assert.equal(loadProject(root).source_sha256, before);
+  writeModule(root, 'ISSUES.md', [{ id: 'ISS-ONE', title: 'Late vendor', data: { status: 'open', severity: 'high', description: 'Vendor is late.', owner: 'Ana', raised_date: '2026-08-10', due_date: null, resolved_date: null, resolution: null, affects: ['task:TASK-A'], escalated: false } }]);
+  assert.notEqual(loadProject(root).source_sha256, before, 'configuring a module is a real state change');
+  assert.equal(loadProject(root).status_stale, true);
+});
+
+test('new PMI modules are optional, exact, and fail closed on schema and reference errors', () => {
+  const base = temp();
+  const bare = createProject(base, 'BARE', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  const bareStatus = statusData(loadProject(bare));
+  for (const key of ['assumptions', 'issues', 'stakeholders', 'lessons', 'closure']) {
+    assert.deepEqual(bareStatus[key], { configured: false }, `${key} must be unconfigured, not zero`);
+    assert.deepEqual(reportData(loadProject(bare))[key], { configured: false });
+  }
+
+  const root = createProject(base, 'MODULES', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(root, 'ASSUMPTIONS.md', [{ id: 'ASM-ONE', title: 'Vendor capacity', data: { status: 'open', kind: 'assumption', statement: 'The vendor has capacity.', impact_if_false: 'Delivery slips a month.', owner: 'Ana', due_date: '2026-09-01', validated_date: null, affects: ['task:TASK-A'] } }]);
+  writeModule(root, 'ISSUES.md', [{ id: 'ISS-ONE', title: 'Late vendor', data: { status: 'resolved', severity: 'high', description: 'Vendor missed the date.', owner: 'Ana', raised_date: '2026-08-01', due_date: null, resolved_date: '2026-08-05', resolution: 'Vendor rescheduled and confirmed.', affects: ['task:TASK-A'], escalated: true } }]);
+  writeModule(root, 'STAKEHOLDERS.md', [{ id: 'STK-ONE', title: 'Finance director', data: { role: 'Approver', organization: 'Finance', interest: 'high', influence: 'high', current_engagement: 'neutral', target_engagement: 'supportive', strategy: 'Weekly briefing on cost exposure.', owner: 'Ana' } }]);
+  writeModule(root, 'LESSONS.md', [{ id: 'LES-ONE', title: 'Estimate earlier', data: { category: 'estimation', statement: 'Vendor lead time was underestimated.', recommendation: 'Confirm lead times before committing dates.', date: '2026-08-06', source_tasks: ['TASK-A'], source_milestone: null } }]);
+  writeModule(root, 'CLOSURE.md', [{ id: 'CLO-PROJECT', title: 'Project closure', data: { scope: 'project', milestone: null, status: 'pending', accepted_by: null, accepted_date: null, acceptance_evidence: [], outstanding_items: ['Archive vendor correspondence.'], archive_ref: null } }]);
+  const state = loadProject(root);
+  const status = statusData(state);
+  assert.deepEqual(status.assumptions, { configured: true, total: 1, open: 1, invalidated: 0 });
+  assert.deepEqual(status.issues, { configured: true, total: 1, open: 0, critical: 0, escalated: 0 });
+  assert.deepEqual(status.stakeholders, { configured: true, total: 1, engagement_gaps: 1 });
+  assert.deepEqual(status.lessons, { configured: true, total: 1 });
+  assert.deepEqual(status.closure, { configured: true, total: 1, accepted: 0, pending: 1 });
+  assert.deepEqual(validateData(state).counts.assumptions, 1);
+
+  const bad = (name, records) => { const target = createProject(base, `BAD${name.replace(/\W/g, '').toUpperCase()}${Math.random().toString(36).slice(2, 7).toUpperCase()}`, [task('TASK-A', 'A', 'Done.', ['Accepted.'])]); writeModule(target, name, records); return loadError(target); };
+  assert.match(bad('ASSUMPTIONS.md', [{ id: 'ASM-ONE', title: 'X', data: { status: 'open', kind: 'assumption', statement: 'S.', impact_if_false: 'I.', owner: null, due_date: null, validated_date: '2026-08-01', affects: [] } }]).message, /validated_date exactly when it is no longer open/);
+  assert.match(bad('ASSUMPTIONS.md', [{ id: 'ASSUME-ONE', title: 'X', data: { status: 'open', kind: 'assumption', statement: 'S.', impact_if_false: 'I.', owner: null, due_date: null, validated_date: null, affects: [] } }]).message, /Invalid assumption ID/);
+  assert.match(bad('ASSUMPTIONS.md', [{ id: 'ASM-ONE', title: 'X', data: { status: 'open', kind: 'assumption', statement: 'S.', impact_if_false: 'I.', owner: null, due_date: null, validated_date: null, affects: ['task:TASK-GHOST'] } }]).message, /unknown reference task:TASK-GHOST/);
+  assert.match(bad('ISSUES.md', [{ id: 'ISS-ONE', title: 'X', data: { status: 'closed', severity: 'low', description: 'D.', owner: null, raised_date: '2026-08-01', due_date: null, resolved_date: null, resolution: null, affects: [], escalated: false } }]).message, /resolution and resolved_date exactly when resolved or closed/);
+  assert.match(bad('ISSUES.md', [{ id: 'ISS-ONE', title: 'X', data: { status: 'resolved', severity: 'low', description: 'D.', owner: null, raised_date: '2026-08-10', due_date: null, resolved_date: '2026-08-01', resolution: 'R.', affects: [], escalated: false } }]).message, /cannot be resolved before it was raised/);
+  assert.match(bad('STAKEHOLDERS.md', [{ id: 'STK-ONE', title: 'X', data: { role: 'Approver', organization: null, interest: 'high', influence: 'high', current_engagement: 'neutral', target_engagement: 'supportive', strategy: null, owner: null } }]).message, /declares an engagement gap and requires a strategy/);
+  assert.match(bad('STAKEHOLDERS.md', [{ id: 'STK-ONE', title: 'X', data: { role: 'Approver', organization: null, interest: 'high', influence: 'high', current_engagement: 'devoted', target_engagement: 'supportive', strategy: 'S.', owner: null } }]).message, /engagement levels are invalid/);
+  assert.match(bad('LESSONS.md', [{ id: 'LES-ONE', title: 'X', data: { category: 'estimation', statement: 'S.', recommendation: 'R.', date: '2026-08-06', source_tasks: ['TASK-GHOST'], source_milestone: null } }]).message, /unknown source task/);
+  assert.match(bad('LESSONS.md', [{ id: 'LES-ONE', title: 'X', data: { category: 'vibes', statement: 'S.', recommendation: 'R.', date: '2026-08-06', source_tasks: [], source_milestone: null } }]).message, /invalid category/);
+  assert.match(bad('ISSUES.md', [{ id: 'ISS-ONE', title: 'X', data: { status: 'open', severity: 'low', description: 'D.', owner: null, raised_date: '2026-08-01', due_date: null, resolved_date: null, resolution: null, affects: [], escalated: false, notes: 'extra' } }]).message, /unknown fields: notes/);
+});
+
+test('RISKS v2 constrains response strategy to risk direction while v1 stays exact', () => {
+  const base = temp();
+  const root = createProject(base, 'RISKV2', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(root, 'RISKS.md', [
+    { id: 'RISK-THREAT', title: 'Vendor slips', data: { status: 'open', probability: 'high', impact: 'high', mitigation: 'Add buffer.', owner: 'Ana', milestone: null, direction: 'threat', strategy: 'mitigate', trigger: 'Vendor misses a weekly checkpoint.', residual: 'medium' } },
+    { id: 'RISK-UPSIDE', title: 'Early vendor slot', data: { status: 'open', probability: 'medium', impact: 'medium', mitigation: 'Prepare to pull work forward.', owner: 'Ana', milestone: null, direction: 'opportunity', strategy: 'exploit', trigger: 'Vendor offers an earlier slot.', residual: 'low' } },
+  ], 2);
+  const risks = loadProject(root).risks.items;
+  assert.deepEqual(risks.map((item) => [item.id, item.direction, item.strategy]), [['RISK-THREAT', 'threat', 'mitigate'], ['RISK-UPSIDE', 'opportunity', 'exploit']]);
+
+  const wrongStrategy = createProject(base, 'WRONGSTRAT', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(wrongStrategy, 'RISKS.md', [{ id: 'RISK-UPSIDE', title: 'Upside', data: { status: 'open', probability: 'low', impact: 'low', mitigation: 'M.', owner: null, milestone: null, direction: 'opportunity', strategy: 'mitigate', trigger: null, residual: null } }], 2);
+  assert.match(loadError(wrongStrategy).message, /strategy is not valid for a opportunity/);
+
+  const v1Rejects = createProject(base, 'RISKV1', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(v1Rejects, 'RISKS.md', [{ id: 'RISK-ONE', title: 'Slip', data: { status: 'open', probability: 'low', impact: 'low', mitigation: 'M.', owner: null, milestone: null, direction: 'threat', strategy: 'mitigate', trigger: null, residual: null } }], 1);
+  assert.match(loadError(v1Rejects).message, /unknown fields: direction, strategy, trigger, residual/);
+
+  const v1Plain = createProject(base, 'RISKV1PLAIN', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(v1Plain, 'RISKS.md', [{ id: 'RISK-ONE', title: 'Slip', data: { status: 'open', probability: 'low', impact: 'low', mitigation: 'M.', owner: null, milestone: null } }], 1);
+  assert.deepEqual(Object.keys(loadProject(v1Plain).risks.items[0]).sort(), ['id', 'impact', 'milestone', 'mitigation', 'owner', 'probability', 'status', 'title'], 'v1 normalized risk shape is unchanged');
+});
+
+test('a configured module cannot contradict a tailored-out knowledge area', () => {
+  const base = temp();
+  const riskContradiction = v2Project(base, 'RISKFICTION', [task('TASK-A', 'A', 'Done.', ['Accepted.'])], { risk: { applied: false, rationale: 'Risk is managed in the programme register.' } });
+  writeModule(riskContradiction, 'RISKS.md', [{ id: 'RISK-ONE', title: 'Slip', data: { status: 'open', probability: 'low', impact: 'low', mitigation: 'M.', owner: null, milestone: null } }]);
+  const riskError = loadError(riskContradiction);
+  assert.equal(riskError.code, 'TAILORING_CONTRADICTION');
+  assert.match(riskError.message, /risk is declared tailored out but RISKS\.md is configured/);
+
+  const stakeholderContradiction = v2Project(base, 'STKFICTION', [task('TASK-A', 'A', 'Done.', ['Accepted.'])], { stakeholder: { applied: false, rationale: 'Single sponsor, no external parties.' } });
+  writeModule(stakeholderContradiction, 'STAKEHOLDERS.md', [{ id: 'STK-ONE', title: 'Sponsor', data: { role: 'Sponsor', organization: null, interest: 'high', influence: 'high', current_engagement: 'supportive', target_engagement: 'supportive', strategy: null, owner: null } }]);
+  assert.match(loadError(stakeholderContradiction).message, /stakeholder is declared tailored out but STAKEHOLDERS\.md is configured/);
+
+  // Tailoring out an area you genuinely do not use stays legal.
+  const honest = v2Project(base, 'HONEST', [task('TASK-A', 'A', 'Done.', ['Accepted.'])], { risk: { applied: false, rationale: 'Risk is managed in the programme register.' } });
+  assert.equal(loadProject(honest).project.id, 'HONEST');
+});
+
+test('closure records bind acceptance to real project and milestone completion', () => {
+  const base = temp();
+  const premature = createProject(base, 'PREMATURE', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(premature, 'CLOSURE.md', [{ id: 'CLO-PROJECT', title: 'Closure', data: { scope: 'project', milestone: null, status: 'accepted', accepted_by: 'Sponsor', accepted_date: '2026-08-11', acceptance_evidence: [{ kind: 'approval', ref: 'sign-off', result: 'accepted', sha256: null }], outstanding_items: [], archive_ref: null } }]);
+  assert.match(loadError(premature).message, /accepts a project that is not complete/);
+
+  const noEvidence = createProject(base, 'NOEVIDENCE', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(noEvidence, 'CLOSURE.md', [{ id: 'CLO-PROJECT', title: 'Closure', data: { scope: 'project', milestone: null, status: 'accepted', accepted_by: 'Sponsor', accepted_date: '2026-08-11', acceptance_evidence: [], outstanding_items: [], archive_ref: null } }]);
+  assert.match(loadError(noEvidence).message, /acceptance requires accepted_by, accepted_date, and evidence/);
+
+  const pendingWithEvidence = createProject(base, 'PENDINGEV', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(pendingWithEvidence, 'CLOSURE.md', [{ id: 'CLO-PROJECT', title: 'Closure', data: { scope: 'project', milestone: null, status: 'pending', accepted_by: 'Sponsor', accepted_date: null, acceptance_evidence: [], outstanding_items: [], archive_ref: null } }]);
+  assert.match(loadError(pendingWithEvidence).message, /pending and cannot bind acceptance evidence/);
+
+  const scopeMismatch = createProject(base, 'SCOPEMISMATCH', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(scopeMismatch, 'CLOSURE.md', [{ id: 'CLO-ONE', title: 'Closure', data: { scope: 'milestone', milestone: null, status: 'pending', accepted_by: null, accepted_date: null, acceptance_evidence: [], outstanding_items: [], archive_ref: null } }]);
+  assert.match(loadError(scopeMismatch).message, /must name a milestone exactly when its scope is milestone/);
+
+  const duplicate = createProject(base, 'DUPCLOSURE', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(duplicate, 'CLOSURE.md', [
+    { id: 'CLO-ONE', title: 'Closure', data: { scope: 'project', milestone: null, status: 'pending', accepted_by: null, accepted_date: null, acceptance_evidence: [], outstanding_items: [], archive_ref: null } },
+    { id: 'CLO-TWO', title: 'Closure again', data: { scope: 'project', milestone: null, status: 'pending', accepted_by: null, accepted_date: null, acceptance_evidence: [], outstanding_items: [], archive_ref: null } },
+  ]);
+  assert.match(loadError(duplicate).message, /At most one project-scoped closure record/);
+
+  const unknownMilestone = createProject(base, 'GHOSTMS', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
+  writeModule(unknownMilestone, 'CLOSURE.md', [{ id: 'CLO-ONE', title: 'Closure', data: { scope: 'milestone', milestone: 'M-GHOST', status: 'pending', accepted_by: null, accepted_date: null, acceptance_evidence: [], outstanding_items: [], archive_ref: null } }]);
+  assert.match(loadError(unknownMilestone).message, /unknown milestone/);
 });

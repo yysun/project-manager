@@ -21,6 +21,12 @@
    precision invented from task counts rather than evidence.
 7. Challenge coverage: success criteria with no mapped task, and coverage or milestone health reported
    as healthy when traceability or milestones are simply unconfigured rather than actually on track.
-8. Return three short sections — `Blocking defects`, `Recommendations`, and `Strong properties` — using
+8. Challenge tailoring drift when the project declares it: an area tailored out whose rationale no
+   longer matches reality (cost tailored out on a project that has started committing spend, stakeholder
+   tailored out once external parties appeared), a rationale that restates the omission instead of
+   justifying it, and an applied area with nothing behind it. On a schema version 1 project, note that
+   tailoring is undeclared where that materially weakens the project's governance story — but treat
+   adopting version 2 as a recommendation, never a blocking defect.
+9. Return three short sections — `Blocking defects`, `Recommendations`, and `Strong properties` — using
    `None` where a section has no items. This mirrors the output contract `project validate-task` uses
    for one task in [tasks.md](tasks.md), applied here to the whole project.

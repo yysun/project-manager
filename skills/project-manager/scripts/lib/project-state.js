@@ -3,8 +3,9 @@
  * then calculate deterministic status, ranking, blockers, coverage, and Studio views.
  * Invariants: read-only operation, selected-root isolation, exact schema versions,
  * and schedule metadata that never changes execution-contract identity.
- * Recent changes: add rigor-profile policy, TASKS v3 dispositions, lightweight
- * human completion support, and ordinary lifecycle projection for Studio.
+ * Recent changes: add PROJECT v2 declare-only PMI tailoring, RISKS v2 response
+ * strategies, and optional assumption/issue/stakeholder/lesson/closure modules
+ * that contribute to the source hash only when configured.
  */
 'use strict';
 
@@ -14,12 +15,23 @@ const { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceR
 const { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require('./work-area');
 
 const REQUIRED = ['PROJECT.md', 'TASKS.md', 'STATUS.md'];
-const OPTIONAL_FILES = ['MILESTONES.md', 'RISKS.md', 'DECISIONS.md', 'SOURCES.md', 'TRACEABILITY.md', 'CHANGES.md'];
+const OPTIONAL_FILES = ['MILESTONES.md', 'RISKS.md', 'DECISIONS.md', 'SOURCES.md', 'TRACEABILITY.md', 'CHANGES.md', 'ASSUMPTIONS.md', 'ISSUES.md', 'STAKEHOLDERS.md', 'LESSONS.md', 'CLOSURE.md'];
 const OPTIONAL_DIRS = ['handoffs', path.join('reports', 'history')];
 const TASK_STATUSES = ['planned', 'ready', 'in_progress', 'implemented', 'verification', 'verified', 'done'];
 const TASK_DISPOSITIONS = ['active', 'deferred', 'cancelled'];
 const PROVIDERS = ['human', 'rpd', 'agent', 'external'];
 const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
+// PMBOK 6 knowledge areas. PROJECT v2 declares each one applied or tailored out;
+// the declaration is mandatory, the content of any area never is.
+const KNOWLEDGE_AREAS = ['integration', 'scope', 'schedule', 'cost', 'quality', 'resource', 'communications', 'risk', 'procurement', 'stakeholder'];
+// Only unambiguous area/module pairs are cross-checked. MILESTONES.md is deliberately
+// unbound: milestones serve scope and integration reporting, not schedule alone.
+const TAILORING_MODULES = { risk: { file: 'RISKS.md', key: 'risks' }, stakeholder: { file: 'STAKEHOLDERS.md', key: 'stakeholders' } };
+const LEVELS = ['low', 'medium', 'high'];
+const ENGAGEMENT_LEVELS = ['unaware', 'resistant', 'neutral', 'supportive', 'leading'];
+const THREAT_STRATEGIES = ['avoid', 'transfer', 'mitigate', 'accept', 'escalate'];
+const OPPORTUNITY_STRATEGIES = ['exploit', 'share', 'enhance', 'accept', 'escalate'];
+const TYPED_REFERENCE_KINDS = ['project', 'task', 'milestone', 'risk', 'source', 'success'];
 const ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const HASH = /^[a-f0-9]{64}$/;
@@ -93,6 +105,40 @@ function rpdCommand(state, task) {
 
 function namespacedId(value, prefix) {
   return ID.test(value) && value.startsWith(prefix);
+}
+
+// Tailoring is declare-only: it proves the omission of a knowledge area was a
+// recorded decision, and never requires that any area actually be practiced.
+function validateTailoring(value, filePath) {
+  exactKeys(value, KNOWLEDGE_AREAS, filePath, 'tailoring');
+  for (const area of KNOWLEDGE_AREAS) {
+    assert(Object.hasOwn(value, area), 'TAILORING_AREA', filePath, `tailoring must declare knowledge area ${area}`);
+    const entry = value[area];
+    exactKeys(entry, ['applied', 'rationale', 'decided'], filePath, `tailoring ${area}`);
+    for (const key of ['applied', 'rationale', 'decided']) assert(Object.hasOwn(entry, key), 'TAILORING_FIELD', filePath, `tailoring ${area} missing ${key}`);
+    assert(typeof entry.applied === 'boolean', 'TAILORING_APPLIED', filePath, `tailoring ${area} applied must be boolean`);
+    assert(entry.rationale === null || nonEmpty(entry.rationale), 'TAILORING_RATIONALE', filePath, `tailoring ${area} rationale must be null or a non-empty string`);
+    assert(entry.applied || nonEmpty(entry.rationale), 'TAILORING_RATIONALE', filePath, `tailoring ${area} is tailored out and requires a rationale`);
+    assert(validDate(entry.decided), 'TAILORING_DECIDED', filePath, `tailoring ${area} decided must be a date-only value`);
+  }
+}
+
+function typedReferenceShape(value) {
+  const index = value.indexOf(':');
+  return index > 0 && TYPED_REFERENCE_KINDS.includes(value.slice(0, index)) && ID.test(value.slice(index + 1));
+}
+
+function assertTypedReferences(list, filePath, label, project) {
+  assert(list.every(typedReferenceShape), 'TYPED_REFERENCE', filePath, `${label} contains an invalid typed reference`, project);
+}
+
+function resolveTypedReferences(list, typed, code, filePath, label, project) {
+  for (const reference of list) {
+    const split = reference.indexOf(':');
+    const kind = reference.slice(0, split);
+    const id = reference.slice(split + 1);
+    assert(typed[kind]?.has(id), code, filePath, `${label} has unknown reference ${reference}`, project);
+  }
 }
 
 function uniqueStrings(value, filePath, label, project, { sorted = true, allowEmpty = true } = {}) {
@@ -206,10 +252,14 @@ function checkOptionalDirectories(root) {
 
 function parseProject(text, filePath, root) {
   const { data, body } = parseFrontmatter(text, filePath);
+  // Version is read before the field list is built: v1 keeps its exact historical
+  // field set and rejects `tailoring`, so existing projects need no migration.
+  assert(data.schema_version === 1 || data.schema_version === 2, 'SCHEMA_VERSION', filePath, 'Unsupported project schema');
   const fields = ['schema_version', 'id', 'name', 'status', 'owner', 'start_date', 'target_date', 'current_milestone', 'profile', 'adapters', 'created', 'updated'];
+  if (data.schema_version === 2) fields.push('tailoring');
   exactKeys(data, fields, filePath, 'PROJECT frontmatter');
   for (const field of fields) assert(Object.hasOwn(data, field), 'MISSING_FIELD', filePath, `PROJECT missing ${field}`);
-  assert(data.schema_version === 1, 'SCHEMA_VERSION', filePath, 'Unsupported project schema');
+  if (data.schema_version === 2) validateTailoring(data.tailoring, filePath);
   assert(ID.test(data.id), 'INVALID_ID', filePath, 'Invalid project ID');
   assert(nonEmpty(data.name), 'INVALID_NAME', filePath, 'Project name is required');
   assert(['planning', 'active', 'on_hold', 'complete'].includes(data.status), 'INVALID_STATUS', filePath, 'Invalid project status');
@@ -318,7 +368,7 @@ function normalizeTask(record, project, filePath, schemaVersion = 1) {
   return task;
 }
 
-function normalizeSimple(record, kind, project, filePath) {
+function normalizeSimple(record, kind, project, filePath, schemaVersion = 1) {
   const raw = record.raw;
   if (kind === 'milestones') {
     assert(namespacedId(record.id, 'M-'), 'MILESTONE_ID', filePath, `Invalid milestone ID ${record.id}`, project);
@@ -335,11 +385,99 @@ function normalizeSimple(record, kind, project, filePath) {
   }
   if (kind === 'risks') {
     assert(namespacedId(record.id, 'RISK-'), 'RISK_ID', filePath, `Invalid risk ID ${record.id}`, project);
-    exactKeys(raw, ['status', 'probability', 'impact', 'mitigation', 'owner', 'milestone'], filePath, `risk ${record.id}`, project);
+    const riskFields = ['status', 'probability', 'impact', 'mitigation', 'owner', 'milestone'];
+    exactKeys(raw, schemaVersion === 2 ? [...riskFields, 'direction', 'strategy', 'trigger', 'residual'] : riskFields, filePath, `risk ${record.id}`, project);
     const item = { id: record.id, title: record.title, status: raw.status, probability: raw.probability, impact: raw.impact, mitigation: raw.mitigation, owner: raw.owner ?? null, milestone: raw.milestone ?? null };
     assert(['open', 'mitigated', 'accepted', 'closed'].includes(item.status) && ['low', 'medium', 'high'].includes(item.probability) && ['low', 'medium', 'high'].includes(item.impact) && nonEmpty(item.mitigation), 'RISK_SCHEMA', filePath, 'Invalid risk record', project);
     assert(item.owner === null || nonEmpty(item.owner), 'RISK_OWNER', filePath, 'Invalid risk owner', project);
     assert(item.milestone === null || namespacedId(item.milestone, 'M-'), 'RISK_MILESTONE', filePath, 'Invalid risk milestone', project);
+    // v1 keeps its exact historical normalized shape so adding response-strategy
+    // support cannot change any existing project's source hash.
+    if (schemaVersion === 2) {
+      item.direction = raw.direction ?? 'threat';
+      item.strategy = raw.strategy ?? null;
+      item.trigger = raw.trigger ?? null;
+      item.residual = raw.residual ?? null;
+      assert(['threat', 'opportunity'].includes(item.direction), 'RISK_DIRECTION', filePath, `Risk ${record.id} direction must be threat or opportunity`, project);
+      const strategies = item.direction === 'opportunity' ? OPPORTUNITY_STRATEGIES : THREAT_STRATEGIES;
+      assert(item.strategy === null || strategies.includes(item.strategy), 'RISK_STRATEGY', filePath, `Risk ${record.id} strategy is not valid for a ${item.direction}`, project);
+      assert(item.trigger === null || nonEmpty(item.trigger), 'RISK_TRIGGER', filePath, `Risk ${record.id} trigger must be null or non-empty`, project);
+      assert(item.residual === null || LEVELS.includes(item.residual), 'RISK_RESIDUAL', filePath, `Risk ${record.id} residual must be null or a level`, project);
+    }
+    return item;
+  }
+  if (kind === 'assumptions') {
+    assert(namespacedId(record.id, 'ASM-'), 'ASSUMPTION_ID', filePath, `Invalid assumption ID ${record.id}`, project);
+    exactKeys(raw, ['status', 'kind', 'statement', 'impact_if_false', 'owner', 'due_date', 'validated_date', 'affects'], filePath, `assumption ${record.id}`, project);
+    const item = { id: record.id, title: record.title, status: raw.status, kind: raw.kind, statement: raw.statement, impact_if_false: raw.impact_if_false, owner: raw.owner ?? null, due_date: raw.due_date ?? null, validated_date: raw.validated_date ?? null, affects: raw.affects ?? [] };
+    assert(['open', 'confirmed', 'invalidated'].includes(item.status), 'ASSUMPTION_STATUS', filePath, `Assumption ${record.id} has invalid status`, project);
+    assert(['assumption', 'constraint'].includes(item.kind), 'ASSUMPTION_KIND', filePath, `Assumption ${record.id} kind must be assumption or constraint`, project);
+    assert(nonEmpty(item.statement) && nonEmpty(item.impact_if_false), 'ASSUMPTION_SCHEMA', filePath, `Assumption ${record.id} requires statement and impact_if_false`, project);
+    assert(item.owner === null || nonEmpty(item.owner), 'ASSUMPTION_OWNER', filePath, `Assumption ${record.id} owner is invalid`, project);
+    for (const key of ['due_date', 'validated_date']) assert(item[key] === null || validDate(item[key]), 'INVALID_DATE', filePath, `Assumption ${record.id} ${key} is invalid`, project);
+    assert(item.status === 'open' ? item.validated_date === null : item.validated_date !== null, 'ASSUMPTION_VALIDATION', filePath, `Assumption ${record.id} must record validated_date exactly when it is no longer open`, project);
+    uniqueStrings(item.affects, filePath, `assumption ${record.id} affects`, project);
+    assertTypedReferences(item.affects, filePath, `assumption ${record.id} affects`, project);
+    return item;
+  }
+  if (kind === 'issues') {
+    assert(namespacedId(record.id, 'ISS-'), 'ISSUE_ID', filePath, `Invalid issue ID ${record.id}`, project);
+    exactKeys(raw, ['status', 'severity', 'description', 'owner', 'raised_date', 'due_date', 'resolved_date', 'resolution', 'affects', 'escalated'], filePath, `issue ${record.id}`, project);
+    const item = { id: record.id, title: record.title, status: raw.status, severity: raw.severity, description: raw.description, owner: raw.owner ?? null, raised_date: raw.raised_date, due_date: raw.due_date ?? null, resolved_date: raw.resolved_date ?? null, resolution: raw.resolution ?? null, affects: raw.affects ?? [], escalated: raw.escalated ?? false };
+    assert(['open', 'in_progress', 'resolved', 'closed'].includes(item.status), 'ISSUE_STATUS', filePath, `Issue ${record.id} has invalid status`, project);
+    assert(['low', 'medium', 'high', 'critical'].includes(item.severity), 'ISSUE_SEVERITY', filePath, `Issue ${record.id} has invalid severity`, project);
+    assert(nonEmpty(item.description), 'ISSUE_SCHEMA', filePath, `Issue ${record.id} requires a description`, project);
+    assert(item.owner === null || nonEmpty(item.owner), 'ISSUE_OWNER', filePath, `Issue ${record.id} owner is invalid`, project);
+    assert(validDate(item.raised_date), 'INVALID_DATE', filePath, `Issue ${record.id} raised_date is invalid`, project);
+    for (const key of ['due_date', 'resolved_date']) assert(item[key] === null || validDate(item[key]), 'INVALID_DATE', filePath, `Issue ${record.id} ${key} is invalid`, project);
+    assert(typeof item.escalated === 'boolean', 'ISSUE_ESCALATED', filePath, `Issue ${record.id} escalated must be boolean`, project);
+    const settled = ['resolved', 'closed'].includes(item.status);
+    assert(settled ? item.resolved_date !== null && nonEmpty(item.resolution) : item.resolved_date === null && item.resolution === null, 'ISSUE_RESOLUTION', filePath, `Issue ${record.id} must record resolution and resolved_date exactly when resolved or closed`, project);
+    assert(item.resolved_date === null || item.resolved_date >= item.raised_date, 'ISSUE_DATES', filePath, `Issue ${record.id} cannot be resolved before it was raised`, project);
+    uniqueStrings(item.affects, filePath, `issue ${record.id} affects`, project);
+    assertTypedReferences(item.affects, filePath, `issue ${record.id} affects`, project);
+    return item;
+  }
+  if (kind === 'stakeholders') {
+    assert(namespacedId(record.id, 'STK-'), 'STAKEHOLDER_ID', filePath, `Invalid stakeholder ID ${record.id}`, project);
+    exactKeys(raw, ['role', 'organization', 'interest', 'influence', 'current_engagement', 'target_engagement', 'strategy', 'owner'], filePath, `stakeholder ${record.id}`, project);
+    const item = { id: record.id, title: record.title, role: raw.role, organization: raw.organization ?? null, interest: raw.interest, influence: raw.influence, current_engagement: raw.current_engagement, target_engagement: raw.target_engagement, strategy: raw.strategy ?? null, owner: raw.owner ?? null };
+    assert(nonEmpty(item.role), 'STAKEHOLDER_SCHEMA', filePath, `Stakeholder ${record.id} requires a role`, project);
+    assert(item.organization === null || nonEmpty(item.organization), 'STAKEHOLDER_SCHEMA', filePath, `Stakeholder ${record.id} organization is invalid`, project);
+    assert(LEVELS.includes(item.interest) && LEVELS.includes(item.influence), 'STAKEHOLDER_LEVEL', filePath, `Stakeholder ${record.id} interest and influence must be low, medium, or high`, project);
+    assert(ENGAGEMENT_LEVELS.includes(item.current_engagement) && ENGAGEMENT_LEVELS.includes(item.target_engagement), 'STAKEHOLDER_ENGAGEMENT', filePath, `Stakeholder ${record.id} engagement levels are invalid`, project);
+    assert(item.strategy === null || nonEmpty(item.strategy), 'STAKEHOLDER_STRATEGY', filePath, `Stakeholder ${record.id} strategy must be null or non-empty`, project);
+    // Declaring an engagement gap without a strategy is an unowned intention.
+    assert(item.current_engagement === item.target_engagement || nonEmpty(item.strategy), 'STAKEHOLDER_STRATEGY', filePath, `Stakeholder ${record.id} declares an engagement gap and requires a strategy`, project);
+    assert(item.owner === null || nonEmpty(item.owner), 'STAKEHOLDER_OWNER', filePath, `Stakeholder ${record.id} owner is invalid`, project);
+    return item;
+  }
+  if (kind === 'lessons') {
+    assert(namespacedId(record.id, 'LES-'), 'LESSON_ID', filePath, `Invalid lesson ID ${record.id}`, project);
+    exactKeys(raw, ['category', 'statement', 'recommendation', 'date', 'source_tasks', 'source_milestone'], filePath, `lesson ${record.id}`, project);
+    const item = { id: record.id, title: record.title, category: raw.category, statement: raw.statement, recommendation: raw.recommendation, date: raw.date, source_tasks: raw.source_tasks ?? [], source_milestone: raw.source_milestone ?? null };
+    assert(['process', 'technical', 'communication', 'estimation', 'risk', 'other'].includes(item.category), 'LESSON_CATEGORY', filePath, `Lesson ${record.id} has invalid category`, project);
+    assert(nonEmpty(item.statement) && nonEmpty(item.recommendation), 'LESSON_SCHEMA', filePath, `Lesson ${record.id} requires statement and recommendation`, project);
+    assert(validDate(item.date), 'INVALID_DATE', filePath, `Lesson ${record.id} date is invalid`, project);
+    uniqueStrings(item.source_tasks, filePath, `lesson ${record.id} source_tasks`, project);
+    assert(item.source_milestone === null || namespacedId(item.source_milestone, 'M-'), 'LESSON_MILESTONE', filePath, `Lesson ${record.id} source_milestone is invalid`, project);
+    return item;
+  }
+  if (kind === 'closure') {
+    assert(namespacedId(record.id, 'CLO-'), 'CLOSURE_ID', filePath, `Invalid closure ID ${record.id}`, project);
+    exactKeys(raw, ['scope', 'milestone', 'status', 'accepted_by', 'accepted_date', 'acceptance_evidence', 'outstanding_items', 'archive_ref'], filePath, `closure ${record.id}`, project);
+    const item = { id: record.id, title: record.title, scope: raw.scope, milestone: raw.milestone ?? null, status: raw.status, accepted_by: raw.accepted_by ?? null, accepted_date: raw.accepted_date ?? null, acceptance_evidence: raw.acceptance_evidence ?? [], outstanding_items: raw.outstanding_items ?? [], archive_ref: raw.archive_ref ?? null };
+    assert(['project', 'milestone'].includes(item.scope), 'CLOSURE_SCOPE', filePath, `Closure ${record.id} scope must be project or milestone`, project);
+    assert(['pending', 'accepted'].includes(item.status), 'CLOSURE_STATUS', filePath, `Closure ${record.id} status must be pending or accepted`, project);
+    assert(item.scope === 'milestone' ? namespacedId(item.milestone ?? '', 'M-') : item.milestone === null, 'CLOSURE_SCOPE', filePath, `Closure ${record.id} must name a milestone exactly when its scope is milestone`, project);
+    assert(item.accepted_date === null || validDate(item.accepted_date), 'INVALID_DATE', filePath, `Closure ${record.id} accepted_date is invalid`, project);
+    assert(Array.isArray(item.acceptance_evidence), 'CLOSURE_EVIDENCE', filePath, `Closure ${record.id} acceptance_evidence must be an array`, project);
+    item.acceptance_evidence.forEach((value, index) => { try { validateEvidenceRecord(value, `acceptance_evidence[${index}]`); } catch (error) { fail('semantic', 'CLOSURE_EVIDENCE', filePath, `Closure ${record.id}: ${error.message}`, project); } });
+    // Acceptance is a claim about reality, so it must carry an acceptor, a date, and evidence.
+    if (item.status === 'accepted') assert(nonEmpty(item.accepted_by) && item.accepted_date !== null && item.acceptance_evidence.length > 0, 'CLOSURE_ACCEPTANCE', filePath, `Closure ${record.id} acceptance requires accepted_by, accepted_date, and evidence`, project);
+    else assert(item.accepted_by === null && item.accepted_date === null && item.acceptance_evidence.length === 0, 'CLOSURE_ACCEPTANCE', filePath, `Closure ${record.id} is pending and cannot bind acceptance evidence`, project);
+    uniqueStrings(item.outstanding_items, filePath, `closure ${record.id} outstanding_items`, project, { sorted: false });
+    assert(item.archive_ref === null || nonEmpty(item.archive_ref), 'CLOSURE_ARCHIVE', filePath, `Closure ${record.id} archive_ref must be null or non-empty`, project);
     return item;
   }
   if (kind === 'decisions') {
@@ -446,6 +584,28 @@ function validateGraph(state) {
   for (const decision of state.decisions.items) for (const reference of decision.affects) {
     const split = reference.indexOf(':'); const kind = reference.slice(0, split); const id = reference.slice(split + 1);
     assert(typed[kind]?.has(id), 'DECISION_REFERENCE', 'DECISIONS.md', `Decision ${decision.id} has unknown reference ${reference}`, state.project);
+  }
+  // A declared-out knowledge area whose module is configured would make the
+  // tailoring record fiction, so the contradiction fails closed.
+  if (state.project.tailoring) {
+    for (const [area, target] of Object.entries(TAILORING_MODULES)) {
+      if (state[target.key].configured) assert(state.project.tailoring[area].applied, 'TAILORING_CONTRADICTION', 'PROJECT.md', `Knowledge area ${area} is declared tailored out but ${target.file} is configured`, state.project);
+    }
+  }
+  for (const assumption of state.assumptions.items) resolveTypedReferences(assumption.affects, typed, 'ASSUMPTION_REFERENCE', 'ASSUMPTIONS.md', `Assumption ${assumption.id}`, state.project);
+  for (const issue of state.issues.items) resolveTypedReferences(issue.affects, typed, 'ISSUE_REFERENCE', 'ISSUES.md', `Issue ${issue.id}`, state.project);
+  for (const lesson of state.lessons.items) {
+    assert(lesson.source_tasks.every((id) => byId.has(id)), 'LESSON_REFERENCE', 'LESSONS.md', `Lesson ${lesson.id} has unknown source task`, state.project);
+    assert(lesson.source_milestone === null || milestoneIds.has(lesson.source_milestone), 'LESSON_REFERENCE', 'LESSONS.md', `Lesson ${lesson.id} has unknown source milestone`, state.project);
+  }
+  const projectClosures = state.closure.items.filter((item) => item.scope === 'project');
+  assert(projectClosures.length <= 1, 'CLOSURE_DUPLICATE', 'CLOSURE.md', 'At most one project-scoped closure record may exist', state.project);
+  const milestoneClosures = state.closure.items.filter((item) => item.scope === 'milestone');
+  assert(new Set(milestoneClosures.map((item) => item.milestone)).size === milestoneClosures.length, 'CLOSURE_DUPLICATE', 'CLOSURE.md', 'Each milestone may have at most one closure record', state.project);
+  for (const closure of milestoneClosures) assert(milestoneIds.has(closure.milestone), 'CLOSURE_REFERENCE', 'CLOSURE.md', `Closure ${closure.id} has unknown milestone`, state.project);
+  for (const closure of state.closure.items.filter((item) => item.status === 'accepted')) {
+    if (closure.scope === 'project') assert(state.project.status === 'complete', 'CLOSURE_COMPLETE', 'CLOSURE.md', `Closure ${closure.id} accepts a project that is not complete`, state.project);
+    else assert(state.milestones.items.find((item) => item.id === closure.milestone)?.status === 'complete', 'CLOSURE_COMPLETE', 'CLOSURE.md', `Closure ${closure.id} accepts a milestone that is not complete`, state.project);
   }
   for (const change of state.changes.items) {
     assert(change.sources.every((id) => sourceIds.has(id)), 'CHANGE_REFERENCE', 'CHANGES.md', `Change ${change.id} has unknown source`, state.project);
@@ -581,21 +741,32 @@ function loadProject(folder, options = {}) {
   const project = parseProject(texts['PROJECT.md'], path.join(root, 'PROJECT.md'), logicalRoot);
   const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2, 3] });
   const tasks = taskRecords.map((record) => normalizeTask(record, project, path.join(root, 'TASKS.md'), taskRecords.schema_version));
-  function module(name, kind) {
+  function module(name, kind, schemaVersions = [1]) {
     const text = texts[name];
     if (text === null) return { configured: false, items: [] };
-    const items = parseCollection(text, path.join(root, name)).map((record) => normalizeSimple(record, kind, project, path.join(root, name))).sort((a, b) => a.id.localeCompare(b.id));
+    const records = parseCollection(text, path.join(root, name), { schemaVersions });
+    const items = records.map((record) => normalizeSimple(record, kind, project, path.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
     return { configured: true, items };
   }
   const state = {
     root, project, tasks, tasks_schema_version: taskRecords.schema_version,
-    milestones: module('MILESTONES.md', 'milestones'), risks: module('RISKS.md', 'risks'),
+    milestones: module('MILESTONES.md', 'milestones'), risks: module('RISKS.md', 'risks', [1, 2]),
     decisions: module('DECISIONS.md', 'decisions'), sources: module('SOURCES.md', 'sources'),
-    changes: module('CHANGES.md', 'changes'),
+    changes: module('CHANGES.md', 'changes'), assumptions: module('ASSUMPTIONS.md', 'assumptions'),
+    issues: module('ISSUES.md', 'issues'), stakeholders: module('STAKEHOLDERS.md', 'stakeholders'),
+    lessons: module('LESSONS.md', 'lessons'), closure: module('CLOSURE.md', 'closure'),
   };
   state.traceability = loadTraceability(texts['TRACEABILITY.md'], path.join(root, 'TRACEABILITY.md'), project, tasks, state.sources.items);
   validateGraph(state);
-  state.source_sha256 = sha256({ project: { ...project, root: undefined }, tasks, milestones: state.milestones.items, risks: state.risks.items, decisions: state.decisions.items, sources: state.sources.items, traceability: state.traceability, changes: state.changes.items });
+  // Unconfigured modules contribute `undefined`, which canonical JSON omits, so
+  // installing this capability cannot stale any existing STATUS.md cache.
+  const whenConfigured = (entry) => (entry.configured ? entry.items : undefined);
+  state.source_sha256 = sha256({
+    project: { ...project, root: undefined }, tasks, milestones: state.milestones.items, risks: state.risks.items,
+    decisions: state.decisions.items, sources: state.sources.items, traceability: state.traceability, changes: state.changes.items,
+    assumptions: whenConfigured(state.assumptions), issues: whenConfigured(state.issues),
+    stakeholders: whenConfigured(state.stakeholders), lessons: whenConfigured(state.lessons), closure: whenConfigured(state.closure),
+  });
   const statusParsed = parseFrontmatter(texts['STATUS.md'], path.join(root, 'STATUS.md'));
   exactKeys(statusParsed.data, ['schema_version', 'project_id', 'generated_at', 'source_sha256'], path.join(root, 'STATUS.md'), 'STATUS frontmatter', project);
   assert(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), 'STATUS_SCHEMA', path.join(root, 'STATUS.md'), 'Invalid STATUS cache envelope', project);
@@ -736,25 +907,41 @@ function nextData(state) {
   return { schema_version: 1, tasks: rows };
 }
 
+function tailoringSummary(state) {
+  const tailoring = state.project.tailoring;
+  if (!tailoring) return { declared: false };
+  return {
+    declared: true,
+    applied: KNOWLEDGE_AREAS.filter((area) => tailoring[area].applied),
+    tailored_out: KNOWLEDGE_AREAS.filter((area) => !tailoring[area].applied).map((area) => ({ area, rationale: tailoring[area].rationale, decided: tailoring[area].decided })),
+  };
+}
+
 function statusData(state, asOf = new Date().toISOString().slice(0, 10)) {
   const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, state.tasks.filter((task) => task.status === status).length]));
   const byDisposition = Object.fromEntries(TASK_DISPOSITIONS.map((disposition) => [disposition, state.tasks.filter((task) => taskDisposition(task) === disposition).length]));
   const blockers = blockerItems(state);
   const coverage = coverageData(state);
   return {
-    schema_version: 2, as_of_date: asOf,
+    schema_version: 3, as_of_date: asOf,
     project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date, profile: state.project.profile, policy: profilePolicy(state.project.profile) },
+    tailoring: tailoringSummary(state),
     tasks: { total: state.tasks.length, by_status: byStatus, by_disposition: byDisposition, actionable: nextData(state).tasks.length, blocked: blockers.length },
     success: successCounts(state),
     milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== 'complete' })) } : { configured: false },
     coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
     risks: state.risks.configured ? { configured: true, open: state.risks.items.filter((item) => item.status === 'open').length, high: state.risks.items.filter((item) => item.status === 'open' && (item.probability === 'high' || item.impact === 'high')).length } : { configured: false },
     decisions: state.decisions.configured ? { configured: true, proposed: state.decisions.items.filter((item) => item.status === 'proposed').length } : { configured: false },
+    assumptions: state.assumptions.configured ? { configured: true, total: state.assumptions.items.length, open: state.assumptions.items.filter((item) => item.status === 'open').length, invalidated: state.assumptions.items.filter((item) => item.status === 'invalidated').length } : { configured: false },
+    issues: state.issues.configured ? { configured: true, total: state.issues.items.length, open: state.issues.items.filter((item) => ['open', 'in_progress'].includes(item.status)).length, critical: state.issues.items.filter((item) => ['open', 'in_progress'].includes(item.status) && item.severity === 'critical').length, escalated: state.issues.items.filter((item) => ['open', 'in_progress'].includes(item.status) && item.escalated).length } : { configured: false },
+    stakeholders: state.stakeholders.configured ? { configured: true, total: state.stakeholders.items.length, engagement_gaps: state.stakeholders.items.filter((item) => item.current_engagement !== item.target_engagement).length } : { configured: false },
+    lessons: state.lessons.configured ? { configured: true, total: state.lessons.items.length } : { configured: false },
+    closure: state.closure.configured ? { configured: true, total: state.closure.items.length, accepted: state.closure.items.filter((item) => item.status === 'accepted').length, pending: state.closure.items.filter((item) => item.status === 'pending').length } : { configured: false },
   };
 }
 
 function validateData(state) {
-  return { schema_version: 1, valid: true, warnings: state.status_stale ? [{ code: 'STATUS_STALE', path: 'STATUS.md', message: 'Derived STATUS cache does not match current source state' }] : [], modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, handoffs: fs.existsSync(path.join(state.root, 'handoffs')), reports: fs.existsSync(path.join(state.root, 'reports', 'history')) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length } };
+  return { schema_version: 1, valid: true, warnings: state.status_stale ? [{ code: 'STATUS_STALE', path: 'STATUS.md', message: 'Derived STATUS cache does not match current source state' }] : [], modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs.existsSync(path.join(state.root, 'handoffs')), reports: fs.existsSync(path.join(state.root, 'reports', 'history')) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
 }
 
 function reportData(state) {
@@ -763,10 +950,13 @@ function reportData(state) {
   if (!state.milestones.configured) unknowns.push({ field: 'status.milestones', reason: 'Milestones are unconfigured' });
   if (!state.traceability.configured) unknowns.push({ field: 'status.coverage', reason: 'Traceability is unconfigured' });
   if (state.project.target_date === null) unknowns.push({ field: 'status.project.target_date', reason: 'Target date is unknown' });
+  // A tailored-out area is a recorded decision, never a zero and never "on track".
+  if (!state.project.tailoring) unknowns.push({ field: 'tailoring', reason: 'Tailoring is undeclared on PROJECT.md schema version 1' });
+  else for (const entry of status.tailoring.tailored_out) unknowns.push({ field: `tailoring.${entry.area}`, reason: `${entry.area} is tailored out: ${entry.rationale}` });
   for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: 'Forecast is unknown' });
   const configuredItems = (module) => module.configured ? { configured: true, items: module.items } : { configured: false };
   const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
-  return { schema_version: 2, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
+  return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
 }
 
 const KANBAN_LANES = [

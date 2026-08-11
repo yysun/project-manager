@@ -12,6 +12,13 @@ are expected, and `controlled` when even human work requires explicit pre-issued
 evidence. Minimal and standard share the safe one-step human completion path; delegated executors remain
 governed in every profile.
 
+Choose the project schema version next. Version 1 is the ordinary default and stays exactly as it is.
+Choose version 2 when the project must show PMI-aligned tailoring; it requires a `tailoring` block
+declaring all ten PMBOK 6 knowledge areas as applied or tailored out. Ask the user which areas genuinely
+apply rather than guessing, and record a real reason for each area tailored out — the rationale is the
+part that makes the omission a decision instead of an oversight. Never fabricate a rationale, and never
+add a tailoring block to a version 1 project.
+
 Accept a nonexistent target or an existing directory proven empty. Prepare and validate a same-filesystem candidate, then rename it into place atomically. Refuse a non-empty target. Never initialize sibling folders or add Git files.
 
 `PROJECT.md` uses JSON-valued frontmatter and Markdown sections:
@@ -40,6 +47,15 @@ Move the team without interrupting customer operations.
 
 - [SC-OPERATIONS] No customer-facing outage during the move.
 ```
+
+A schema version 2 project adds one required frontmatter key:
+
+```markdown
+tailoring: {"integration":{"applied":true,"rationale":null,"decided":"2026-08-11"},"cost":{"applied":false,"rationale":"No project budget; effort absorbed by the standing team.","decided":"2026-08-11"}}
+```
+
+All ten areas must appear on that one line as complete single-line JSON. Every remaining v1 field keeps
+its exact meaning.
 
 `TASKS.md` begins with frontmatter `schema_version: 1`. `STATUS.md` is a derived cache, never the source of task truth.
 

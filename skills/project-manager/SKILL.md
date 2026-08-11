@@ -5,7 +5,7 @@ description: Plan, coordinate, track, review, and report folder-native projects.
 
 # Project Manager
 
-**Version:** `1.2.0`
+**Version:** `1.3.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 
@@ -60,7 +60,24 @@ The minimal project contains only:
 - `TASKS.md`
 - `STATUS.md`
 
-Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, `TRACEABILITY.md`, `CHANGES.md`, `handoffs/`, and `reports/history/`.
+Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, `TRACEABILITY.md`, `CHANGES.md`, `ASSUMPTIONS.md`, `ISSUES.md`, `STAKEHOLDERS.md`, `LESSONS.md`, `CLOSURE.md`, `handoffs/`, and `reports/history/`.
+
+## Tailor to PMI
+
+`PROJECT.md` schema version 2 requires a `tailoring` block declaring each of the ten PMBOK 6 knowledge
+areas applied or tailored out, with a rationale required for every area tailored out. Version 1 keeps
+its exact field set, rejects `tailoring`, and needs no migration.
+
+Tailoring is declare-only. It never obliges a project to practice an area, never requires module
+content, and never enters the task specification hash or Task Contract. Its purpose is to make an
+omission a recorded decision, which is what PMI tailoring actually requires.
+
+- Never fabricate a rationale, and never add a tailoring block the user did not decide.
+- Report a tailored-out area as tailored out with its rationale; never as zero, absent, or on track.
+- Configuring `RISKS.md` while risk is tailored out, or `STAKEHOLDERS.md` while stakeholder is tailored
+  out, is a validation failure. The declaration cannot become fiction.
+- Cost, Earned Value, and critical-path scheduling are not implemented. Tailor them out, or record that
+  they are managed outside this project.
 
 ## Plan
 

@@ -40,6 +40,28 @@ project reality → reasoning → coordinated change
 Project truth stays in a durable, versionable Markdown folder and is validated before changes are
 saved. Kanban and Timeline visualize that state; they do not become a second source of truth.
 
+## PMI alignment
+
+Project Manager is **PMBOK 7 principles-aligned with documented tailoring**. It is not certified by
+PMI, and no tool can be — this describes how the skill is built, not an accreditation.
+
+Tailoring is the load-bearing idea. PMBOK 7 makes tailoring a principle and PMBOK 6 states processes
+are selected per project, so leaving out an area is compliant *only when the omission is a recorded
+decision*. A project therefore declares each of the ten PMBOK 6 knowledge areas as applied or tailored
+out, and tailoring an area out requires a rationale. Reports name a tailored-out area as tailored out
+with that rationale — never as zero, absent, or on track.
+
+What that buys you: cost, procurement, or stakeholder management can be genuinely absent from a small
+project without the plan looking negligent, while an area you *do* claim to run is enforced. Declaring
+an area out while configuring its module is a validation failure, so the declaration cannot become
+fiction.
+
+Applied by default: integration (change control, re-verification), scope (success criteria and
+traceability), quality (acceptance and evidence), and risk. Available when wanted: assumption log,
+issue log, stakeholder register, lessons register, and closure records. Cost, Earned Value, and
+critical-path scheduling are not implemented — declare them tailored out, or manage them elsewhere and
+say so in the rationale.
+
 ## User guides
 
 - [English user guide](skills/project-manager/README.md) — manage through outcomes, events,
