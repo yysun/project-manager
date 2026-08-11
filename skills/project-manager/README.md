@@ -1,8 +1,18 @@
 # Project Manager Skill — End-User Guide
 
-Project Manager turns a folder into a durable project workspace that Codex can plan, coordinate,
-track, review, and report. Project facts live in Markdown files you can inspect and version. The
-skill also includes Project Manager Studio, with Kanban and Timeline views over the same project.
+**Users manage the project, not the project-management tool.** Work in terms of outcomes,
+constraints, risks, priorities, and decisions instead of boards, fields, statuses, and dependency
+settings.
+
+**One user intent can become many coordinated, validated project actions.** Project Manager can
+interpret a change, find affected work, update connected project state, validate the result, and
+report the impact. Natural language is intent; Project Manager is reasoning and action; Markdown
+project state is truth; Kanban and Timeline are visualization; humans, RPD, and other agents are
+execution.
+
+Project Manager keeps the resulting truth in a durable, versionable folder that Codex can plan,
+coordinate, track, review, and report. Project Manager Studio provides Kanban and Timeline views
+without becoming a second source of truth.
 
 ## Quick start
 
@@ -19,6 +29,86 @@ Open Project Manager Studio for it.
 A project is the selected folder, not the surrounding repository. Select that folder when starting
 or switching projects; after that, Codex keeps it as the current project for the conversation. If you
 ask for the workspace default, new projects are created under `.projects/`.
+
+## Manage the project conversationally
+
+**Tell Project Manager what happened, what you want, or what you're worried about—you don't need to
+translate project management into field updates and card movements.**
+
+You do not need to decide whether a change belongs in a task, dependency, schedule, risk, decision,
+or report. Describe the situation and the intended outcome. Project Manager inspects the selected
+project, works out which connected facts and plans are affected, applies the safe changes, validates
+the result, and explains the consequences.
+
+| Management intent | Example |
+| --- | --- |
+| Rejected outcome | `The client rejected the design. They want a new version by Friday.` |
+| Scope change | `Offline mode is no longer part of MVP1. Move it to MVP2 and adjust dependent work.` |
+| Diagnosis | `Why are we not ready to start implementation?` |
+| Prioritization | `We only have two developers this week. What should they focus on?` |
+| Impact analysis | `If TASK-API slips by ten days, what happens to the launch?` |
+| Risk reasoning | `What are the three biggest threats to the target date?` |
+| Gap detection | `What have we forgotten in this plan?` |
+| Progress synthesis | `What changed since last week?` |
+| Exception management | `Which tasks need my attention today?` |
+| Decision capture | `We chose Vendor B because Vendor A cannot meet the security requirement. Record the decision and update affected work.` |
+| Replanning | `Legal approval will not arrive until Friday. Replan around it without moving the launch date if possible.` |
+| Human coordination | `John is away next week. Move anything only he can do and show me the consequences.` |
+| Executive reporting | `Give me a 30-second CEO update: progress, problems, and decisions needed.` |
+| What-if analysis | `What could we cut if we had to launch two weeks earlier?` |
+| Visual follow-up | `Update the plan, then open the timeline so I can inspect it.` |
+
+Project Manager does not blindly convert every sentence into mutations. It preserves immutable
+execution history, requires evidence for lifecycle progress, keeps unsupported dates and forecasts
+unknown, and surfaces a decision when the requested outcome cannot be achieved safely from the
+available facts.
+
+## Common conversations
+
+### A result was rejected
+
+> `The client rejected the design. They want a new version by Friday.`
+
+Project Manager inspects the design task, its acceptance criteria, current evidence, dependencies,
+and schedule. It determines whether the new information means a blocker, failed acceptance, new
+revision work, changed scope, or a combination of these. It then updates what the project facts
+support and reports the delivery impact. It does not falsely mark the original work complete or ask
+you to name the fields that need changing.
+
+### A constraint changed but the outcome did not
+
+> `Legal approval will not arrive until Friday. Keep the launch date.`
+
+Project Manager records the constraint, traces the work that depends on approval, reschedules
+eligible tasks, and tests whether the launch plan still holds. If it does not, it makes the conflict
+explicit and identifies the smallest decisions—scope, staffing, sequencing, or date—that could
+resolve it.
+
+### Capacity dropped
+
+> `We only have two developers this week. What should they focus on?`
+
+Project Manager ranks work using readiness, dependencies, priority, blockers, and success coverage.
+It recommends a defensible focus and shows what will wait. If the project does not contain enough
+ownership, effort, or availability information to make a credible allocation, it says so rather
+than inventing a capacity plan.
+
+## What Project Manager can reason about
+
+- **Consequences:** which tasks, milestones, dependencies, schedules, risks, and success criteria a
+  change may affect.
+- **Readiness and priority:** what is executable now, what is blocked, and which work best advances
+  the project outcome.
+- **Plan quality:** missing work, circular or incomplete dependencies, weak acceptance criteria,
+  unsupported completion, and uncovered success criteria.
+- **Options and tradeoffs:** what can move, defer, cancel, reassign, or escalate when a constraint
+  changes.
+- **Attention and communication:** exceptions requiring intervention and concise updates for
+  operators, project managers, executives, or boards.
+
+Reasoning is bounded by the project's evidence. Project Manager separates facts, unknowns,
+judgments, and recommendations; it does not turn an assumption into project truth merely because a
+plan would look cleaner.
 
 ## What you can ask
 
