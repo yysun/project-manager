@@ -1,17 +1,24 @@
 # Project Manager
 
-**Natural-language project management—not a task tracker with a chat box.**
+**An AI project manager you work with through conversation.**
 
-Tell Project Manager what outcome matters, what happened, what must remain true, and what decision
-you face. It translates that meaning into coordinated project changes. You do not have to convert
-reality into card movements, field edits, statuses, dependencies, or reports.
+Brief Project Manager as you would a human colleague: explain the outcome, constraints, authority,
+and what is changing in the real world. It takes responsibility for the working plan—decomposing the
+outcome, coordinating dependencies and owners, maintaining schedules and risks, tracking evidence,
+and following changes through.
+
+You set direction and make the business decisions that require your authority. Project Manager
+manages the project. You do not have to convert reality into card movements, field edits, statuses,
+dependencies, or reports.
+
+![Four-panel overview of working with Project Manager as an AI project manager](skills/project-manager/assets/project-manager-ai-employee-en.jpg)
 
 > “The vendor API will not be available until September 15. The launch date cannot move. Show me the
 > credible options.”
 
 Project Manager traces the affected work, tests the plan against the constraint, updates what the
-facts support, and exposes the real tradeoff. One intent can change tasks, dependencies, schedules,
-risks, decisions, evidence, and reporting together.
+facts support, and brings back the real tradeoff. One conversation can change tasks, dependencies,
+schedules, risks, decisions, evidence, and reporting together.
 
 ```text
 project reality → reasoning → coordinated change
@@ -19,7 +26,8 @@ project reality → reasoning → coordinated change
 
 ## What you get
 
-- A verifiable plan tied to your outcome and success criteria.
+- An AI project manager that builds and maintains a verifiable plan tied to your outcome and success
+  criteria.
 - A current view of progress: what changed, what can move, what is blocked, what threatens the
   outcome, and which decision is needed.
 - Connected updates across tasks, dependencies, schedules, risks, and decisions when reality changes.

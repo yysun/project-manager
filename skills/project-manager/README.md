@@ -2,13 +2,17 @@
 
 [中文指南](README-cn.md)
 
-Project Manager lets you manage a project in natural language—without learning a project-management
-interface. Talk about the project itself: the outcome, what happened, what changed, what is at risk,
-and what decision must be made.
+Project Manager is an AI project manager you work with through conversation. Brief it and keep it
+informed as you would a human colleague: talk about the outcome, what happened, what changed, what is
+at risk, and what decision must be made. It handles the project-management mechanics and keeps the
+project aligned while you lead the outcome.
+
+![Four-panel overview of working with Project Manager as an AI project manager](assets/project-manager-ai-employee-en.jpg)
 
 ## What you get
 
-You get a coherent project plan that stays aligned with reality. You provide the meaning:
+Project Manager takes responsibility for keeping a coherent project plan aligned with reality. You
+give it the context and direction a project manager needs:
 
 - what outcome matters;
 - what happened in the real world;
@@ -16,12 +20,14 @@ You get a coherent project plan that stays aligned with reality. You provide the
 - what evidence exists; and
 - what decision or tradeoff you face.
 
-Project Manager decides how that meaning affects the plan. One statement may update tasks,
-dependencies, schedules, risks, decisions, evidence, and reporting together. The files and views are
-implementation details, not the language you must speak.
+Project Manager decides how that meaning affects the plan, coordinates the consequences, and tells
+you what needs attention. One statement may update tasks, dependencies, schedules, risks, decisions,
+evidence, and reporting together. The files and views are implementation details, not the language
+you must speak.
 
-You remain responsible for goals, constraints, approvals, and decisions. Project Manager is
-responsible for translating them into coherent project state.
+You lead the business outcome and make decisions that require your authority. Project Manager runs
+the day-to-day project management: planning the work, maintaining project state, coordinating
+dependencies, tracking evidence and risks, and bringing decisions and tradeoffs back to you.
 
 ## 1. Install the skill
 
@@ -32,7 +38,7 @@ In your AI agent app, ask:
 Once installed, talk about the project normally. Codex can select the skill when your request matches
 its purpose. If you want to select it explicitly, mention `$project-manager`.
 
-## 2. Create and plan your first project
+## 2. Brief your AI project manager
 
 With the intended workspace open, describe the outcome and important boundaries:
 
@@ -40,18 +46,19 @@ With the intended workspace open, describe the outcome and important boundaries:
 > site. Rollback must be proven before launch. Establish the project, work out what needs to be true,
 > challenge anything vague, and surface the decisions I need to make.
 
-Project Manager creates the project, defines measurable success, and works backward into a verifiable
-plan with the necessary tasks and dependencies. It may ask for a decision when different
-interpretations would materially change the project. It should not ask you to design its fields or
-workflow.
+Project Manager establishes the project, defines measurable success, and works backward into a
+verifiable plan with the necessary tasks and dependencies. It takes ownership of the working plan.
+It may bring you a decision when different interpretations would materially change the project; it
+should not ask you to design its fields or workflow.
 
 The result is a durable project folder and a reasoned plan. Review whether it understood the outcome,
 constraints, and tradeoffs—not whether it produced the board configuration you would have chosen.
 
-## 3. Continue managing it by describing reality
+## 3. Let it manage through ongoing conversation
 
-A project changes through events, constraints, evidence, and decisions. Tell Project Manager those
-facts as they occur instead of translating them into fields, statuses, or card movements.
+Once briefed, keep talking to Project Manager as the project changes. Give it events, constraints,
+evidence, and decisions as they occur. It works out the project consequences instead of making you
+translate reality into fields, statuses, or card movements.
 
 The most common conversations start with recurring status and progress work, then move into
 replanning and exception handling:
