@@ -116,3 +116,4 @@ The installable skill is in `skills/project-manager/` and Studio source is in
 
 - [Skill contract](skills/project-manager/SKILL.md)
 - [Project conventions](skills/project-manager/references/conventions.md)
+- [Changelog](CHANGELOG.md)

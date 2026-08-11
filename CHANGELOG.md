@@ -1,0 +1,133 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and version numbers are
+the `project-manager` skill version recorded in
+[`skills/project-manager/SKILL.md`](skills/project-manager/SKILL.md). Studio and repository tooling
+ship alongside the skill and are noted under the release they landed in.
+
+State-file schema versions are independent of the skill version and are called out per release. A
+project written by an older release keeps loading unchanged; no release has required a migration.
+
+## [1.3.0] — 2026-08-11
+
+PMI alignment through documented tailoring.
+
+### Added
+
+- `PROJECT.md` **schema version 2**, adding a required declare-only `tailoring` block covering the ten
+  PMBOK 6 knowledge areas. Each area is recorded as applied or tailored out, and tailoring an area out
+  requires a rationale. Tailoring never obliges a project to practice an area and never enters the task
+  specification hash or Task Contract.
+- Optional modules `ASSUMPTIONS.md` (`ASM-`), `ISSUES.md` (`ISS-`), `STAKEHOLDERS.md` (`STK-`),
+  `LESSONS.md` (`LES-`), and `CLOSURE.md` (`CLO-`), each fail-closed on its own exact schema once
+  present. An issue log is distinct from task `blocked_by` strings, which remain the execution-level
+  blocker mechanism.
+- `RISKS.md` **schema version 2**, adding PMI response strategy, threat/opportunity direction, trigger,
+  and residual risk. Strategies are constrained to the direction, so an opportunity cannot be
+  "mitigated".
+- Validation `TAILORING_CONTRADICTION`: configuring `RISKS.md` while risk is tailored out, or
+  `STAKEHOLDERS.md` while stakeholder is tailored out, now fails. The declaration cannot become fiction.
+- Closure integrity rules: accepted project closure requires project completion, accepted milestone
+  closure requires that milestone complete, acceptance requires an acceptor, date, and evidence, and
+  duplicate project- or milestone-scoped records are rejected.
+- `npm run demo` materializes a persistent Studio demo at `demo/pm-studio-demo` for the current
+  checkout.
+
+### Changed
+
+- Status and report data move to **schema version 3**, exposing the tailoring declaration and the five
+  new modules. A tailored-out area is reported as tailored out with its recorded rationale, never as a
+  zero or as "on track"; an undeclared area on a schema-version-1 project is reported as undeclared.
+- README and both user guides describe PMI alignment as PMBOK 7 principles-aligned with documented
+  tailoring, explicitly not PMI certification.
+- The Studio demo is generated rather than committed. Task Contracts bind an absolute canonical project
+  root and `contract_id` hashes that payload, so no committed demo can be valid across clones. The
+  previously committed demo had been broken since the repository moved paths.
+- RPD is no longer presented as a dependency in user-facing positioning. It remains a fully supported
+  optional executor provider with no code change.
+
+### Compatibility
+
+- `PROJECT.md` schema version 1 is unchanged, rejects `tailoring` as an unknown field, and needs no
+  migration.
+- `RISKS.md` schema version 1 rejects the new fields and keeps its exact normalized shape.
+- A project configuring none of the new modules produces a byte-identical `source_sha256`, so no
+  existing `STATUS.md` becomes stale.
+- Cost, Earned Value, `TASKS.md` effort estimates, typed dependencies, float, and critical path remain
+  unimplemented by design. Declare them tailored out, or record where they are managed instead.
+
+## [1.2.0] — 2026-08-11
+
+### Changed
+
+- Rewrote onboarding to be user-centered: manage through outcomes, events, constraints, evidence, and
+  decisions rather than field edits, status changes, or card movements.
+- Positioned Project Manager as an AI project manager you brief through conversation.
+
+### Added
+
+- Studio persists Summary and Filters expanded/collapsed state independently in guarded browser
+  storage, with Filters as an accessible native-hidden disclosure.
+
+## [1.1.1] — 2026-08-10
+
+### Added
+
+- Studio exposes a copyable RPD command for every task, preferring an issued contract when one exists.
+- Kanban lane titles and counts stay visible as one sticky row, pinned below the application header,
+  with synchronized horizontal scrolling between lane titles and bodies.
+- Timeline allocates a readable weekly width and scrolls horizontally instead of compressing labels,
+  with a frozen Task column and a separate sticky date header.
+
+## [1.1.0] — 2026-08-09
+
+### Added
+
+- Rigor profiles. `minimal` and `standard` complete eligible ordinary human work from one explicit
+  approval while still creating the canonical immutable Task Contract and verified Evidence Manifest.
+  `controlled` human work, and every RPD, agent, and external task, stay on the governed execution path.
+- `TASKS.md` **schema version 3** task dispositions. `deferred` pauses actionability and may reactivate;
+  `cancelled` is terminal. Neither satisfies a dependency or proves success, and evidence observed after
+  the disposition timestamp cannot advance the task.
+
+### Changed
+
+- Split Project Manager into a standalone repository.
+
+## [1.0.1] — 2026-08-09
+
+### Fixed
+
+- Correctness and consistency fixes across the skill contract and deterministic scripts.
+
+## [1.0.0] — 2026-08-08
+
+Initial release of the folder-native project manager.
+
+### Added
+
+- Generic Markdown project state: `PROJECT.md` and `TASKS.md` as truth, `STATUS.md` as a derived cache,
+  with optional `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, `TRACEABILITY.md`, and
+  `CHANGES.md` modules.
+- Task Contract to Evidence Manifest execution boundary with immutable attempts, canonical hashing,
+  staged evidence requirements, acceptance mappings, and replay-fingerprint rejection.
+- Lifecycle `planned → ready → in_progress → implemented → verification → verified → done`, with
+  blocking separate from lifecycle and change-driven re-verification.
+- Human, RPD, agent, and external executor providers with per-provider default evidence requirements.
+- Six read-only deterministic scripts for validation, status, next work, blockers, coverage, and report
+  data, with a locked exit-code and envelope contract.
+- Project Manager Studio: one loopback-authenticated local server with URL-addressable Kanban and
+  Timeline sibling views over the same validated snapshot.
+- `TASKS.md` **schema version 2** schedule metadata with paired inclusive dates, canonical clearing,
+  legacy v1 source-hash compatibility, and no impact on contract or specification hashes.
+- Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
+  opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
+
+[1.3.0]: https://github.com/yysun/project-manager/releases/tag/v1.3.0
+[1.2.0]: https://github.com/yysun/project-manager/releases/tag/v1.2.0
+[1.1.1]: https://github.com/yysun/project-manager/releases/tag/v1.1.1
+[1.1.0]: https://github.com/yysun/project-manager/releases/tag/v1.1.0
+[1.0.1]: https://github.com/yysun/project-manager/releases/tag/v1.0.1
+[1.0.0]: https://github.com/yysun/project-manager/releases/tag/v1.0.0
