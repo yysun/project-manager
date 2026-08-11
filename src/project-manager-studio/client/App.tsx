@@ -1,7 +1,6 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
-// guards, URL-addressable views, coherent filters, refresh, and task editing.
-// Recent layout cleanup removes the obsolete policy footer from both views.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// guards, URL-addressable views, coherent filters, and shared sticky view headers.
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
 import { Timeline } from './components/Timeline';
@@ -12,6 +11,8 @@ function viewFromUrl(): StudioView { return new URLSearchParams(window.location.
 
 export function App() {
   const guard = useRef(createSelectionGuard());
+  const topbar = useRef<HTMLElement | null>(null);
+  const kanbanHeaderScroll = useRef<HTMLDivElement | null>(null);
   const [catalog, setCatalog] = useState<ProjectCatalogData | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [data, setData] = useState<KanbanData | null>(null);
@@ -24,6 +25,7 @@ export function App() {
   const [blockedOnly, setBlockedOnly] = useState(false);
   const [view, setViewState] = useState<StudioView>(viewFromUrl);
   const [summaryCollapsed, setSummaryCollapsed] = useState(false);
+  const [stickyTop, setStickyTop] = useState(0);
   const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
 
   const loadProject = useCallback(async (request: SelectionRequest) => {
@@ -68,6 +70,17 @@ export function App() {
 
   useEffect(() => { const sync = () => setViewState(viewFromUrl()); window.addEventListener('popstate', sync); return () => window.removeEventListener('popstate', sync); }, []);
 
+  useLayoutEffect(() => {
+    const element = topbar.current;
+    if (!element) { setStickyTop(0); return; }
+    const update = () => setStickyTop(getComputedStyle(element).position === 'sticky' ? element.getBoundingClientRect().height : 0);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    window.addEventListener('resize', update);
+    return () => { observer.disconnect(); window.removeEventListener('resize', update); };
+  }, [data?.project.key]);
+
   function switchProject(key: string) {
     if (key === selectedKey) return;
     const request = guard.current.begin(key);
@@ -101,13 +114,18 @@ export function App() {
     });
   }, [data, search, priority, owner, blockedOnly]);
   const filteredIds = useMemo(() => new Set(filtered.map((task) => task.id)), [filtered]);
+  const visibleLanes = useMemo(() => data ? data.lanes.map((lane) => ({ lane, tasks: lane.tasks.filter((task) => filteredIds.has(task.id)) })) : [], [data, filteredIds]);
+
+  function syncKanbanHeader(event: UIEvent<HTMLDivElement>) {
+    if (kanbanHeaderScroll.current) kanbanHeaderScroll.current.scrollLeft = event.currentTarget.scrollLeft;
+  }
 
   if (!data) return <div className={`loading-screen ${error ? 'error-screen' : ''}`}><div className="mark">{error ? '!' : 'PM'}</div><h1>{error ? 'Project could not be loaded' : 'Loading project…'}</h1>{catalog && <ProjectSelect catalog={catalog} selectedKey={selectedKey} disabled={false} onChange={switchProject} />}{error && <p>{error}</p>}{error && selectedKey && <button className="primary-button" onClick={refreshProject}>Try again</button>}</div>;
 
   const acceptProjectData = (next: KanbanData, request: SelectionRequest) => { if (guard.current.accepts(request, next.project.key)) setData(next); };
 
   return <main className="app-shell">
-    <header className="topbar">
+    <header className="topbar" ref={topbar}>
       <div className="brand"><div className="mark">PM</div><div><span>Project Manager</span><strong>Studio</strong></div></div>
       <div className="project-heading">
         <div className="project-select-col">
@@ -146,12 +164,18 @@ export function App() {
       <label className="toggle"><input type="checkbox" checked={blockedOnly} onChange={(event) => setBlockedOnly(event.target.checked)} /><span>Blocked only</span></label>
       {(search || priority !== 'all' || owner !== 'all' || blockedOnly) && <button className="clear-button" onClick={() => { setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); }}>Clear filters</button>}
     </section>
-    {view === 'kanban' ? <section className="board" aria-label="Task Kanban board">
-      {data.lanes.map((lane) => { const tasks = lane.tasks.filter((task) => filteredIds.has(task.id)); return <section className={`lane lane--${lane.id}`} key={lane.id} aria-labelledby={`lane-${lane.id}`}>
-        <header><div><span className="lane-dot" aria-hidden="true" /><h2 id={`lane-${lane.id}`}>{lane.title}</h2></div><span className="lane-count" aria-label={`${tasks.length} tasks`}>{tasks.length}</span></header>
-        <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
-      </section>; })}
-    </section> : <Timeline key={data.project.key} data={data} tasks={filtered} onOpen={(task, opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={acceptProjectData} />}
+    {view === 'kanban' ? <section className="kanban-panel" aria-label="Task Kanban board">
+      <div className="kanban-sticky-header" style={{ top: stickyTop }}>
+        <div className="kanban-header-viewport" ref={kanbanHeaderScroll}>
+          <div className="kanban-header-grid">{visibleLanes.map(({ lane, tasks }) => <div className={`kanban-lane-header lane--${lane.id}`} key={lane.id}><div><span className="lane-dot" aria-hidden="true" /><h2 id={`lane-${lane.id}`}>{lane.title}</h2></div><span className="lane-count" aria-label={`${tasks.length} tasks`}>{tasks.length}</span></div>)}</div>
+        </div>
+      </div>
+      <div className="board-scroll" role="region" aria-label="Scrollable Task Kanban board" tabIndex={0} onScroll={syncKanbanHeader}>
+        <div className="board">{visibleLanes.map(({ lane, tasks }) => <section className={`lane lane--${lane.id}`} key={lane.id} aria-labelledby={`lane-${lane.id}`}>
+          <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
+        </section>)}</div>
+      </div>
+    </section> : <Timeline key={data.project.key} data={data} tasks={filtered} stickyTop={stickyTop} onOpen={(task, opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={acceptProjectData} />}
     {selected && <TaskDialog key={`${data.project.key}:${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={(next, request) => { if (!guard.current.accepts(request, next.project.key)) return; setData(next); const updated = next.tasks.find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated, formRevision: next.mutation_revision }); }} />}
   </main>;
 }

@@ -1,6 +1,6 @@
 // Project Manager Studio Timeline: range-sized weekly planning grid with a
-// synchronized sticky header, page scrolling, and revision-safe schedule edits.
-import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
+// shared app-header offset, synchronized dates, and revision-safe schedule edits.
+import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest } from '../../shared/api';
 import { barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, timelineContentWidth, timelineRange, timelineScaleTicks, type DateRange } from '../timeline-model.mjs';
 import type { SelectionRequest } from '../selection-guard.mjs';
@@ -8,6 +8,7 @@ import type { SelectionRequest } from '../selection-guard.mjs';
 interface Props {
   data: KanbanData;
   tasks: KanbanTask[];
+  stickyTop: number;
   onOpen: (task: KanbanTask, opener: HTMLElement) => void;
   beginMutation: () => SelectionRequest | null;
   finishMutation: (request: SelectionRequest) => void;
@@ -16,28 +17,16 @@ interface Props {
 interface Draft { taskId: string; start: string; end: string }
 interface Drag { task: KanbanTask; mode: 'move' | 'start' | 'end'; originX: number; width: number; start: string; end: string; moved: boolean }
 
-export function Timeline({ data, tasks, onOpen, beginMutation, finishMutation, onSaved }: Props) {
+export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finishMutation, onSaved }: Props) {
   const range = useMemo(() => timelineRange(data.tasks, data.project, data.milestones), [data]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stickyTop, setStickyTop] = useState(0);
   const drag = useRef<Drag | null>(null);
   const headerScroll = useRef<HTMLDivElement | null>(null);
   const suppressClick = useRef(false);
 
   const ordered = useMemo(() => [...tasks].sort((a, b) => (a.milestone ?? 'ZZZ').localeCompare(b.milestone ?? 'ZZZ') || (a.scheduled_start ?? '9999').localeCompare(b.scheduled_start ?? '9999') || a.id.localeCompare(b.id)), [tasks]);
-
-  useLayoutEffect(() => {
-    const topbar = document.querySelector<HTMLElement>('.topbar');
-    if (!topbar) return;
-    const update = () => setStickyTop(getComputedStyle(topbar).position === 'sticky' ? topbar.getBoundingClientRect().height : 0);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(topbar);
-    window.addEventListener('resize', update);
-    return () => { observer.disconnect(); window.removeEventListener('resize', update); };
-  }, []);
 
   function syncHeader(event: UIEvent<HTMLDivElement>) {
     if (headerScroll.current) headerScroll.current.scrollLeft = event.currentTarget.scrollLeft;
