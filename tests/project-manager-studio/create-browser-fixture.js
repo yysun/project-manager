@@ -22,7 +22,9 @@ const records = [
 ];
 const seedRecords = structuredClone(records);
 for (const record of seedRecords) { delete record.data.scheduled_start; delete record.data.scheduled_end; delete record.data.milestone; }
-const root = makeProject(seedRecords, 'KANBAN-DEMO');
+const outIndex = process.argv.indexOf('--out');
+const outRoot = outIndex >= 0 ? process.argv[outIndex + 1] ?? null : null;
+const root = makeProject(seedRecords, 'KANBAN-DEMO', outRoot);
 fs.writeFileSync(path.join(root, 'PROJECT.md'), fs.readFileSync(path.join(root, 'PROJECT.md'), 'utf8').replace('target_date: null', 'target_date: "2026-09-15"').replace('current_milestone: null', 'current_milestone: "M-LAUNCH"'));
 const milestoneRecords = [
   { id: 'M-LAUNCH', title: 'Launch', data: { status: 'active', target_date: '2026-08-31', forecast_date: '2026-09-02', forecast_updated: '2026-08-08', forecast_evidence: [{ kind: 'note', ref: 'launch-forecast', result: 'Launch review confirmed', sha256: null }], critical: true } },

@@ -9,9 +9,23 @@ const { regenerateStatus } = require('../../skills/project-manager/scripts/lib/p
 
 const builtServerPath = path.resolve(__dirname, '../../skills/project-manager/scripts/project-manager-studio.js');
 function frontmatter(data) { return `---\n${Object.entries(data).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n`; }
+// Refuse to clear anything that is not already a generated project, so a stray
+// --out path cannot turn regeneration into data loss.
+function prepareTargetRoot(targetRoot) {
+  const root = path.resolve(targetRoot);
+  if (fs.existsSync(root)) {
+    if (!fs.existsSync(path.join(root, 'PROJECT.md'))) throw new Error(`Refusing to replace ${root}: it is not a generated project folder`);
+    fs.rmSync(root, { recursive: true });
+  }
+  fs.mkdirSync(root, { recursive: true });
+  return fs.realpathSync(root);
+}
 function collection(records, schemaVersion = 1) { return `${frontmatter({ schema_version: schemaVersion })}${records.map((record) => `\n## ${record.id} - ${record.title}\n\n\`\`\`json\n${JSON.stringify(record.data)}\n\`\`\`\n\n${record.narrative ?? ''}\n`).join('')}`; }
-function makeProject(records = null, id = 'STUDIO') {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-studio-'));
+// targetRoot materializes the fixture at a fixed path instead of a temp dir, so the
+// same definition can regenerate the repository demo. Task Contracts bind an absolute
+// project root, so a demo can only be correct for the checkout that generated it.
+function makeProject(records = null, id = 'STUDIO', targetRoot = null) {
+  const root = targetRoot === null ? fs.mkdtempSync(path.join(os.tmpdir(), 'pm-studio-')) : prepareTargetRoot(targetRoot);
   fs.writeFileSync(path.join(root, 'PROJECT.md'), `${frontmatter({ schema_version: 1, id, name: 'Studio Delivery', status: 'active', owner: 'Maya', start_date: '2026-08-08', target_date: null, current_milestone: null, profile: 'minimal', adapters: ['human'], created: '2026-08-08', updated: '2026-08-08' })}\n## Objective\n\nShip a clear project outcome.\n\n## Success Criteria\n\n- [SC-OUTCOME] The outcome is accepted.\n`);
   const tasks = records ?? [
     { id: 'TASK-PLAN', title: 'Frame delivery', data: { outcome: 'Delivery is framed.', acceptance: ['Scope is approved.'], status: 'planned', priority: 'P1', owner: null, success_criteria: ['SC-OUTCOME'] }, narrative: 'Human note stays here.' },

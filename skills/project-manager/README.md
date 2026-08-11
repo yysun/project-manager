@@ -212,6 +212,31 @@ human work may need only one specific approval; delegated or controlled work use
 Project Manager does not invent owners, dates, capacity, forecasts, progress, or coverage. It names
 missing information when a sound judgment cannot be made.
 
+### Say which disciplines apply, and why
+
+Project Manager is aligned with PMI's PMBOK 7 principles through *documented tailoring*. PMI does not
+require every project to run every discipline — it requires that leaving one out be a decision rather
+than an oversight. That is exactly how Project Manager treats it.
+
+You can tell it which areas apply:
+
+> We have no budget for this — the work is absorbed by the standing team. There is no procurement
+> either. Everything else applies.
+
+It records each of the ten PMI knowledge areas as applied or deliberately not used, with your reason.
+Reports then say “Cost: not tracked — no budget; absorbed by the standing team” instead of showing a
+misleading zero or quietly omitting it. A small project stops looking negligent for skipping what it
+genuinely does not need.
+
+The reverse is enforced too: if you say an area does not apply and then start using it, Project
+Manager refuses the contradiction rather than letting the declaration become fiction.
+
+As a project needs them, you can also keep an assumption log, an issue log, a stakeholder register,
+lessons learned, and closure records. They appear only when they help; none of them are required.
+
+Cost tracking, earned value, and critical-path scheduling are not built in. If your project needs
+them, manage them elsewhere and say so — Project Manager will record where, rather than pretend.
+
 ## When Project Manager pushes back
 
 Pushback is part of the product. Project Manager should challenge:

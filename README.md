@@ -34,8 +34,7 @@ project reality → reasoning → coordinated change
 - Completion backed by evidence, with missing information called out instead of invented.
 - Status reports shaped for operators, project managers, executives, or boards without changing the
   underlying facts.
-- One coherent project record even when work is split across people, agents, external executors, and
-  [RPD](https://github.com/yysun/rpd).
+- One coherent project record even when work is split across people, agents, and external executors.
 
 Project truth stays in a durable, versionable Markdown folder and is validated before changes are
 saved. Kanban and Timeline visualize that state; they do not become a second source of truth.
@@ -92,14 +91,26 @@ npm test
 npm run pm-studio:dev
 ```
 
-The development server uses a disposable demo project by default. To open a specific project:
+The development server generates a fresh disposable demo project on every start, so you can run it
+with no setup. To open a specific project instead:
 
 ```bash
 npm run pm-studio:dev -- --project /absolute/path/to/project
 ```
 
-The installable skill is in `skills/project-manager/`, Studio source is in
-`src/project-manager-studio/`, and an example project is in `demo/pm-studio-demo/`.
+Because a Task Contract binds an absolute project root, a demo is only valid for the checkout that
+generated it, so the demo is generated rather than committed. Create a persistent one — useful when
+you want Studio edits to survive a restart — with:
+
+```bash
+npm run demo
+```
+
+That writes `demo/pm-studio-demo/` (gitignored), which you can then pass with
+`npm run pm-studio:dev -- --project demo/pm-studio-demo`.
+
+The installable skill is in `skills/project-manager/` and Studio source is in
+`src/project-manager-studio/`.
 
 ## Technical documentation
 
