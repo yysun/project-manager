@@ -1,10 +1,12 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
-// guards, URL-addressable views, coherent filters, and shared sticky view headers.
+// guards, URL-addressable views, coherent filters, shared sticky view headers,
+// and locally restored Summary/Filters disclosure preferences.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
 import { Timeline } from './components/Timeline';
 import { createSelectionGuard, type SelectionRequest } from './selection-guard.mjs';
+import { readPanelPreferences, writePanelPreferences, type PanelPreferences } from './panel-preferences.mjs';
 
 type StudioView = 'kanban' | 'timeline';
 function viewFromUrl(): StudioView { return new URLSearchParams(window.location.search).get('view') === 'timeline' ? 'timeline' : 'kanban'; }
@@ -24,7 +26,7 @@ export function App() {
   const [owner, setOwner] = useState('all');
   const [blockedOnly, setBlockedOnly] = useState(false);
   const [view, setViewState] = useState<StudioView>(viewFromUrl);
-  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
+  const [panelPreferences, setPanelPreferences] = useState(() => readPanelPreferences(window));
   const [stickyTop, setStickyTop] = useState(0);
   const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
 
@@ -102,6 +104,12 @@ export function App() {
     window.history.pushState({}, '', url); setViewState(next);
   }
 
+  function togglePanel(panel: keyof PanelPreferences) {
+    const next = { ...panelPreferences, [panel]: !panelPreferences[panel] };
+    setPanelPreferences(next);
+    writePanelPreferences(window, next);
+  }
+
   const filtered = useMemo(() => {
     if (!data) return [];
     const query = search.trim().toLowerCase();
@@ -142,10 +150,10 @@ export function App() {
     {data.warnings.map((warning) => <div className="warning-banner" role="status" key={warning.code}>{warning.message}</div>)}
     {error && <div className="error-banner" role="alert">Refresh failed: {error}</div>}
     <section className="summary-panel">
-      <button type="button" className="summary-toggle" aria-expanded={!summaryCollapsed} aria-controls="summary-grid" onClick={() => setSummaryCollapsed((value) => !value)}>
-        <span className="summary-toggle-icon" aria-hidden="true">▾</span><span>Summary</span>
+      <button type="button" className="panel-toggle" aria-expanded={!panelPreferences.summaryCollapsed} aria-controls="summary-grid" onClick={() => togglePanel('summaryCollapsed')}>
+        <span className="panel-toggle-icon" aria-hidden="true">▾</span><span>Summary</span>
       </button>
-      <div className={`summary-collapse ${summaryCollapsed ? 'collapsed' : ''}`}>
+      <div className={`summary-collapse ${panelPreferences.summaryCollapsed ? 'collapsed' : ''}`}>
         <div className="summary-collapse-inner">
           <div className="summary-grid" id="summary-grid" role="group" aria-label="Project summary">
             <Metric label="Total tasks" value={data.summary.tasks.total} detail={`${data.summary.tasks.actionable} actionable`} />
@@ -157,12 +165,19 @@ export function App() {
         </div>
       </div>
     </section>
-    <section className="toolbar" aria-label="Task filters">
-      <label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="Search tasks" placeholder="Search ID, title, outcome, owner…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-      <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as Priority | 'all')}><option value="all">All priorities</option>{data.options.priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label><span>Owner</span><select value={owner} onChange={(event) => setOwner(event.target.value)}><option value="all">All owners</option><option value="unassigned">Unassigned</option>{data.options.owners.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label className="toggle"><input type="checkbox" checked={blockedOnly} onChange={(event) => setBlockedOnly(event.target.checked)} /><span>Blocked only</span></label>
-      {(search || priority !== 'all' || owner !== 'all' || blockedOnly) && <button className="clear-button" onClick={() => { setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); }}>Clear filters</button>}
+    <section className="filters-panel">
+      <div className="toolbar" role="group" aria-label="Task filters">
+        <button type="button" className="panel-toggle" aria-expanded={!panelPreferences.filtersCollapsed} aria-controls="task-filters" onClick={() => togglePanel('filtersCollapsed')}>
+          <span className="panel-toggle-icon" aria-hidden="true">▾</span><span>Filters</span>
+        </button>
+        <div className="filter-controls" id="task-filters" hidden={panelPreferences.filtersCollapsed}>
+          <label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="Search tasks" placeholder="Search ID, title, outcome, owner…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as Priority | 'all')}><option value="all">All priorities</option>{data.options.priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>Owner</span><select value={owner} onChange={(event) => setOwner(event.target.value)}><option value="all">All owners</option><option value="unassigned">Unassigned</option>{data.options.owners.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label className="toggle"><input type="checkbox" checked={blockedOnly} onChange={(event) => setBlockedOnly(event.target.checked)} /><span>Blocked only</span></label>
+          {(search || priority !== 'all' || owner !== 'all' || blockedOnly) && <button className="clear-button" onClick={() => { setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); }}>Clear filters</button>}
+        </div>
+      </div>
     </section>
     {view === 'kanban' ? <section className="kanban-panel" aria-label="Task Kanban board">
       <div className="kanban-sticky-header" style={{ top: stickyTop }}>
