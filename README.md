@@ -1,102 +1,75 @@
 # Project Manager
 
-**Users manage the project, not the project-management tool.**
+**Natural-language project management—not a task tracker with a chat box.**
 
-**Tell Project Manager what happened, what you want, or what you're worried about—you don't need to
-translate project management into field updates and card movements.**
+Tell Project Manager what outcome matters, what happened, what must remain true, and what decision
+you face. It translates that meaning into coordinated project changes. You do not have to convert
+reality into card movements, field edits, statuses, dependencies, or reports.
 
-Project Manager lets people work in project terms: outcomes, constraints, risks, priorities, and
-decisions. Say “the vendor is late,” “we cannot move the launch date,” or “what is blocking us?”
-instead of translating the situation into boards, fields, statuses, dependency settings, and
-timeline edits.
+> “The vendor API will not be available until September 15. The launch date cannot move. Show me the
+> credible options.”
 
-**One user intent can become many coordinated, validated project actions.**
+Project Manager traces the affected work, tests the plan against the constraint, updates what the
+facts support, and exposes the real tradeoff. One intent can change tasks, dependencies, schedules,
+risks, decisions, evidence, and reporting together.
 
-This is more than replacing clicks with chat. Project Manager interprets a high-level change, finds
-the affected work, updates the connected project state, checks it for consistency, and reports the
-impact. Traditional interfaces are mostly **one action → one change**. Project Manager supports
-**one intent → reasoning → many changes**.
+```text
+project reality → reasoning → coordinated change
+```
 
-The product model is deliberately simple:
+## What you get
 
-- **Natural language** is intent.
-- **Project Manager** is reasoning and action.
-- **Project state** is truth.
-- **Kanban and Timeline** are visualization.
-- **Humans, RPD, and other agents** are execution.
+- A verifiable plan tied to your outcome and success criteria.
+- A current view of progress: what changed, what can move, what is blocked, what threatens the
+  outcome, and which decision is needed.
+- Connected updates across tasks, dependencies, schedules, risks, and decisions when reality changes.
+- Completion backed by evidence, with missing information called out instead of invented.
+- Status reports shaped for operators, project managers, executives, or boards without changing the
+  underlying facts.
+- One coherent project record even when work is split across people, agents, external executors, and
+  [RPD](https://github.com/yysun/rpd).
 
-Project Manager stores that truth in a durable, versionable folder that Codex can plan, coordinate,
-track, review, and report. Project Manager Studio adds Kanban and Timeline views without becoming a
-second source of truth.
-
-## One instruction, coordinated project changes
-
-> “The client rejected the design. They want a new version by Friday.”
-
-Project Manager inspects the current design work and its dependents, determines whether the rejection
-creates a blocker, revision, risk, or scope change, updates the supported project facts, and reports
-the schedule and decision impact. It does not pretend the design was completed or invent missing
-dates, ownership, or evidence.
-
-> “The vendor API is delayed until September 15. Keep the launch date.”
-
-Project Manager records the constraint, finds dependent tasks, analyzes the schedule, reschedules
-eligible work, surfaces new risks or scope pressure, validates the resulting state, and reports what
-changed and what still needs a decision.
-
-> “Alice is unavailable next week. Do not move the milestone.”
-
-Project Manager finds Alice's scheduled and owned work, identifies dependency and capacity effects,
-moves work that can safely move, flags work that needs reassignment, updates the risk picture, and
-checks whether the milestone remains credible.
-
-> “We need to cut scope. Preserve the onboarding launch.”
-
-Project Manager traces work to the required outcome, identifies lower-priority scope, updates task
-dispositions and dependencies, rechecks success coverage, records the decision and its risks, and
-summarizes the delivery impact.
+Project truth stays in a durable, versionable Markdown folder and is validated before changes are
+saved. Kanban and Timeline visualize that state; they do not become a second source of truth.
 
 ## User guides
 
-### [English user guide →](skills/project-manager/README.md)
-
-Installation, project setup, planning, task tracking, Studio, and reporting.
-
-### [中文使用指南 →](skills/project-manager/README-cn.md)
-
-安装、项目初始化、规划、任务跟踪、Studio 与报告。
+- [English user guide](skills/project-manager/README.md) — manage through outcomes, events,
+  constraints, evidence, and decisions.
+- [中文使用指南](skills/project-manager/README-cn.md) — 通过目标、事件、约束、证据和决策管理项目。
 
 ## Studio
 
-Kanban keeps planned, ready, active, completed, deferred, and cancelled work visible in one operating
-view.
+Kanban shows planned, ready, active, completed, deferred, and cancelled work.
 
 ![Project Manager Studio Kanban view](docs/images/project-manager-studio-kanban.jpg)
 
-Timeline exposes schedule sequencing, dependencies, blockers, and date conflicts without replacing
-the folder-native project state.
+Timeline shows schedules, dependencies, blockers, and date conflicts.
 
 ![Project Manager Studio Timeline view](docs/images/project-manager-studio-timeline.jpg)
 
 ## Install
 
-```bash
-npx skills add yysun/project-manager --skill project-manager
-```
+In your AI agent app, ask:
 
-The installable skill lives in `skills/project-manager/`. Its complete user guide, runtime scripts,
-schemas, and operating rules live with the skill.
+> Install the `project-manager` skill from `yysun/project-manager`.
 
 ## Development
 
 ```bash
-npm install
+npm ci
 npm test
-npm run pm-studio:dev -- /absolute/path/to/project
+npm run pm-studio:dev
 ```
 
-The Studio source is in `src/project-manager-studio/`; builds are written into the installable skill.
-The repository also includes an isolated example project under `demo/pm-studio-demo/`.
+The development server uses a disposable demo project by default. To open a specific project:
+
+```bash
+npm run pm-studio:dev -- --project /absolute/path/to/project
+```
+
+The installable skill is in `skills/project-manager/`, Studio source is in
+`src/project-manager-studio/`, and an example project is in `demo/pm-studio-demo/`.
 
 ## Technical documentation
 

@@ -11,7 +11,7 @@ description: Plan, coordinate, track, review, and report folder-native projects.
 
 Manage the selected project through `plan → coordinate → track → report`.
 
-Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. Require the user or calling context to select the project folder explicitly, except that Studio may select from a validated projects root. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
+Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. For a new project, require an explicitly selected workspace root or target project folder; workspace-default placement derives `<root>/.projects/<safe-project-slug>`. For an existing project, require the user or calling context to select the project folder explicitly, except that Studio may select from a validated projects root. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
 
 Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblings for same-filesystem atomic work and crash recovery. They are internal recovery roots, not projects; valid explicitly selected projects are never rejected merely for a similar basename.
 
@@ -22,9 +22,15 @@ Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblin
 - RPD is optional and owns `understand → implement → test → correct → verify` for a software task. Do not reproduce RPD inside this skill.
 - Git, source code, issue trackers, and storage providers are optional context. Never make them authoritative project state.
 
-## Route the request
+## Interpret project-management intent
 
-Use these nine user-facing routes. Natural language is preferred; do not force a command DSL.
+Natural language about the project is the interface. Users should describe outcomes, events,
+constraints, evidence, risks, decisions, tradeoffs, and questions. Never require them to translate
+reality into field edits, status changes, card movements, or one route from a command menu.
+
+Infer and coordinate the necessary internal operations. One user intent may affect several connected
+parts of the project and may require more than one route. The nine routes below are internal operating
+intents and explicit escape hatches, not the product interaction model:
 
 1. `project init <folder> <objective-or-source>` — create the minimal three-file project atomically. Read [init.md](references/init.md).
 2. `project plan <folder>` — clarify success, decompose outcomes, and establish dependencies. Read [plan.md](references/plan.md).

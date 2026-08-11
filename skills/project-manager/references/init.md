@@ -1,7 +1,8 @@
 # Initialize a Project
 
-Require an explicit target folder and objective or source. A project is the folder, not its repository.
-When the user requests workspace-default placement without naming a path, use
+Require an objective or source plus either an explicit target project folder or an explicitly
+selected workspace root. A project is the resulting project folder, not its repository. When the
+workspace root is selected and the user does not name a project path, derive a safe slug and use
 `<workspace>/.projects/<safe-project-slug>`; never default to `<workspace>/projects`.
 
 Create only `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Derive a safe stable project ID, state an objective, write at least one measurable success criterion, and start with no tasks unless decomposition is already supported. Include `human` in adapters; add other providers only when requested and usable.

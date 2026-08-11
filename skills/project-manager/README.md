@@ -1,293 +1,250 @@
-# Project Manager Skill — End-User Guide
+# Project Manager — User Guide
 
-**Users manage the project, not the project-management tool.** Work in terms of outcomes,
-constraints, risks, priorities, and decisions instead of boards, fields, statuses, and dependency
-settings.
+[中文指南](README-cn.md)
 
-**One user intent can become many coordinated, validated project actions.** Project Manager can
-interpret a change, find affected work, update connected project state, validate the result, and
-report the impact. Natural language is intent; Project Manager is reasoning and action; Markdown
-project state is truth; Kanban and Timeline are visualization; humans, RPD, and other agents are
-execution.
+Project Manager lets you manage a project in natural language—without learning a project-management
+interface. Talk about the project itself: the outcome, what happened, what changed, what is at risk,
+and what decision must be made.
 
-Project Manager keeps the resulting truth in a durable, versionable folder that Codex can plan,
-coordinate, track, review, and report. Project Manager Studio provides Kanban and Timeline views
-without becoming a second source of truth.
+## What you get
 
-## Quick start
+You get a coherent project plan that stays aligned with reality. You provide the meaning:
 
-Tell Codex what outcome you want and where the project workspace should live. Ordinary language is
-the interface; you do not need to learn commands or run scripts. Mention `$project-manager` when you
-want to select the skill explicitly.
+- what outcome matters;
+- what happened in the real world;
+- what must remain true;
+- what evidence exists; and
+- what decision or tradeoff you face.
 
-```text
-Use $project-manager to create a project at /work/.projects/website-launch for safely launching the new website.
-Plan the work needed to deliver this project.
-Open Project Manager Studio for it.
-```
+Project Manager decides how that meaning affects the plan. One statement may update tasks,
+dependencies, schedules, risks, decisions, evidence, and reporting together. The files and views are
+implementation details, not the language you must speak.
 
-A project is the selected folder, not the surrounding repository. Select that folder when starting
-or switching projects; after that, Codex keeps it as the current project for the conversation. If you
-ask for the workspace default, new projects are created under `.projects/`.
+You remain responsible for goals, constraints, approvals, and decisions. Project Manager is
+responsible for translating them into coherent project state.
 
-## Manage the project conversationally
+## 1. Install the skill
 
-**Tell Project Manager what happened, what you want, or what you're worried about—you don't need to
-translate project management into field updates and card movements.**
+In your AI agent app, ask:
 
-You do not need to decide whether a change belongs in a task, dependency, schedule, risk, decision,
-or report. Describe the situation and the intended outcome. Project Manager inspects the selected
-project, works out which connected facts and plans are affected, applies the safe changes, validates
-the result, and explains the consequences.
+> Install the `project-manager` skill from `yysun/project-manager`.
 
-| Management intent | Example |
-| --- | --- |
-| Rejected outcome | `The client rejected the design. They want a new version by Friday.` |
-| Scope change | `Offline mode is no longer part of MVP1. Move it to MVP2 and adjust dependent work.` |
-| Diagnosis | `Why are we not ready to start implementation?` |
-| Prioritization | `We only have two developers this week. What should they focus on?` |
-| Impact analysis | `If TASK-API slips by ten days, what happens to the launch?` |
-| Risk reasoning | `What are the three biggest threats to the target date?` |
-| Gap detection | `What have we forgotten in this plan?` |
-| Progress synthesis | `What changed since last week?` |
-| Exception management | `Which tasks need my attention today?` |
-| Decision capture | `We chose Vendor B because Vendor A cannot meet the security requirement. Record the decision and update affected work.` |
-| Replanning | `Legal approval will not arrive until Friday. Replan around it without moving the launch date if possible.` |
-| Human coordination | `John is away next week. Move anything only he can do and show me the consequences.` |
-| Executive reporting | `Give me a 30-second CEO update: progress, problems, and decisions needed.` |
-| What-if analysis | `What could we cut if we had to launch two weeks earlier?` |
-| Visual follow-up | `Update the plan, then open the timeline so I can inspect it.` |
+Once installed, talk about the project normally. Codex can select the skill when your request matches
+its purpose. If you want to select it explicitly, mention `$project-manager`.
 
-Project Manager does not blindly convert every sentence into mutations. It preserves immutable
-execution history, requires evidence for lifecycle progress, keeps unsupported dates and forecasts
-unknown, and surfaces a decision when the requested outcome cannot be achieved safely from the
-available facts.
+## 2. Create and plan your first project
 
-## Common conversations
+With the intended workspace open, describe the outcome and important boundaries:
 
-### A result was rejected
+> In this workspace, we need to launch the new website by October 15 without interrupting the current
+> site. Rollback must be proven before launch. Establish the project, work out what needs to be true,
+> challenge anything vague, and surface the decisions I need to make.
 
-> `The client rejected the design. They want a new version by Friday.`
+Project Manager creates the project, defines measurable success, and works backward into a verifiable
+plan with the necessary tasks and dependencies. It may ask for a decision when different
+interpretations would materially change the project. It should not ask you to design its fields or
+workflow.
 
-Project Manager inspects the design task, its acceptance criteria, current evidence, dependencies,
-and schedule. It determines whether the new information means a blocker, failed acceptance, new
-revision work, changed scope, or a combination of these. It then updates what the project facts
-support and reports the delivery impact. It does not falsely mark the original work complete or ask
-you to name the fields that need changing.
+The result is a durable project folder and a reasoned plan. Review whether it understood the outcome,
+constraints, and tradeoffs—not whether it produced the board configuration you would have chosen.
 
-### A constraint changed but the outcome did not
+## 3. Continue managing it by describing reality
 
-> `Legal approval will not arrive until Friday. Keep the launch date.`
+A project changes through events, constraints, evidence, and decisions. Tell Project Manager those
+facts as they occur instead of translating them into fields, statuses, or card movements.
 
-Project Manager records the constraint, traces the work that depends on approval, reschedules
-eligible tasks, and tests whether the launch plan still holds. If it does not, it makes the conflict
-explicit and identifies the smallest decisions—scope, staffing, sequencing, or date—that could
-resolve it.
+The most common conversations start with recurring status and progress work, then move into
+replanning and exception handling:
 
-### Capacity dropped
+### You need a status report
 
-> `We only have two developers this week. What should they focus on?`
+> Give me the weekly project-manager update: what changed, progress against the plan, the biggest
+> risk, the next priority, and the decision needed now.
 
-Project Manager ranks work using readiness, dependencies, priority, blockers, and success coverage.
-It recommends a defensible focus and shows what will wait. If the project does not contain enough
-ownership, effort, or availability information to make a credible allocation, it says so rather
-than inventing a capacity plan.
+Project Manager compares current facts with the plan and explains variance, accomplishments, issues,
+and next steps. It changes the emphasis for an operator, project manager, executive, or board without
+changing the underlying facts.
 
-## What Project Manager can reason about
+### Progress was made
 
-- **Consequences:** which tasks, milestones, dependencies, schedules, risks, and success criteria a
-  change may affect.
-- **Readiness and priority:** what is executable now, what is blocked, and which work best advances
-  the project outcome.
-- **Plan quality:** missing work, circular or incomplete dependencies, weak acceptance criteria,
-  unsupported completion, and uncovered success criteria.
-- **Options and tradeoffs:** what can move, defer, cancel, reassign, or escalate when a constraint
-  changes.
-- **Attention and communication:** exceptions requiring intervention and concise updates for
-  operators, project managers, executives, or boards.
+> Security approved the production design in SEC-1842, and every launch vendor confirmed. The
+> monitoring rehearsal is still incomplete.
 
-Reasoning is bounded by the project's evidence. Project Manager separates facts, unknowns,
-judgments, and recommendations; it does not turn an assumption into project truth merely because a
-plan would look cleaner.
+Project Manager records the evidence, advances only the work that evidence supports, and shows what
+the new progress unblocks. It keeps unfinished acceptance visible instead of turning a positive update
+into blanket completion.
 
-## What you can ask
+### The team needs focus
 
-| Goal | What to ask Codex |
-| --- | --- |
-| Create a project | `Create a project for safely launching the new website. Use the default workspace.` |
-| Select an existing project | `Work with the website-launch project at /work/.projects/website-launch.` |
-| Break the outcome into work | `Plan the work needed to deliver this project.` |
-| Add or revise work | `Add a task for confirming the launch vendor.` |
-| Record a decision, blocker, or evidence | `Record that legal approved TASK-CONTRACTS.` |
-| See current facts | `Show me the current project status.` |
-| Find the best executable work | `What should we work on next?` |
-| Challenge the plan and evidence | `Review this project for gaps, weak evidence, and hidden risks.` |
-| Review one task's quality | `Check whether TASK-CONTRACTS is well defined.` |
-| Create an audience report | `Prepare an executive update for this project.` |
-| Open Kanban and Timeline | `Open Project Manager Studio for this project.` |
+> We have only two developers this week, and Priya is the only person who can approve the migration.
+> Protect the work that matters most to launch.
 
-The folder is project context, not a parameter you must repeat. Codex asks for it only when no project
-has been selected or when the reference could match more than one project.
+Project Manager reasons about readiness, dependencies, ownership, priority, and success coverage. If
+the project lacks enough information for a credible recommendation, it says what is missing rather
+than inventing capacity.
 
-## Project Manager Studio
+### The plan needs adjustment
 
-Ask Codex to open Studio for one isolated project:
+> The pilot will now cover two regions instead of five. The October date still matters, and onboarding
+> cannot be cut. Work out the revised plan and consequences.
 
-```text
-Open Project Manager Studio for /absolute/path/to/project.
-```
+Project Manager revises the supported work, dependencies, and schedule; identifies what can be
+deferred; and checks whether the remaining plan still proves the intended outcome.
 
-From a workspace containing `.projects/`, ask to choose among its valid direct-child projects:
+### A risk or issue needs attention
 
-```text
-Open Project Manager Studio and let me choose a project from this workspace.
-```
+> The vendor API will not be available until September 15. We still need onboarding ready for the
+> October pilot. Show me the credible options.
 
-Studio opens a token-protected local page. Kanban and Timeline share the same project snapshot,
-filters, task details, validation, and save boundary.
+Project Manager traces the impact and compares the real choices: sequencing, scope, staffing,
+workaround, escalation, or date. If an outcome is rejected, it preserves accepted work, isolates the
+rework, and reports the downstream impact instead of blindly reopening everything.
+
+### A decision or scope changed
+
+> We chose Vendor B because Vendor A cannot satisfy the security requirement. The higher cost is
+> accepted. Carry that decision through the project and tell me what it changes.
+
+Project Manager records the decision, updates affected scope, work, dependencies, and risks, and
+keeps future planning and reporting consistent with it.
+
+## Ask management questions
+
+Good questions are about the project, not the tool:
+
+- Are we actually on track, and what evidence supports that judgment?
+- What threatens the target date most?
+- If the API slips by ten days, what breaks downstream?
+- What part of the success criteria is not covered by completed work?
+- Which decision would unlock the most important work?
+- What could we cut while preserving the core outcome?
+- What changed since last week, and why does it matter?
+- Where is the plan relying on an unsupported assumption?
+
+Project Manager should answer with facts, unknowns, judgment, and recommendations—not merely recite
+cards and statuses.
+
+## Resume an existing project
+
+Select the existing project in your AI agent app, then continue with the real situation:
+
+> Continue managing the website launch. The security team approved the production design in SEC-1842,
+> but the monitoring owner is now away next week. Tell me what that changes.
+
+Within the conversation, you can refer to “this project.” Select another project when switching or
+when the reference is ambiguous.
+
+## Studio is an optional visual surface
+
+Conversation is the primary management interface. Project Manager Studio is useful when you want to
+inspect the same project visually or adjust eligible planning details.
+
+> Let me inspect this project in Project Manager Studio.
+
+From a workspace containing `.projects/`, you can also ask to choose among its projects.
 
 ### Kanban
 
-- Use Kanban to see ordinary flow: Planned, Ready, Active, and Done, with Deferred and Cancelled side states.
-- Search or filter by priority, owner, and blockers.
-- Open a task to inspect its outcome, acceptance criteria, dependencies, blockers, evidence state,
-  and schedule.
-- Only genuinely never-started tasks can change specification fields or switch between `planned`
-  and `ready`.
+Kanban summarizes work as Planned, Ready, Active, and Done, with Deferred and Cancelled work kept
+visible. Use it to inspect outcomes, acceptance criteria, dependencies, blockers, evidence, and
+ownership. It is a projection of project truth, not a second system to keep synchronized.
 
-### Timeline setup
+### Timeline
 
-Timeline requires project start and target dates to anchor the complete project range. In
-`PROJECT.md`, set both values as date-only strings:
+Timeline shows explicit task schedules, dependencies, blockers, and date conflicts. It needs both a
+project start date and target date:
 
 ```yaml
 start_date: "2026-09-01"
 target_date: "2026-11-30"
 ```
 
-`target_date` is the project's planned end date. Missing task dates remain explicitly unscheduled;
-the skill does not invent dates from task status, dependencies, creation time, or evidence.
+Schedule bars use color to summarize task state:
 
-### Timeline usage
+| Color | Task state |
+| --- | --- |
+| Light blue | Planned or Ready |
+| Blue | Active |
+| Orange | Deferred or Cancelled, or a warning caused by a blocker or date conflict |
+| Green | Done |
 
-- Weekly columns and the sticky task column provide a spreadsheet-style planning view.
-- Blue schedule blocks represent planned or active work, orange highlights verified or blocked
-  work, and green identifies completed work. Status text remains visible in the task column.
-- Drag a schedule block to move its full date range.
-- Drag the left or right handle to resize the start or end.
-- Use Left Arrow or Right Arrow on a focused block or handle for one-day keyboard adjustments.
-- Dragging and keyboard changes create a draft only. Select **Save schedule** to persist it, or
-  **Cancel** to discard it.
-- Open an unscheduled task and enter both scheduled start and scheduled end dates. Clear both dates
-  together to return it to the unscheduled state.
-- Dependency-date conflicts are warnings. They do not silently change the schedule or the task's
-  lifecycle blockers.
+A warning overrides the normal lifecycle color. The task column also shows the status in text, so
+color is never the only indicator.
 
-Schedules are planning metadata, not actual execution dates, progress, effort, forecasts, or
-completion evidence.
+You can move or resize eligible task schedules and save the draft. Conflicts produce warnings;
+Studio does not silently replan dependent work. Schedules are plans, not proof of progress or
+completion.
 
-## Editing and lifecycle rules
+## The few rules worth knowing
 
-Project Manager deliberately separates planning authority from execution evidence:
+### Project truth lives in the folder
 
-- Never-started tasks may edit planning fields and use `planned` or `ready` status.
-- Eligible unfinished tasks may be rescheduled even after execution has started.
-- Eligible unfinished tasks may be deferred/reactivated or terminally cancelled independently from specification and schedule edits.
-- Completed tasks, tasks in completed milestones, and tasks in completed projects cannot be
-  rescheduled in Studio.
-- Studio never edits task IDs, actual execution dates, contracts, manifests, evidence, attempts, or
-  re-verification state.
-- **Check changes** validates the complete candidate project without saving.
-- **Save** rechecks project and task revisions, validates the complete candidate, and then applies
-  the change atomically.
+Every project begins with:
 
-Task lifecycle is evidence-backed:
+- `PROJECT.md` for the objective and success criteria;
+- `TASKS.md` for work, dependencies, blockers, and ownership; and
+- `STATUS.md` as a generated summary.
 
-```text
-planned → ready → in_progress → implemented → verification → verified → done
-```
+`PROJECT.md` and `TASKS.md` are authoritative. Optional files appear only when milestones, risks,
+decisions, sources, traceability, or reports improve the project.
 
-Starting work requires a Task Contract. Later lifecycle progress requires validated Evidence
-Manifests. A commit, closed ticket, or confident status message is not completion evidence by
-itself.
+### “Done” requires evidence
 
-Studio normally projects `in_progress`, `implemented`, `verification`, and `verified` as **Active**.
-The detailed lifecycle, contract, and manifest remain visible in task inspection.
+A confident message, closed ticket, commit, or file is not proof by itself. Project Manager records
+the approval, artifact, review, or other evidence that demonstrates the acceptance criteria. Ordinary
+human work may need only one specific approval; delegated or controlled work uses a stronger trail.
 
-### Rigor profiles
+### Blocked, deferred, and cancelled are different
 
-- `minimal` and `standard`: eligible never-started human tasks may be completed in one natural-language
-  update using a specific approval. Project Manager still writes the normal immutable contract and
-  verified manifest atomically.
-- `controlled`: human work must be started and advanced through governed evidence stages.
-- Agent, external, and RPD tasks are governed in every profile.
+- **Blocked** work still matters but cannot advance until its obstacle is resolved.
+- **Deferred** work is intentionally paused and may be reactivated.
+- **Cancelled** work is permanently closed. It does not satisfy dependencies or prove success.
 
-The lightweight path rejects blockers, incomplete dependencies, existing attempts, deferred/cancelled
-work, custom evidence one approval cannot prove, and unverifiable bound sources.
+### Unknown stays unknown
 
-### Deferred and cancelled work
+Project Manager does not invent owners, dates, capacity, forecasts, progress, or coverage. It names
+missing information when a sound judgment cannot be made.
 
-Disposition is separate from lifecycle. Deferred work is paused and may be reactivated. Cancellation is
-terminal. Neither state is next work; cancellation does not satisfy dependencies or prove success.
+## When Project Manager pushes back
 
-## Project files
+Pushback is part of the product. Project Manager should challenge:
 
-Every project starts with three files:
+- a target date with no schedule evidence;
+- completion with no acceptance evidence;
+- work marked ready while a dependency is unfinished;
+- a plan that does not cover the success criteria;
+- a requested combination of scope, capacity, and date that cannot all hold; and
+- a change that would rewrite immutable execution history.
 
-- `PROJECT.md` — project identity, objective, success criteria, owner, status, and project dates.
-- `TASKS.md` — task definitions, lifecycle state, dependencies, blockers, and optional schedules.
-- `STATUS.md` — derived cache regenerated from authoritative state; do not edit it as project truth.
-
-Optional files add milestones, risks, decisions, sources, traceability, changes, reports, and
-immutable execution attempts only when the project needs them.
-
-## Task schedules
-
-A scheduled task stores an inclusive date range in `TASKS.md` schema v2 or v3:
-
-```json
-{"outcome":"Launch assets are ready.","acceptance":["Marketing approves every asset."],"scheduled_start":"2026-09-08","scheduled_end":"2026-09-12"}
-```
-
-Both schedule fields must be present or both absent, and the start cannot be later than the end.
-The first saved schedule upgrades only `TASKS.md` from schema v1 to v2. Clearing all task schedules
-does not silently downgrade the file.
-
-The first disposition change upgrades TASKS to schema v3 while preserving schedules. Schema v3 stores
-only non-active dispositions with their RFC3339 change timestamp.
+The useful response is the conflict and the decision needed—not a superficially successful update.
 
 ## Common problems
 
-### Timeline has no useful project range
+### Codex cannot find the project
 
-Set both `start_date` and `target_date` in `PROJECT.md`, then validate or refresh the project.
+Give it the absolute path to the folder containing `PROJECT.md`, `TASKS.md`, and `STATUS.md`.
 
-### A task cannot be edited
+### Work cannot advance
 
-The task may already have execution history, belong to a completed milestone, be completed itself,
-or belong to a completed project. Inspect the read-only reason in the task dialog.
+Ask what fact prevents progress. The cause may be an unfinished dependency, explicit blocker, missing
+evidence, deferred disposition, or completed project boundary.
 
-### A task cannot become Ready
+### A task is read-only in Studio
 
-Ready tasks must have no explicit blockers and every dependency must already be Done.
+Work with execution history cannot be casually rewritten. The task dialog explains the exact reason.
+Continue by describing the changed reality to Project Manager so it can preserve history and choose a
+safe response.
+
+### Timeline has no useful range
+
+Provide both the project start date and target date, then refresh Studio.
 
 ### Studio says the project changed
 
-Another process changed the project after Studio loaded it. Refresh, review the latest facts, and
-apply the edit again rather than overwriting concurrent work.
+Another process changed the project after Studio loaded it. Refresh and reconsider the edit against
+the latest facts instead of overwriting them.
 
-### `STATUS.md` is stale
+## Learn more
 
-Treat `PROJECT.md` and `TASKS.md` as truth. Ask Project Manager to validate or update the project so
-the derived status cache is regenerated safely.
-
-## Safety model
-
-- Project Manager reads and writes only the selected project folder.
-- Studio binds only to loopback and requires its generated access token.
-- Candidate changes receive full-project validation before atomic replacement.
-- Existing contracts, evidence, reports, and attempt history remain immutable.
-- Unknown dates, forecasts, ownership, or coverage stay visible as unknown rather than being
-  inferred.
-
-For exact file schemas and integration details, see `SKILL.md` and the `references/` directory.
+- [Skill contract](SKILL.md) — instructions governing how Codex operates Project Manager.
+- [Project-state conventions](references/conventions.md) — exact schemas and integration contracts.
