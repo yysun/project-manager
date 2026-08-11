@@ -1,5 +1,5 @@
-/* Pure UTC date geometry for Project Manager Studio Timeline. All task ranges
-   are inclusive; no helper infers schedule from lifecycle or local time. */
+/* Pure UTC date and display geometry for Project Manager Studio Timeline.
+   Ranges are inclusive; long canvases keep a readable weekly minimum width. */
 export const DAY_MS = 86_400_000;
 
 export function toDay(date) { return Date.parse(`${date}T00:00:00Z`); }
@@ -18,6 +18,20 @@ export function timelineRange(tasks, project, milestones, padding = 3) {
 }
 
 export function rangeDays(range) { return dayDiff(range.start, range.end) + 1; }
+export function timelineContentWidth(range, minimum = 1020, weekWidth = 88) {
+  return Math.max(minimum, Math.ceil(rangeDays(range) / 7) * weekWidth);
+}
+export function timelineScaleTicks(range, minimumLabelDays = 5) {
+  const total = rangeDays(range);
+  const ticks = Array.from({ length: Math.ceil(total / 7) }, (_, index) => addDays(range.start, index * 7))
+    .filter((_, index) => index === 0 || total - index * 7 >= minimumLabelDays);
+  const endYear = range.end.slice(0, 4);
+  if (range.start.slice(0, 4) !== endYear && !ticks.some((date) => date.startsWith(endYear))) {
+    if (ticks.length > 1) ticks[ticks.length - 1] = range.end;
+    else ticks.push(range.end);
+  }
+  return ticks;
+}
 export function datePercent(date, range) { return ((dayDiff(range.start, date) + 0.5) / rangeDays(range)) * 100; }
 export function barGeometry(start, end, range) {
   const days = rangeDays(range);

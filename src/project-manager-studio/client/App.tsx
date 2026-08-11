@@ -1,5 +1,6 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
 // guards, URL-addressable views, coherent filters, refresh, and task editing.
+// Recent layout cleanup removes the obsolete policy footer from both views.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
@@ -151,7 +152,6 @@ export function App() {
         <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
       </section>; })}
     </section> : <Timeline key={data.project.key} data={data} tasks={filtered} onOpen={(task, opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={acceptProjectData} />}
-    <footer className="footer-note"><span>Folder-native state</span><span>·</span><span>Ordinary view, evidence-backed detail</span><span>·</span><span>Planning/status edits: never-started tasks</span><span>·</span><span>Disposition and schedule have separate authority</span></footer>
     {selected && <TaskDialog key={`${data.project.key}:${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={(next, request) => { if (!guard.current.accepts(request, next.project.key)) return; setData(next); const updated = next.tasks.find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated, formRevision: next.mutation_revision }); }} />}
   </main>;
 }

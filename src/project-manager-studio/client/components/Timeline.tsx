@@ -1,8 +1,8 @@
-// Project Manager Studio Timeline: dense weekly planning grid with key-bound
-// UTC schedule saves, dependency warnings, and revision-safe move/resize drafts.
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+// Project Manager Studio Timeline: range-sized weekly planning grid with a
+// synchronized sticky header, page scrolling, and revision-safe schedule edits.
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest } from '../../shared/api';
-import { addDays, barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, timelineRange, type DateRange } from '../timeline-model.mjs';
+import { barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, timelineContentWidth, timelineRange, timelineScaleTicks, type DateRange } from '../timeline-model.mjs';
 import type { SelectionRequest } from '../selection-guard.mjs';
 
 interface Props {
@@ -21,10 +21,27 @@ export function Timeline({ data, tasks, onOpen, beginMutation, finishMutation, o
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stickyTop, setStickyTop] = useState(0);
   const drag = useRef<Drag | null>(null);
+  const headerScroll = useRef<HTMLDivElement | null>(null);
   const suppressClick = useRef(false);
 
   const ordered = useMemo(() => [...tasks].sort((a, b) => (a.milestone ?? 'ZZZ').localeCompare(b.milestone ?? 'ZZZ') || (a.scheduled_start ?? '9999').localeCompare(b.scheduled_start ?? '9999') || a.id.localeCompare(b.id)), [tasks]);
+
+  useLayoutEffect(() => {
+    const topbar = document.querySelector<HTMLElement>('.topbar');
+    if (!topbar) return;
+    const update = () => setStickyTop(getComputedStyle(topbar).position === 'sticky' ? topbar.getBoundingClientRect().height : 0);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(topbar);
+    window.addEventListener('resize', update);
+    return () => { observer.disconnect(); window.removeEventListener('resize', update); };
+  }, []);
+
+  function syncHeader(event: UIEvent<HTMLDivElement>) {
+    if (headerScroll.current) headerScroll.current.scrollLeft = event.currentTarget.scrollLeft;
+  }
 
   function begin(event: PointerEvent<HTMLElement>, task: KanbanTask, mode: Drag['mode']) {
     if (!range || !task.schedule_editable || !task.scheduled_start || !task.scheduled_end) return;
@@ -79,32 +96,39 @@ export function Timeline({ data, tasks, onOpen, beginMutation, finishMutation, o
   return <section className="timeline-panel" aria-label="Task timeline">
     {draft && <div className="timeline-draft-actions" role="status"><span>{draft.start} → {draft.end}</span><button className="secondary-button" disabled={busy} onClick={() => { setDraft(null); setError(null); }}>Cancel</button><button className="primary-button" disabled={busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save schedule'}</button></div>}
     {error && <div className="error-banner" role="alert">Schedule save failed: {error}</div>}
-    {!range ? <div className="timeline-no-range"><strong>No dated work yet</strong><p>Open a task to add its scheduled start and end. No dates are inferred.</p>{ordered.map((task) => <TimelineLabel key={task.id} task={task} onOpen={onOpen} />)}</div> : <div className="timeline-scroll">
-      <div className="timeline-grid" style={{ '--timeline-days': rangeDays(range) } as React.CSSProperties}>
+    {!range ? <div className="timeline-no-range"><strong>No dated work yet</strong><p>Open a task to add its scheduled start and end. No dates are inferred.</p>{ordered.map((task) => <TimelineLabel key={task.id} task={task} onOpen={onOpen} />)}</div> : <>
+      <div className="timeline-sticky-header" style={{ '--timeline-content-width': `${timelineContentWidth(range)}px`, top: stickyTop } as React.CSSProperties}>
         <div className="timeline-label timeline-label--header"><strong>Task</strong><span>{ordered.length} shown</span></div>
-        <TimelineScale range={range} />
-        {ordered.map((task) => {
-          const shown = draft?.taskId === task.id ? { start: draft.start, end: draft.end } : task.scheduled_start && task.scheduled_end ? { start: task.scheduled_start, end: task.scheduled_end } : null;
-          return <div className="timeline-row-group" key={task.id}>
-            <TimelineLabel task={task} onOpen={onOpen} />
-            <div className="timeline-track">
-              <Markers data={data} range={range} />
-              {shown ? <ScheduleBar task={task} range={range} start={shown.start} end={shown.end} draft={draft?.taskId === task.id} onOpen={onOpen} onBegin={begin} onMove={move} onFinish={finish} onNudge={nudge} suppressClick={suppressClick} /> : <button className="unscheduled-button" onClick={(event) => onOpen(task, event.currentTarget)}>Unscheduled · add dates</button>}
-            </div>
-          </div>;
-        })}
+        <div className="timeline-header-viewport" ref={headerScroll}><TimelineScale range={range} /></div>
       </div>
-    </div>}
+      <div className="timeline-scroll" role="region" aria-label="Scrollable task timeline" tabIndex={0} onScroll={syncHeader}>
+        <div className="timeline-grid" style={{ '--timeline-days': rangeDays(range), '--timeline-content-width': `${timelineContentWidth(range)}px` } as React.CSSProperties}>
+          {ordered.map((task) => {
+            const shown = draft?.taskId === task.id ? { start: draft.start, end: draft.end } : task.scheduled_start && task.scheduled_end ? { start: task.scheduled_start, end: task.scheduled_end } : null;
+            return <div className="timeline-row-group" key={task.id}>
+              <TimelineLabel task={task} onOpen={onOpen} />
+              <div className="timeline-track">
+                <Markers data={data} range={range} />
+                {shown ? <ScheduleBar task={task} range={range} start={shown.start} end={shown.end} draft={draft?.taskId === task.id} onOpen={onOpen} onBegin={begin} onMove={move} onFinish={finish} onNudge={nudge} suppressClick={suppressClick} /> : <button className="unscheduled-button" onClick={(event) => onOpen(task, event.currentTarget)}>Unscheduled · add dates</button>}
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>
+    </>}
   </section>;
 }
 
 function TimelineScale({ range }: { range: DateRange }) {
   const total = rangeDays(range);
-  const ticks = Array.from({ length: Math.ceil(total / 7) }, (_, index) => addDays(range.start, index * 7));
-  return <div className="timeline-scale">{ticks.map((date) => {
+  const ticks = timelineScaleTicks(range);
+  const formatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return <div className="timeline-scale">{ticks.map((date, index) => {
     const elapsed = dayDiff(range.start, date); const remaining = total - elapsed;
-    const label = date.split('-').map((part, index) => index === 0 ? part : String(Number(part))).join('/');
-    return <span className="timeline-week" key={date} style={{ left: `${(elapsed / total) * 100}%`, width: `${(Math.min(7, remaining) / total) * 100}%` }}>{label}</span>;
+    const year = date.slice(0, 4); const previousYear = ticks[index - 1]?.slice(0, 4);
+    const label = `${formatter.format(new Date(`${date}T00:00:00Z`))}${index === 0 || year !== previousYear ? `, ${year}` : ''}`;
+    const compactEnd = remaining < 5;
+    return <span className={`timeline-week ${compactEnd ? 'timeline-week--end' : ''}`} key={date} title={date} aria-label={date} style={compactEnd ? { left: `${(elapsed / total) * 100}%`, width: '88px' } : { left: `${(elapsed / total) * 100}%`, width: `${(Math.min(7, remaining) / total) * 100}%` }}>{label}</span>;
   })}</div>;
 }
 

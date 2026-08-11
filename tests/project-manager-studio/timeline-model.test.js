@@ -1,5 +1,5 @@
-/* Timeline geometry regressions: UTC-only inclusive ranges, cross-boundary
-   movement and resize clamping, deterministic pixels-to-days conversion. */
+/* Timeline geometry regressions: UTC-only inclusive ranges, readable long
+   canvases, cross-boundary movement, and deterministic pixel conversion. */
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
@@ -21,6 +21,16 @@ test('timeline ranges and bars are inclusive and use explicit facts only', async
   assert.deepEqual(model.barGeometry('2026-08-10', '2026-08-10', range), { left: 0, width: 100 });
   const padded = model.timelineRange([], { start_date: '2026-08-01', target_date: '2026-08-31' }, [], 3);
   assert.deepEqual(padded, { start: '2026-07-29', end: '2026-09-03' });
+});
+
+test('timeline canvas expands for long ranges instead of compressing weekly labels', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  assert.equal(model.timelineContentWidth({ start: '2026-08-10', end: '2026-08-16' }), 1020);
+  assert.equal(model.timelineContentWidth({ start: '2026-01-01', end: '2026-12-31' }), 4664);
+  const yearTicks = model.timelineScaleTicks({ start: '2026-01-01', end: '2026-12-31' });
+  assert.equal(yearTicks.at(-1), '2026-12-24');
+  assert.deepEqual(model.timelineScaleTicks({ start: '2026-12-28', end: '2027-01-03' }), ['2026-12-28', '2027-01-03']);
+  assert.deepEqual(model.timelineScaleTicks({ start: '2026-01-08', end: '2027-01-01' }).slice(-2), ['2026-12-17', '2027-01-01']);
 });
 
 test('move and resize preserve valid inclusive intervals and clamp inversion', async () => {

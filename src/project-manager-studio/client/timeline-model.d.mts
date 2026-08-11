@@ -1,4 +1,4 @@
-/* Type declarations for the Timeline's runtime-tested UTC date geometry. */
+/* Type declarations for the Timeline's runtime-tested UTC date and canvas geometry. */
 export interface DateRange { start: string; end: string }
 export const DAY_MS: number;
 export function toDay(date: string): number;
@@ -7,6 +7,8 @@ export function addDays(date: string, days: number): string;
 export function dayDiff(start: string, end: string): number;
 export function timelineRange(tasks: Array<{ scheduled_start: string | null; scheduled_end: string | null }>, project: { start_date: string | null; target_date: string | null }, milestones: Array<{ target_date: string | null; forecast_date: string | null }>, padding?: number): DateRange | null;
 export function rangeDays(range: DateRange): number;
+export function timelineContentWidth(range: DateRange, minimum?: number, weekWidth?: number): number;
+export function timelineScaleTicks(range: DateRange, minimumLabelDays?: number): string[];
 export function datePercent(date: string, range: DateRange): number;
 export function barGeometry(start: string, end: string, range: DateRange): { left: number; width: number };
 export function moveSchedule(start: string, end: string, days: number): DateRange;
