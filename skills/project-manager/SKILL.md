@@ -1,17 +1,17 @@
 ---
 name: project-manager
-description: Plan, coordinate, track, review, and report folder-native projects. Use when Codex needs to initialize or manage a project folder, decompose outcomes into tasks, select next work, track blockers or evidence, coordinate human/agent/external/RPD executors, assess change impact, or create operator, project-manager, executive, or board status reports. Generic Markdown project state is the core; Git, source code, trackers, and RPD are optional integrations.
+description: Plan, coordinate, execute, track, review, and report folder-native projects. Use when Codex needs to initialize or manage a project folder, decompose outcomes into tasks, select next work, track blockers or evidence, coordinate human/agent/external/RPD executors, execute dependency-ready RPD tasks with subagents and Git worktrees from English or Chinese natural-language requests, assess change impact, or create operator, project-manager, executive, or board status reports. Generic Markdown project state is the core; Git, source code, trackers, and RPD are optional integrations.
 ---
 
 # Project Manager
 
-**Version:** `1.3.0`
+**Version:** `1.4.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 
-Manage the selected project through `plan → coordinate → track → report`.
+Manage the selected project through `plan → coordinate → execute → track → report`.
 
-Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. For a new project, require an explicitly selected workspace root or target project folder; workspace-default placement derives `<root>/.projects/<safe-project-slug>`. For an existing project, require the user or calling context to select the project folder explicitly, except that Studio may select from a validated projects root. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
+Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. For a new project, require an explicitly selected workspace root or target project folder; workspace-default placement derives `<root>/.projects/<safe-project-slug>`. For an existing project, require the user or calling context to select the project folder explicitly. Studio and `execute-rpd` may resolve one exact name, ID, or folder from a validated projects root; ambiguity is not selection. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
 
 Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblings for same-filesystem atomic work and crash recovery. They are internal recovery roots, not projects; valid explicitly selected projects are never rejected merely for a similar basename.
 
@@ -29,7 +29,7 @@ constraints, evidence, risks, decisions, tradeoffs, and questions. Never require
 reality into field edits, status changes, card movements, or one route from a command menu.
 
 Infer and coordinate the necessary internal operations. One user intent may affect several connected
-parts of the project and may require more than one route. The nine routes below are internal operating
+parts of the project and may require more than one route. The ten routes below are internal operating
 intents and explicit escape hatches, not the product interaction model:
 
 1. `project init <folder> <objective-or-source>` — create the minimal three-file project atomically. Read [init.md](references/init.md).
@@ -40,14 +40,15 @@ intents and explicit escape hatches, not the product interaction model:
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
 7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage. Read [review.md](references/review.md).
 8. `project validate-task <folder> <task-id>` — validate the folder, then use LLM judgment to review task quality. Read [tasks.md](references/tasks.md).
-9. `project studio [folder]` — launch local Project Manager Studio with Kanban and Timeline views;
+9. `project execute-rpd <folder|project-name>` — execute every eligible RPD task in dependency-ready waves using isolated Git worktrees and subagents, then ingest verified evidence. Natural-language equivalents in English and Chinese are preferred. Read [execute-rpd.md](references/execute-rpd.md).
+10. `project studio [folder]` — launch local Project Manager Studio with Kanban and Timeline views;
    an explicit folder is isolated, while no folder uses selectable direct children of `.projects`.
 
 For source or scope changes, read [impact.md](references/impact.md). For exact schemas, lifecycle rules, and output contracts, read [conventions.md](references/conventions.md).
 
 ## Load state safely
 
-1. Resolve the explicit folder with `realpath`.
+1. Resolve an explicit folder with `realpath`. For an `execute-rpd` project name, run `project-resolve.js` against the calling context's validated `.projects` root and use its returned absolute root.
 2. Do not search upward for Git or inspect siblings.
 3. Reject symlinked or escaping known state paths.
 4. Resolve this skill's absolute directory and run `node <absolute-skill-dir>/scripts/project-validate.js <folder> --json` before relying on state.
@@ -100,6 +101,10 @@ For RPD:
 3. Present RPD with the readable absolute contract path and exact deterministic prompt.
 4. Let RPD own its complete workflow.
 5. Snapshot exact-story RPD artifacts into the project attempt before manifest ingestion.
+
+For dependency-aware multi-task RPD execution, read [execute-rpd.md](references/execute-rpd.md) and
+use its scheduling, worktree, integration, review-capacity, and stopping rules. Do not expand the
+one-line user command into a confirmation ceremony.
 
 Never infer executor success from a closed issue, commit, file presence, or confident prose.
 

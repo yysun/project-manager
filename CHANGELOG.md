@@ -10,6 +10,23 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [1.4.0] — 2026-08-12
+
+### Added
+
+- `project execute-rpd <folder>`, a one-line governed execution route that schedules active RPD tasks
+  in dependency-ready waves, gives each mutating worker its own Git worktree, reserves independent
+  review capacity, integrates task branches in dependency order, and advances project state only from
+  validated Evidence Manifests.
+
+### Changed
+
+- Project Manager now carries the worktree, subagent, review-invalidation, integration-verification,
+  and stopping rules that previously had to be repeated in every execution prompt.
+- RPD project execution now accepts natural-language requests in English and Chinese with a project
+  name. A deterministic resolver selects one exact project from the validated workspace `.projects`
+  catalog and rejects missing or ambiguous names instead of guessing.
+
 ## [1.3.0] — 2026-08-11
 
 PMI alignment through documented tailoring.
@@ -125,6 +142,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.4.0]: https://github.com/yysun/project-manager/releases/tag/v1.4.0
 [1.3.0]: https://github.com/yysun/project-manager/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yysun/project-manager/releases/tag/v1.2.0
 [1.1.1]: https://github.com/yysun/project-manager/releases/tag/v1.1.1

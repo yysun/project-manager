@@ -1,4 +1,4 @@
 interface:
   display_name: "Project Manager"
-  short_description: "Plan, track, review, and visualize projects"
-  default_prompt: "Use $project-manager to manage or open Kanban and Timeline views for this folder-native project."
+  short_description: "Plan, execute, track, and review projects"
+  default_prompt: "Use $project-manager to execute all RPD work for the Website Launch project."

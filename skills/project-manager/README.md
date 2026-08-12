@@ -141,6 +141,32 @@ Select the existing project in your AI agent app, then continue with the real si
 Within the conversation, you can refer to “this project.” Select another project when switching or
 when the reference is ambiguous.
 
+## Execute RPD software work with one line
+
+For a software project, ask Project Manager to assign its coding tasks to the RPD executor and bind
+them to the relevant Git repository during planning. When the project is ready, use ordinary English
+and give its project name:
+
+> Execute all RPD work for the Website Launch project.
+
+Project Manager validates the project, starts only tasks whose dependencies are complete, and runs
+independent ready tasks in parallel waves. Each task gets its own subagent, Git branch, and worktree;
+RPD handles implementation, testing, correction, and independent review. Project Manager then
+integrates the branches in dependency order, tests the combined result, and records the evidence that
+supports each task's acceptance criteria.
+
+This command does not mean “run the entire backlog at once.” It leaves non-RPD tasks with their
+assigned executors, preserves blocked attempts, and continues only with unrelated ready work. It
+creates local commits and an integration branch, but does not push, open a pull request, or weaken a
+task to make it pass. The final report identifies the integration branch and retained coordinator
+worktree for inspection.
+
+Project Manager resolves `Website Launch` only among validated projects directly inside the selected
+workspace's `.projects` folder. An exact project ID or folder name also works. If the name is missing
+or matches more than one project, it asks which project you mean instead of guessing or searching the
+filesystem. The command-style `project execute-rpd <project-name>` remains available as an escape
+hatch, but it is not required.
+
 ## Studio is an optional visual surface
 
 Conversation is the primary management interface. Project Manager Studio is useful when you want to
@@ -260,6 +286,13 @@ Give it the absolute path to the folder containing `PROJECT.md`, `TASKS.md`, and
 
 Ask what fact prevents progress. The cause may be an unfinished dependency, explicit blocker, missing
 evidence, deferred disposition, or completed project boundary.
+
+### RPD execution starts no tasks
+
+Eligible work must be active, unfinished, assigned to the `rpd` executor, free of blockers, and ready
+under the project's dependency rules. Its executor root must also resolve to an existing Git
+repository. Project Manager reports which condition excluded each task instead of silently changing
+the project.
 
 ### A task is read-only in Studio
 

@@ -1427,6 +1427,20 @@ var require_project_state = __commonJS({
       projects.sort((left, right) => left.id.localeCompare(right.id) || left.child.localeCompare(right.child));
       return { root, projects };
     }
+    function resolveProjectInRoot(folder, selector) {
+      if (!nonEmpty(selector)) fail("semantic", "PROJECT_SELECTOR_REQUIRED", folder, "Project selector must be a non-empty name, ID, or folder name");
+      const catalog = loadProjectsRoot2(folder);
+      const normalized = selector.trim().normalize("NFKC").toLowerCase();
+      const matches = catalog.projects.filter((project) => [project.id, project.name, project.child].some((value) => value.normalize("NFKC").toLowerCase() === normalized));
+      if (matches.length === 0) {
+        fail("semantic", "PROJECT_NAME_NOT_FOUND", catalog.root, `No project exactly matches ${JSON.stringify(selector.trim())} in the selected projects root`);
+      }
+      if (matches.length > 1) {
+        const labels = matches.map((project) => `${project.id} (${JSON.stringify(project.name)} at ${project.child})`).join(", ");
+        fail("semantic", "PROJECT_NAME_AMBIGUOUS", catalog.root, `Project selector ${JSON.stringify(selector.trim())} is ambiguous: ${labels}`);
+      }
+      return { projects_root: catalog.root, selector: selector.trim(), project: matches[0] };
+    }
     function unfinishedDependencies(task, state) {
       const byId = new Map(state.tasks.map((item) => [item.id, item]));
       return task.depends_on.filter((id) => byId.get(id).status !== "done");
@@ -1672,6 +1686,7 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
       loadProject,
       loadProjectIndex,
       loadProjectsRoot: loadProjectsRoot2,
+      resolveProjectInRoot,
       validateData,
       statusData,
       nextData,

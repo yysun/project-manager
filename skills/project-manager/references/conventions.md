@@ -6,7 +6,7 @@ malformed records, escaping paths, and inconsistent lifecycle.
 
 ## Project boundary
 
-Every ordinary project command requires an explicit project folder. Resolve it with `realpath`; known state entries must be regular, non-symlink descendants. Never search for a repository or read siblings. Studio is the sole selection exception: without `--project`, it validates selectable direct-child projects under `--projects-root` or the default `<launch-working-directory>/.projects`. It never scans recursively or falls back to `projects`.
+Every ordinary project command requires an explicit project folder. Resolve it with `realpath`; known state entries must be regular, non-symlink descendants. Never search for a repository or read siblings. Studio and `execute-rpd` are the selection exceptions. Studio validates selectable direct-child projects under `--projects-root` or the default `<launch-working-directory>/.projects`. `execute-rpd` may use `project-resolve.js` to resolve one exact case-insensitive name, ID, or direct-child folder from the calling context's validated `.projects` root. Zero or multiple matches fail; neither route scans recursively or falls back to `projects`.
 
 Atomic updates and Studio checks allocate unique marker-bound `.project-manager-work-<24-hex>` siblings on the same filesystem. These recovery roots are not projects, never reuse a selected project path, and are removed independently after successful work. A valid project remains selectable even if its basename resembles the work-root pattern.
 
@@ -75,6 +75,11 @@ All six reporting/validation scripts are read-only and support `node <script> <p
 See each script's output and `--help` for the locked envelope. Optional modules report `{configured:false}` rather than invented zeroes.
 
 `project-report-data.js` includes stable `ownership:[{task_id,owner}]` for every task. A null owner remains visible; reports must not infer or hide it.
+
+`project-resolve.js <projects-root> <project-name|id|folder> --json` is a separate read-only selection
+utility. It validates the complete direct-child catalog before matching and returns one canonical
+project root. `PROJECT_NAME_NOT_FOUND` and `PROJECT_NAME_AMBIGUOUS` are semantic failures; they never
+trigger fuzzy matching or filesystem search.
 
 ## Exact core schemas
 

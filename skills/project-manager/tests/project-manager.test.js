@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, loadProjectsRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts,
+  loadProject, loadProjectIndex, loadProjectsRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
@@ -357,6 +357,37 @@ test('projects-root discovery distinguishes missing, invalid, symlinked, and emp
     const linked = path.join(base, 'linked'); fs.symlinkSync(empty, linked);
     assert.throws(() => loadProjectsRoot(linked), (error) => error.code === 'PROJECTS_ROOT_INVALID');
   }
+});
+
+test('project resolver accepts exact English and Chinese names but never guesses an ambiguous name', () => {
+  const base = temp(); const root = path.join(base, '.projects'); fs.mkdirSync(root);
+  const website = createProject(root, 'WEB-LAUNCH', [], { name: 'Website Launch' });
+  const mobile = createProject(root, 'MOBILE-APP', [], { name: '移动应用' });
+  assert.equal(resolveProjectInRoot(root, 'website launch').project.root, fs.realpathSync(website));
+  assert.equal(resolveProjectInRoot(root, 'MOBILE-APP').project.root, fs.realpathSync(mobile));
+  assert.equal(resolveProjectInRoot(root, 'mobile-app').project.root, fs.realpathSync(mobile));
+  assert.equal(resolveProjectInRoot(root, '移动应用').project.id, 'MOBILE-APP');
+  assert.throws(() => resolveProjectInRoot(root, 'Missing Project'), (error) => error.code === 'PROJECT_NAME_NOT_FOUND');
+
+  createProject(root, 'WEB-COPY', [], { name: 'Website Launch' });
+  assert.throws(() => resolveProjectInRoot(root, 'Website Launch'), (error) => error.code === 'PROJECT_NAME_AMBIGUOUS');
+});
+
+test('project-resolve CLI returns the selected root and uses stable ambiguity errors', () => {
+  const base = temp(); const root = path.join(base, '.projects'); fs.mkdirSync(root);
+  const selected = createProject(root, 'WEBSITE', [], { name: 'Website Launch' });
+  let result = run('project-resolve.js', [root, 'Website Launch', '--json']);
+  assert.equal(result.status, 0, result.stderr);
+  let envelope = JSON.parse(result.stdout);
+  assert.equal(envelope.ok, true); assert.equal(envelope.project.id, 'WEBSITE'); assert.equal(envelope.project.root, fs.realpathSync(selected));
+  assert.deepEqual(envelope.data, { projects_root: fs.realpathSync(root), selector: 'Website Launch' });
+
+  result = run('project-resolve.js', [root, 'Unknown', '--json']);
+  assert.equal(result.status, 1); envelope = JSON.parse(result.stderr); assert.equal(envelope.errors[0].code, 'PROJECT_NAME_NOT_FOUND');
+  createProject(root, 'WEBSITE-COPY', [], { name: 'Website Launch' });
+  result = run('project-resolve.js', [root, 'Website Launch', '--json']);
+  assert.equal(result.status, 1); envelope = JSON.parse(result.stderr); assert.equal(envelope.errors[0].code, 'PROJECT_NAME_AMBIGUOUS');
+  assert.equal(run('project-resolve.js', [root]).status, 2);
 });
 
 test('next work filters blockers and ranks critical, unlocks, priority, milestone, then ID', () => {
