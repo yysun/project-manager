@@ -26108,6 +26108,8 @@ var require_task_editor = __commonJS({
 // src/project-manager-studio/server/cli.ts
 var cli_exports = {};
 __export(cli_exports, {
+  ProjectCatalog: () => ProjectCatalog,
+  createServer: () => createServer,
   main: () => main
 });
 module.exports = __toCommonJS(cli_exports);
@@ -26206,6 +26208,7 @@ var import_node_crypto2 = __toESM(require("node:crypto"));
 var import_express = __toESM(require_express2());
 var { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require_task_editor();
 var SESSION_COOKIE = "pm_studio_session";
+var HEARTBEAT_HEADER = "x-project-manager-studio";
 function cookies(header) {
   return Object.fromEntries((header ?? "").split(";").map((part) => part.trim()).filter(Boolean).map((part) => {
     const index = part.indexOf("=");
@@ -26270,6 +26273,11 @@ function createServer(options) {
       res.status(result.status).json(result.body);
     }
   });
+  api.post("/heartbeat", (req, res) => {
+    if (req.get(HEARTBEAT_HEADER) !== "heartbeat") return void res.status(403).json({ errors: [{ code: "HEARTBEAT_FORBIDDEN", message: "Missing or invalid Studio heartbeat header." }] });
+    options.onHeartbeat();
+    res.status(204).end();
+  });
   api.post("/tasks/:taskId/check", (req, res) => {
     try {
       const request = editRequest(req.body);
@@ -26306,6 +26314,80 @@ function createServer(options) {
     res.status(result.status).json(result.body);
   });
   return { app, sessionToken };
+}
+
+// src/project-manager-studio/server/studio-lifecycle.mjs
+var WATCHDOG_INTERVAL_MS = 6e4;
+var STUDIO_IDLE_TIMEOUT_MS = 60 * 6e4;
+var WATCHDOG_DELAY_THRESHOLD_MS = 2 * 6e4;
+var WAKE_GRACE_MS = 2 * 6e4;
+function createNondecreasingWallClock(read = Date.now) {
+  let latest = read();
+  return () => {
+    latest = Math.max(latest, read());
+    return latest;
+  };
+}
+function createHeartbeatLease({ now = createNondecreasingWallClock() } = {}) {
+  const startedAt = now();
+  let lastHeartbeatAt = startedAt;
+  let nextWatchdogDueAt = startedAt + WATCHDOG_INTERVAL_MS;
+  let wakeGraceUntil = null;
+  function state(status, current) {
+    return { status, now: current, lastHeartbeatAt, nextWatchdogDueAt, wakeGraceUntil };
+  }
+  return {
+    heartbeat() {
+      lastHeartbeatAt = now();
+      wakeGraceUntil = null;
+      return state("active", lastHeartbeatAt);
+    },
+    check() {
+      const current = now();
+      const scheduledDueAt = nextWatchdogDueAt;
+      nextWatchdogDueAt = current + WATCHDOG_INTERVAL_MS;
+      if (wakeGraceUntil !== null) {
+        if (current < wakeGraceUntil) return state("wake-grace", current);
+        wakeGraceUntil = null;
+        return state(current - lastHeartbeatAt >= STUDIO_IDLE_TIMEOUT_MS ? "expired" : "active", current);
+      }
+      if (current - scheduledDueAt > WATCHDOG_DELAY_THRESHOLD_MS) {
+        wakeGraceUntil = current + WAKE_GRACE_MS;
+        return state("wake-grace", current);
+      }
+      return state(current - lastHeartbeatAt >= STUDIO_IDLE_TIMEOUT_MS ? "expired" : "active", current);
+    }
+  };
+}
+function createShutdownController({ close, exit }) {
+  let shutdown = null;
+  return () => shutdown ?? (shutdown = Promise.resolve().then(close).then(() => exit(0)));
+}
+function createStudioWatchdog({
+  lease,
+  onExpired,
+  setIntervalFn = setInterval,
+  clearIntervalFn = clearInterval
+} = {}) {
+  let stopped = false;
+  let timer;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearIntervalFn(timer);
+  };
+  const evaluate = () => {
+    if (stopped) return null;
+    const result = lease.check();
+    if (result.status === "expired") {
+      stop();
+      void onExpired();
+    }
+    return result;
+  };
+  timer = setIntervalFn(evaluate, WATCHDOG_INTERVAL_MS);
+  timer?.unref?.();
+  return { evaluate, stop };
 }
 
 // src/project-manager-studio/server/cli.ts
@@ -26374,7 +26456,8 @@ function openBrowser(url) {
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const catalog = buildCatalog(args);
-  const { app, sessionToken } = createServer({ catalog, clientDistDir: CLIENT_DIST_DIR });
+  const lease = createHeartbeatLease();
+  const { app, sessionToken } = createServer({ catalog, clientDistDir: CLIENT_DIST_DIR, onHeartbeat: lease.heartbeat });
   const server = import_node_http.default.createServer(app);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -26385,13 +26468,19 @@ async function main(argv = process.argv.slice(2)) {
   const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
   const browser = args.open ? openBrowser(url) : null;
   let closing = null;
+  let stopWatchdog = () => {
+  };
   const close = () => closing ?? (closing = new Promise((resolve) => {
+    stopWatchdog();
     server.close(() => resolve());
     server.closeAllConnections();
     if (browser && !browser.killed) browser.kill();
   }));
-  process.on("SIGINT", () => void close().then(() => process.exit(0)));
-  process.on("SIGTERM", () => void close().then(() => process.exit(0)));
+  const shutdown = createShutdownController({ close, exit: (code) => process.exit(code) });
+  const watchdog = createStudioWatchdog({ lease, onExpired: shutdown });
+  stopWatchdog = watchdog.stop;
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
   return { url, close };
 }
 if (require.main === module) main().then(({ url }) => console.log(url)).catch((error) => {
@@ -26401,6 +26490,8 @@ if (require.main === module) main().then(({ url }) => console.log(url)).catch((e
 });
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  ProjectCatalog,
+  createServer,
   main
 });
 /*! Bundled license information:

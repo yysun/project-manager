@@ -1,6 +1,7 @@
 // Local Studio HTTP boundary: token handshake, opaque-key project reads,
-// deterministic checks, serialized atomic saves, and static assets. It exposes
-// no shell, executor, evidence, or arbitrary-path selection API.
+// deterministic checks, serialized atomic saves, authenticated lease renewal,
+// and static assets. It exposes no shell, executor, evidence, or arbitrary-path
+// selection API.
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { KanbanData, TaskEditRequest } from '../shared/api.js';
@@ -8,6 +9,7 @@ import { ProjectCatalog, ProjectCatalogError } from './project-catalog.js';
 
 const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
 const SESSION_COOKIE = 'pm_studio_session';
+const HEARTBEAT_HEADER = 'x-project-manager-studio';
 
 function cookies(header: string | undefined): Record<string, string> {
   return Object.fromEntries((header ?? '').split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
@@ -39,7 +41,7 @@ function editRequest(body: unknown): { projectKey: string; edit: Omit<TaskEditRe
   return { projectKey: value.projectKey, edit: { mutationRevision: value.mutationRevision, taskRevision: value.taskRevision, edit: value.edit } as Omit<TaskEditRequest, 'projectKey'> };
 }
 
-export function createServer(options: { catalog: ProjectCatalog; clientDistDir: string; sessionToken?: string }) {
+export function createServer(options: { catalog: ProjectCatalog; clientDistDir: string; onHeartbeat: () => void; sessionToken?: string }) {
   const sessionToken = options.sessionToken ?? crypto.randomBytes(32).toString('hex');
   const app = express();
   app.disable('x-powered-by');
@@ -72,6 +74,12 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
   api.get('/project', (req, res) => {
     try { res.json({ ok: true, data: loadProject(req.query.project) }); }
     catch (error) { const result = apiError(error); res.status(result.status).json(result.body); }
+  });
+
+  api.post('/heartbeat', (req, res) => {
+    if (req.get(HEARTBEAT_HEADER) !== 'heartbeat') return void res.status(403).json({ errors: [{ code: 'HEARTBEAT_FORBIDDEN', message: 'Missing or invalid Studio heartbeat header.' }] });
+    options.onHeartbeat();
+    res.status(204).end();
   });
 
   api.post('/tasks/:taskId/check', (req, res) => {

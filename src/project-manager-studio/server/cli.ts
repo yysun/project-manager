@@ -1,11 +1,15 @@
-// Packaged Studio entry point: .projects-root discovery or explicit project,
-// validation before listen, loopback-only server, browser launch, and shutdown.
+// Packaged Studio entry point: project discovery, loopback server, browser
+// launch, browser-renewed idle lease, and one-shot graceful shutdown.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { ProjectCatalog, type ProjectSeed } from './project-catalog.js';
 import { createServer } from './server.js';
+import { createHeartbeatLease, createShutdownController, createStudioWatchdog } from './studio-lifecycle.mjs';
+
+export { createServer } from './server.js';
+export { ProjectCatalog } from './project-catalog.js';
 
 const { loadRevisionedProject } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
 const { loadProjectsRoot } = require('../../../skills/project-manager/scripts/lib/project-state.js');
@@ -71,7 +75,8 @@ function openBrowser(url: string): ChildProcess | null {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const catalog = buildCatalog(args);
-  const { app, sessionToken } = createServer({ catalog, clientDistDir: CLIENT_DIST_DIR });
+  const lease = createHeartbeatLease();
+  const { app, sessionToken } = createServer({ catalog, clientDistDir: CLIENT_DIST_DIR, onHeartbeat: lease.heartbeat });
   const server = http.createServer(app);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -82,12 +87,17 @@ export async function main(argv = process.argv.slice(2)) {
   const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
   const browser = args.open ? openBrowser(url) : null;
   let closing: Promise<void> | null = null;
+  let stopWatchdog = () => {};
   const close = () => closing ?? (closing = new Promise<void>((resolve) => {
+    stopWatchdog();
     server.close(() => resolve()); server.closeAllConnections();
     if (browser && !browser.killed) browser.kill();
   }));
-  process.on('SIGINT', () => void close().then(() => process.exit(0)));
-  process.on('SIGTERM', () => void close().then(() => process.exit(0)));
+  const shutdown = createShutdownController({ close, exit: (code) => process.exit(code) });
+  const watchdog = createStudioWatchdog({ lease, onExpired: shutdown });
+  stopWatchdog = watchdog.stop;
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
   return { url, close };
 }
 

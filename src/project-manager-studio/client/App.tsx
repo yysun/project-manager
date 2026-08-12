@@ -1,12 +1,13 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
 // guards, URL-addressable views, coherent filters, shared sticky view headers,
-// and locally restored Summary/Filters disclosure preferences.
+// locally restored Summary/Filters preferences, and browser lease renewal.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
 import { Timeline } from './components/Timeline';
 import { createSelectionGuard, type SelectionRequest } from './selection-guard.mjs';
 import { readPanelPreferences, writePanelPreferences, type PanelPreferences } from './panel-preferences.mjs';
+import { startStudioHeartbeat } from './studio-heartbeat.mjs';
 
 type StudioView = 'kanban' | 'timeline';
 function viewFromUrl(): StudioView { return new URLSearchParams(window.location.search).get('view') === 'timeline' ? 'timeline' : 'kanban'; }
@@ -29,6 +30,8 @@ export function App() {
   const [panelPreferences, setPanelPreferences] = useState(() => readPanelPreferences(window));
   const [stickyTop, setStickyTop] = useState(0);
   const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
+
+  useEffect(() => startStudioHeartbeat(), []);
 
   const loadProject = useCallback(async (request: SelectionRequest) => {
     if (!request.key) return;

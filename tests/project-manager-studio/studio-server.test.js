@@ -1,16 +1,33 @@
-/* Built Studio server: token security, key-bound multi-project selection,
-   mutation isolation, catalog containment, CLI modes, and shutdown. */
+/* Built Studio server: token and heartbeat security, project selection,
+   mutation isolation, catalog containment, CLI modes, and clean shutdown. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const http = require('node:http');
+const net = require('node:net');
 const test = require('node:test');
 const { mutationRevision } = require('../../skills/project-manager/scripts/lib/mutations');
 const { makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, builtServerPath } = require('./_helpers');
 
 function placeProject(parent, name, id, records = null) { const source = makeProject(records, id); const target = path.join(parent, name); fs.renameSync(source, target); return target; }
 function runFailure(args, cwd) { return require('node:child_process').spawnSync(process.execPath, [builtServerPath, ...args], { cwd, encoding: 'utf8', timeout: 6000 }); }
+
+test('heartbeat requires session and Studio header, renews once, and leaves project state unchanged', async () => {
+  const root = makeProject(); const { createServer, ProjectCatalog } = require(builtServerPath); let renewals = 0;
+  const catalogInstance = new ProjectCatalog([{ id: 'STUDIO', name: 'Studio Delivery', root }], root);
+  const { app, sessionToken } = createServer({ catalog: catalogInstance, clientDistDir: path.resolve(__dirname, '../../skills/project-manager/studio/dist'), onHeartbeat: () => { renewals += 1; } });
+  const server = http.createServer(app); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); const origin = `http://127.0.0.1:${address.port}`; const before = mutationRevision(root);
+  try {
+    let response = await fetch(`${origin}/api/heartbeat`, { method: 'POST', headers: { 'X-Project-Manager-Studio': 'heartbeat' } }); assert.equal(response.status, 401); assert.equal(renewals, 0);
+    response = await fetch(`${origin}/?token=${sessionToken}`, { redirect: 'manual' }); const cookie = response.headers.get('set-cookie').split(';')[0];
+    response = await fetch(`${origin}/api/heartbeat`, { method: 'POST', headers: { Cookie: cookie } }); assert.equal(response.status, 403); assert.equal(renewals, 0);
+    response = await fetch(`${origin}/api/heartbeat`, { method: 'POST', headers: { Cookie: cookie, 'X-Project-Manager-Studio': 'wrong' } }); assert.equal(response.status, 403); assert.equal(renewals, 0);
+    response = await fetch(`${origin}/api/heartbeat`, { method: 'POST', headers: { Cookie: cookie, 'X-Project-Manager-Studio': 'heartbeat' } }); assert.equal(response.status, 204); assert.equal(await response.text(), ''); assert.equal(renewals, 1); assert.equal(mutationRevision(root), before);
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }); }
+});
 
 test('binds loopback, uses distinct 256-bit tokens, secures API, and serves client', async () => {
   const root = makeProject(); const first = await startStudio(root); const second = await startStudio(root);
@@ -223,6 +240,14 @@ test('packaged skill launches outside repository module ancestry and releases it
   const child = require('node:child_process').spawn(process.execPath, [isolatedServer, '--project', root, '--no-open', '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await new Promise((resolve, reject) => { let text = ''; const timer = setTimeout(() => reject(new Error('isolated launch timeout')), 6000); child.stdout.on('data', (chunk) => { text += chunk; const match = /http:\/\/127\.0\.0\.1:\d+\/\?token=[a-f0-9]+/.exec(text); if (match) { clearTimeout(timer); resolve(match[0]); } }); child.once('error', reject); });
   assert.match(String(url), /^http:\/\/127\.0\.0\.1:/); child.kill('SIGTERM'); await new Promise((resolve) => child.once('exit', resolve)); assert.ok(original);
+});
+
+for (const signal of ['SIGINT', 'SIGTERM']) test(`packaged Studio exits zero and releases its port on ${signal}`, async () => {
+  const root = makeProject(); const handle = await startStudio(root); const port = Number(new URL(handle.origin).port);
+  const exited = new Promise((resolve) => handle.child.once('exit', (code, receivedSignal) => resolve({ code, receivedSignal })));
+  handle.child.kill(signal); const result = await exited; assert.deepEqual(result, { code: 0, receivedSignal: null });
+  const probe = net.createServer(); await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(port, '127.0.0.1', resolve); });
+  await new Promise((resolve) => probe.close(resolve));
 });
 
 test('root replacement cannot redirect the running server into a sibling project', { skip: process.platform === 'win32' }, async () => {
