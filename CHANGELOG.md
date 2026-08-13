@@ -17,6 +17,8 @@ project written by an older release keeps loading unchanged; no release has requ
 - An unavailable executor root now produces a project-validation and Studio warning instead of blocking
   the project from opening. Executor-root structure still fails closed, and governed execution still
   requires the selected task root to be an existing real directory before issuing or advancing work.
+- Cancelled tasks now use a distinct grey treatment in Kanban and Timeline instead of sharing the
+  orange treatment reserved for deferred work and active warnings.
 
 ## [1.5.0] — 2026-08-12
 

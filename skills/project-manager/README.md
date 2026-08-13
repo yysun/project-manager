@@ -236,11 +236,12 @@ Schedule bars use color to summarize task state:
 | --- | --- |
 | Light blue | Planned or Ready |
 | Blue | Active |
-| Orange | Deferred or Cancelled, or a warning caused by a blocker or date conflict |
+| Orange | Deferred, or a warning caused by a blocker or date conflict |
+| Grey | Cancelled |
 | Green | Done |
 
-A warning overrides the normal lifecycle color. The task column also shows the status in text, so
-color is never the only indicator.
+A warning overrides the normal active lifecycle color; cancelled work remains grey. The task column
+also shows the status in text, so color is never the only indicator.
 
 You can move or resize eligible task schedules and save the draft. Conflicts produce warnings;
 Studio does not silently replan dependent work. Schedules are plans, not proof of progress or
