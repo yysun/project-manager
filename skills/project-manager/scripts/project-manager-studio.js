@@ -205,7 +205,7 @@ var require_contracts = __commonJS({
       if (scope === "project") {
         if (typeof declaredRoot !== "string" || declaredRoot === "" || path3.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
         if (executorRoot !== path3.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
-        if (!options.allowHistoricalRoot) {
+        if (!options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
           let cursor = contract.payload.project.root;
           for (const piece of declaredRoot.split(/[\\/]/)) {
             cursor = path3.join(cursor, piece);
@@ -216,7 +216,7 @@ var require_contracts = __commonJS({
       }
       if (provider === "rpd" && (typeof executorRoot !== "string" || !path3.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
       if (["agent", "external"].includes(provider) && executorRoot !== null && !path3.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
-      if (executorRoot !== null && !options.allowHistoricalRoot) {
+      if (executorRoot !== null && !options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
         if (!fs3.existsSync(executorRoot) || fs3.lstatSync(executorRoot).isSymbolicLink() || !fs3.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
       }
       contract.payload.task.sources.forEach((source, index) => {
@@ -794,23 +794,10 @@ var require_project_state = __commonJS({
       exactKeys(rawExecutor, ["provider", "root", "scope"], filePath, `task ${record.id} executor`, project);
       const executor = { provider: rawExecutor.provider, root: rawExecutor.root, scope: rawExecutor.scope ?? (rawExecutor.root === null ? null : "absolute") };
       assert(PROVIDERS.includes(executor.provider) && project.adapters.includes(executor.provider), "TASK_EXECUTOR", filePath, `Task ${record.id} provider is not enabled`, project);
-      const historicalDone = record.raw.status === "done";
       const nullRootAllowed = ["human", "agent", "external"].includes(executor.provider) && executor.root === null && executor.scope === null;
       assert(nullRootAllowed || ["absolute", "project"].includes(executor.scope), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor scope is invalid`, project);
       if (executor.scope === "absolute") assert(path3.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} absolute executor root is invalid`, project);
       if (executor.scope === "project") assert(nonEmpty(executor.root) && !path3.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root must be a safe relative path`, project);
-      const resolvedExecutorRoot = executor.root === null ? null : executor.scope === "project" ? path3.resolve(project.root, executor.root) : executor.root;
-      const physicalProjectRoot = path3.dirname(filePath);
-      const physicalExecutorRoot = executor.scope === "project" ? path3.resolve(physicalProjectRoot, executor.root) : resolvedExecutorRoot;
-      if (executor.scope === "project") {
-        let cursor = physicalProjectRoot;
-        for (const piece of executor.root.split(/[\\/]/)) {
-          cursor = path3.join(cursor, piece);
-          assert(fs3.existsSync(cursor) && !fs3.lstatSync(cursor).isSymbolicLink() && fs3.lstatSync(cursor).isDirectory(), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor prefixes must be real directories`, project);
-        }
-        assert(fs3.realpathSync(physicalExecutorRoot).startsWith(`${fs3.realpathSync(physicalProjectRoot)}${path3.sep}`), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root escapes the project`, project);
-      }
-      if (physicalExecutorRoot !== null && !historicalDone) assert(fs3.existsSync(physicalExecutorRoot) && !fs3.lstatSync(physicalExecutorRoot).isSymbolicLink() && fs3.lstatSync(physicalExecutorRoot).isDirectory(), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor root must be an existing real directory`, project);
       assert(executor.provider !== "rpd" || executor.root !== null, "TASK_EXECUTOR_ROOT", filePath, `RPD task ${record.id} requires a root`, project);
       assert(executor.provider !== "human" || executor.root === null, "TASK_EXECUTOR_ROOT", filePath, `Human task ${record.id} root must be null`, project);
       const providerRequirements = JSON.parse(JSON.stringify(DEFAULT_EVIDENCE[executor.provider]));
@@ -883,6 +870,42 @@ var require_project_state = __commonJS({
       }
       task.spec_sha256 = taskSpecHash(task);
       return task;
+    }
+    function executorRootWarning(task, physicalProjectRoot) {
+      if (task.status === "done" || task.executor.root === null) return null;
+      const executorRoot = task.executor.scope === "project" ? path3.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
+      let available = false;
+      try {
+        if (task.executor.scope === "project") {
+          let cursor = physicalProjectRoot;
+          available = true;
+          for (const piece of task.executor.root.split(/[\\/]/)) {
+            cursor = path3.join(cursor, piece);
+            if (!fs3.existsSync(cursor)) {
+              available = false;
+              break;
+            }
+            const stat = fs3.lstatSync(cursor);
+            if (stat.isSymbolicLink() || !stat.isDirectory()) {
+              available = false;
+              break;
+            }
+          }
+          if (available) available = fs3.realpathSync(executorRoot).startsWith(`${fs3.realpathSync(physicalProjectRoot)}${path3.sep}`);
+        } else if (fs3.existsSync(executorRoot)) {
+          const stat = fs3.lstatSync(executorRoot);
+          available = !stat.isSymbolicLink() && stat.isDirectory();
+        }
+      } catch {
+        available = false;
+      }
+      if (available) return null;
+      return {
+        code: "TASK_EXECUTOR_ROOT_UNAVAILABLE",
+        path: "TASKS.md",
+        task_id: task.id,
+        message: `Task ${task.id} executor root must be an existing real directory. The project remains available, but this task cannot execute until the root is fixed.`
+      };
     }
     function normalizeSimple(record, kind, project, filePath, schemaVersion = 1) {
       const raw = record.raw;
@@ -1172,8 +1195,9 @@ var require_project_state = __commonJS({
         const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
         const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
         const allowHistoricalRoot = task.status === "done";
+        const allowUnavailableExecutorRoot = state.warnings.some((warning) => warning.code === "TASK_EXECUTOR_ROOT_UNAVAILABLE" && warning.task_id === task.id);
         try {
-          validateTaskContract(contract, { allowHistoricalRoot });
+          validateTaskContract(contract, { allowHistoricalRoot, allowUnavailableExecutorRoot });
         } catch (error) {
           fail("semantic", "CONTRACT_INVALID", contractPath, error.message, state.project);
         }
@@ -1212,7 +1236,7 @@ var require_project_state = __commonJS({
           const parsed = parseAttempt(manifestDoc, manifestPath, "manifest");
           let result;
           try {
-            result = validateManifest(parsed.payload, contract, previous, { allowHistoricalRoot });
+            result = validateManifest(parsed.payload, contract, previous, { allowHistoricalRoot, allowUnavailableExecutorRoot });
           } catch (error) {
             fail("semantic", "MANIFEST_INVALID", manifestPath, error.message, state.project);
           }
@@ -1288,6 +1312,7 @@ var require_project_state = __commonJS({
       const project = parseProject(texts["PROJECT.md"], path3.join(root, "PROJECT.md"), logicalRoot);
       const taskRecords = parseCollection(texts["TASKS.md"], path3.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
       const tasks = taskRecords.map((record) => normalizeTask(record, project, path3.join(root, "TASKS.md"), taskRecords.schema_version));
+      const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
       function module3(name, kind, schemaVersions = [1]) {
         const text = texts[name];
         if (text === null) return { configured: false, items: [] };
@@ -1299,6 +1324,7 @@ var require_project_state = __commonJS({
         root,
         project,
         tasks,
+        warnings,
         tasks_schema_version: taskRecords.schema_version,
         milestones: module3("MILESTONES.md", "milestones"),
         risks: module3("RISKS.md", "risks", [1, 2]),
@@ -1519,7 +1545,9 @@ var require_project_state = __commonJS({
       };
     }
     function validateData(state) {
-      return { schema_version: 1, valid: true, warnings: state.status_stale ? [{ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" }] : [], modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs3.existsSync(path3.join(state.root, "handoffs")), reports: fs3.existsSync(path3.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
+      const warnings = [...state.warnings];
+      if (state.status_stale) warnings.push({ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" });
+      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs3.existsSync(path3.join(state.root, "handoffs")), reports: fs3.existsSync(path3.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
     }
     function reportData(state) {
       const status = statusData(state);
@@ -1647,7 +1675,10 @@ var require_project_state = __commonJS({
           decisions: status.decisions,
           owner_gaps: tasks.filter((task) => task.owner === null).length
         },
-        warnings: state.status_stale ? [{ code: "STATUS_STALE", message: "STATUS.md is stale; the board is showing validated authoritative state." }] : [],
+        warnings: [
+          ...state.warnings.map(({ code, message }) => ({ code, message })),
+          ...state.status_stale ? [{ code: "STATUS_STALE", message: "STATUS.md is stale; the board is showing validated authoritative state." }] : []
+        ],
         milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, forecast_updated: item.forecast_updated, critical: item.critical })),
         options: {
           owners: ownerOptions,

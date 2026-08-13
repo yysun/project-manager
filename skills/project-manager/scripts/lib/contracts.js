@@ -185,7 +185,7 @@ function validateTaskContract(contract, options = {}) {
   if (scope === 'project') {
     if (typeof declaredRoot !== 'string' || declaredRoot === '' || path.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes('..')) throw new Error('Project executor root must be a safe relative path');
     if (executorRoot !== path.resolve(contract.payload.project.root, declaredRoot)) throw new Error('Project executor root binding is invalid');
-    if (!options.allowHistoricalRoot) {
+    if (!options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
       let cursor = contract.payload.project.root;
       for (const piece of declaredRoot.split(/[\\/]/)) {
         cursor = path.join(cursor, piece);
@@ -196,7 +196,7 @@ function validateTaskContract(contract, options = {}) {
   }
   if (provider === 'rpd' && (typeof executorRoot !== 'string' || !path.isAbsolute(executorRoot))) throw new Error('RPD executor root must be absolute');
   if (['agent', 'external'].includes(provider) && executorRoot !== null && !path.isAbsolute(executorRoot)) throw new Error('Agent/external executor root must be null or absolute');
-  if (executorRoot !== null && !options.allowHistoricalRoot) {
+  if (executorRoot !== null && !options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
     if (!fs.existsSync(executorRoot) || fs.lstatSync(executorRoot).isSymbolicLink() || !fs.lstatSync(executorRoot).isDirectory()) throw new Error('Executor root must be an existing real directory');
   }
   contract.payload.task.sources.forEach((source, index) => {

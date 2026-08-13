@@ -5,7 +5,7 @@ description: Plan, coordinate, execute, track, review, and report folder-native 
 
 # Project Manager
 
-**Version:** `1.5.0`
+**Version:** `1.5.1`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 

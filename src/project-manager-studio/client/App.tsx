@@ -150,7 +150,7 @@ export function App() {
         <button className="refresh-button" onClick={refreshProject} disabled={loading || mutationPending}><span aria-hidden="true">↻</span> {loading ? 'Refreshing…' : 'Refresh'}</button>
       </div>
     </header>
-    {data.warnings.map((warning) => <div className="warning-banner" role="status" key={warning.code}>{warning.message}</div>)}
+    {data.warnings.map((warning) => <div className="warning-banner" role="status" key={`${warning.code}:${warning.message}`}>{warning.message}</div>)}
     {error && <div className="error-banner" role="alert">Refresh failed: {error}</div>}
     <section className="summary-panel">
       <button type="button" className="panel-toggle" aria-expanded={!panelPreferences.summaryCollapsed} aria-controls="summary-grid" onClick={() => togglePanel('summaryCollapsed')}>

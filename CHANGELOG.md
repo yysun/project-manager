@@ -10,6 +10,14 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [1.5.1] — 2026-08-13
+
+### Fixed
+
+- An unavailable executor root now produces a project-validation and Studio warning instead of blocking
+  the project from opening. Executor-root structure still fails closed, and governed execution still
+  requires the selected task root to be an existing real directory before issuing or advancing work.
+
 ## [1.5.0] — 2026-08-12
 
 ### Added
@@ -166,6 +174,8 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.5.1]: https://github.com/yysun/project-manager/releases/tag/v1.5.1
+[1.5.0]: https://github.com/yysun/project-manager/releases/tag/v1.5.0
 [1.4.0]: https://github.com/yysun/project-manager/releases/tag/v1.4.0
 [1.3.0]: https://github.com/yysun/project-manager/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yysun/project-manager/releases/tag/v1.2.0

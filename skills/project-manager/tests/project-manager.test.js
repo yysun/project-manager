@@ -92,6 +92,35 @@ test('minimal generic project validates without Git, milestones, traceability, o
   assert.equal(reportData(state).unknowns.some((item) => item.field === 'status.coverage'), true);
 });
 
+test('unavailable executor roots warn during project reads and block only when execution starts', () => {
+  const base = temp();
+  const missingRoot = path.join(base, 'not-created');
+  const root = createProject(base, 'EXECUTOR-WARNING', [
+    task('TASK-RUN', 'Run', 'Run the delegated work.', ['The delegated work is verified.'], {
+      status: 'ready', executor: { provider: 'agent', root: missingRoot, scope: 'absolute' },
+    }),
+  ], { adapters: ['human', 'agent'] });
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+
+  const state = loadProject(root);
+  assert.deepEqual(state.warnings, [{
+    code: 'TASK_EXECUTOR_ROOT_UNAVAILABLE', path: 'TASKS.md', task_id: 'TASK-RUN',
+    message: 'Task TASK-RUN executor root must be an existing real directory. The project remains available, but this task cannot execute until the root is fixed.',
+  }]);
+  assert.equal(validateData(state).valid, true);
+  assert.equal(kanbanData(state).warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
+  assert.throws(
+    () => startAgentTask(root, 'TASK-RUN', { created_at: '2026-08-08T00:01:00Z' }),
+    /Executor root must be an existing real directory/,
+  );
+
+  fs.mkdirSync(missingRoot);
+  assert.deepEqual(loadProject(root).warnings, []);
+  startAgentTask(root, 'TASK-RUN', { created_at: '2026-08-08T00:02:00Z' });
+  fs.rmdirSync(missingRoot);
+  assert.equal(loadProject(root).warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
+});
+
 test('profile policy keeps governed execution universal while simplifying ordinary human completion', () => {
   assert.deepEqual(profilePolicy('minimal'), { human_completion: 'lightweight', delegated_execution: 'governed' });
   assert.deepEqual(profilePolicy('standard'), { human_completion: 'lightweight', delegated_execution: 'governed' });
@@ -460,7 +489,7 @@ test('change ordering treats equivalent timestamp precisions as the same instant
   assert.throws(() => loadProject(root), /ambiguous same-timestamp changes/);
 });
 
-test('provider root rules apply uniformly to human, RPD, agent, and external tasks', () => {
+test('provider root structure fails on read while physical availability warns until execution', () => {
   const base = temp(); const executionRoot = temp(); const projectRoot = createProject(base, 'PROVIDERS', [
     task('TASK-HUMAN', 'Human', 'Human outcome.', ['Human accepted.']),
     task('TASK-RPD', 'RPD', 'RPD outcome.', ['RPD accepted.'], { executor: { provider: 'rpd', root: executionRoot } }),
@@ -472,12 +501,12 @@ test('provider root rules apply uniformly to human, RPD, agent, and external tas
   fs.writeFileSync(path.join(projectRoot, 'TASKS.md'), collection(invalid)); assert.throws(() => loadProject(projectRoot), /Human task/);
   const rootFile = path.join(base, 'executor.txt'); fs.writeFileSync(rootFile, 'not a directory');
   fs.writeFileSync(path.join(projectRoot, 'TASKS.md'), collection([task('TASK-RPD', 'RPD', 'RPD outcome.', ['RPD accepted.'], { executor: { provider: 'rpd', root: rootFile } })]));
-  assert.throws(() => loadProject(projectRoot), /real directory/);
+  assert.equal(loadProject(projectRoot).warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
   assert.throws(() => buildTaskContract({ id: 'PROVIDERS', root: fs.realpathSync(projectRoot) }, normalizedTask('rpd', rootFile), [], '2026-08-08T00:00:00Z'), /real directory/);
   if (process.platform !== 'win32') {
     const linkedRoot = path.join(base, 'linked-executor'); fs.symlinkSync(executionRoot, linkedRoot);
     fs.writeFileSync(path.join(projectRoot, 'TASKS.md'), collection([task('TASK-AGENT', 'Agent', 'Agent outcome.', ['Agent accepted.'], { executor: { provider: 'agent', root: linkedRoot } })]));
-    assert.throws(() => loadProject(projectRoot), /real directory/);
+    assert.equal(loadProject(projectRoot).warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
   }
 });
 
@@ -491,7 +520,7 @@ test('project-scoped executor roots survive moving an inactive project and resol
   if (process.platform !== 'win32') {
     const outside = temp(); fs.mkdirSync(path.join(outside, 'exec')); fs.symlinkSync(outside, path.join(moved, 'linked'));
     fs.writeFileSync(path.join(moved, 'TASKS.md'), collection([task('TASK-RPD', 'RPD', 'RPD outcome.', ['RPD accepted.'], { executor: { provider: 'rpd', root: 'linked/exec', scope: 'project' } })]));
-    assert.throws(() => loadProject(moved), /prefixes must be real directories/);
+    assert.equal(loadProject(moved).warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
     const escaped = normalizedTask('rpd', 'linked/exec'); escaped.executor.scope = 'project'; escaped.spec_sha256 = taskSpecHash(escaped);
     assert.throws(() => buildTaskContract(state.project, escaped, [], '2026-08-08T00:00:00Z'), /prefixes must be existing real directories/);
   }

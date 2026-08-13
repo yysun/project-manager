@@ -9,7 +9,8 @@ const http = require('node:http');
 const net = require('node:net');
 const test = require('node:test');
 const { mutationRevision } = require('../../skills/project-manager/scripts/lib/mutations');
-const { makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, builtServerPath } = require('./_helpers');
+const { regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
+const { makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection, builtServerPath } = require('./_helpers');
 
 function placeProject(parent, name, id, records = null) { const source = makeProject(records, id); const target = path.join(parent, name); fs.renameSync(source, target); return target; }
 function runFailure(args, cwd) { return require('node:child_process').spawnSync(process.execPath, [builtServerPath, ...args], { cwd, encoding: 'utf8', timeout: 6000 }); }
@@ -39,6 +40,32 @@ test('binds loopback, uses distinct 256-bit tokens, secures API, and serves clie
     const project = await fetch(`${first.origin}/api/project?project=${options.initial_project_key}`, { headers: { Cookie: cookie } }); assert.equal(project.status, 200); assert.equal((await project.json()).data.project.id, 'STUDIO');
     const html = await fetch(first.origin); assert.equal(html.status, 200); assert.match(await html.text(), /Project Manager Studio/);
   } finally { await stopStudio(first); await stopStudio(second); }
+});
+
+test('Studio opens projects with unavailable executor roots and returns an execution warning', async () => {
+  const root = makeProject();
+  const missingRoot = path.join(root, 'missing-executor');
+  fs.writeFileSync(path.join(root, 'PROJECT.md'), fs.readFileSync(path.join(root, 'PROJECT.md'), 'utf8').replace('adapters: ["human"]', 'adapters: ["human","agent"]'));
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([{
+    id: 'TASK-RUN', title: 'Run delegated work', data: {
+      outcome: 'Delegated work is complete.', acceptance: ['The result is verified.'], status: 'ready',
+      executor: { provider: 'agent', root: missingRoot, scope: 'absolute' },
+    },
+  }]));
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  const handle = await startStudio(root);
+  try {
+    const { cookie } = await handshake(handle);
+    const key = (await catalog(handle, cookie)).initial_project_key;
+    const response = await fetch(`${handle.origin}/api/project?project=${key}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200);
+    const data = (await response.json()).data;
+    assert.equal(data.project.id, 'STUDIO');
+    assert.deepEqual(data.warnings, [{
+      code: 'TASK_EXECUTOR_ROOT_UNAVAILABLE',
+      message: 'Task TASK-RUN executor root must be an existing real directory. The project remains available, but this task cannot execute until the root is fixed.',
+    }]);
+  } finally { await stopStudio(handle); }
 });
 
 test('check is read-only, save updates state, conflict does not poison queue, and forbidden routes stay absent', async () => {
