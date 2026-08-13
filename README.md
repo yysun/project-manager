@@ -34,7 +34,8 @@ project reality → reasoning → coordinated change
 - Completion backed by evidence, with missing information called out instead of invented.
 - Status reports shaped for operators, project managers, executives, or boards without changing the
   underlying facts.
-- One coherent project record even when work is split across people, agents, and external executors.
+- One coherent project record across people, delegated agents, external executors, and optional
+  software workflows such as [RPD](https://github.com/yysun/rpd).
 
 Project truth stays in a durable, versionable Markdown folder and is validated before changes are
 saved. Kanban and Timeline visualize that state; they do not become a second source of truth.

@@ -162,10 +162,10 @@ context. A worker never edits the project's `PROJECT.md`, `TASKS.md`, `STATUS.md
 `handoffs/` state.
 
 Human work stays human-owned. If a human task explicitly represents an approval, it is a real
-dependency gate: downstream agent and RPD work stays planned until specific approval evidence is
+dependency gate: downstream agent and [RPD](https://github.com/yysun/rpd) work stays planned until specific approval evidence is
 recorded. Project Manager then revalidates those dependents and moves eligible work to ready before
 starting its execution route. Other human tasks may require authored work or custom evidence and are
-not reduced to approval-only steps. RPD tasks continue through the dedicated RPD execution route below.
+not reduced to approval-only steps. [RPD](https://github.com/yysun/rpd) tasks continue through the dedicated [RPD](https://github.com/yysun/rpd) execution route below.
 
 Under the hood, Project Manager uses the installed commands rather than generating `.pm-agent-exec.js`
 or another helper inside your project or executor folder:
@@ -179,21 +179,21 @@ The first command returns the immutable contract path. The second reads exactly 
 payload object from standard input and applies only validated lifecycle progress. Blocked attempts remain
 visible and immutable; an explicit retry gets a new contract after its exact blocker is cleared.
 
-## Execute RPD software work with one line
+## Execute [RPD](https://github.com/yysun/rpd) software work with one line
 
-For a software project, ask Project Manager to assign its coding tasks to the RPD executor and bind
+For a software project, ask Project Manager to assign its coding tasks to the [RPD](https://github.com/yysun/rpd) executor and bind
 them to the relevant Git repository during planning. When the project is ready, use ordinary English
 and give its project name:
 
-> Execute all RPD work for the Website Launch project.
+> Execute all [RPD](https://github.com/yysun/rpd) work for the Website Launch project.
 
 Project Manager validates the project, starts only tasks whose dependencies are complete, and runs
 independent ready tasks in parallel waves. Each task gets its own subagent, Git branch, and worktree;
-RPD handles implementation, testing, correction, and independent review. Project Manager then
+[RPD](https://github.com/yysun/rpd) handles implementation, testing, correction, and independent review. Project Manager then
 integrates the branches in dependency order, tests the combined result, and records the evidence that
 supports each task's acceptance criteria.
 
-This command does not mean “run the entire backlog at once.” It leaves non-RPD tasks with their
+This command does not mean “run the entire backlog at once.” It leaves non-[RPD](https://github.com/yysun/rpd) tasks with their
 assigned executors, preserves blocked attempts, and continues only with unrelated ready work. It
 creates local commits and an integration branch, but does not push, open a pull request, or weaken a
 task to make it pass. The final report identifies the integration branch and retained coordinator
@@ -325,7 +325,7 @@ Give it the absolute path to the folder containing `PROJECT.md`, `TASKS.md`, and
 Ask what fact prevents progress. The cause may be an unfinished dependency, explicit blocker, missing
 evidence, deferred disposition, or completed project boundary.
 
-### RPD execution starts no tasks
+### [RPD](https://github.com/yysun/rpd) execution starts no tasks
 
 Eligible work must be active, unfinished, assigned to the `rpd` executor, free of blockers, and ready
 under the project's dependency rules. Its executor root must also resolve to an existing Git

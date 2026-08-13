@@ -145,10 +145,10 @@ Project Manager 保持协调者角色。它会验证项目，为每个依赖已�
 工作 Agent 分离。工作 Agent 绝不修改项目的 `PROJECT.md`、`TASKS.md`、`STATUS.md`、`CHANGES.md`
 或 `handoffs/` 状态。
 
-人工任务仍归人员所有。如果一项人工任务的明确结果是审批，它就是真正的依赖门：下游 Agent 和 RPD 工作会保持在
+人工任务仍归人员所有。如果一项人工任务的明确结果是审批，它就是真正的依赖门：下游 Agent 和 [RPD](https://github.com/yysun/rpd) 工作会保持在
 `planned`，直到记录具体审批证据。之后 Project Manager 会重新验证依赖与阻塞，并把符合条件的工作推进到 `ready`，
-再启动对应执行路由。其他人工任务可能需要人工创作的产出或自定义证据，不会被简化为“只需审批”。RPD 任务继续使用
-下方的专用 RPD 执行路由。
+再启动对应执行路由。其他人工任务可能需要人工创作的产出或自定义证据，不会被简化为“只需审批”。[RPD](https://github.com/yysun/rpd) 任务继续使用
+下方的专用 [RPD](https://github.com/yysun/rpd) 执行路由。
 
 在底层，Project Manager 使用已安装的内置命令，而不会在项目或执行器文件夹中生成 `.pm-agent-exec.js`
 或其他辅助程序：
@@ -161,19 +161,19 @@ node <skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task
 第一条命令返回不可变合同路径。第二条命令从标准输入读取且仅读取一个 Evidence Manifest 载荷对象，并只应用
 验证通过的生命周期进展。被阻塞的尝试保持可见且不可变；在其精确阻塞已清除后，显式重试会获得新合同。
 
-## 用一句话执行 RPD 软件工作
+## 用一句话执行 [RPD](https://github.com/yysun/rpd) 软件工作
 
-对于软件项目，在规划时告诉 Project Manager 将编码任务交给 RPD 执行器，并绑定到对应的 Git
+对于软件项目，在规划时告诉 Project Manager 将编码任务交给 [RPD](https://github.com/yysun/rpd) 执行器，并绑定到对应的 Git
 仓库。项目可以开始执行后，直接用中文说出项目名称：
 
-> 执行“网站上线”项目中的所有 RPD 工作。
+> 执行“网站上线”项目中的所有 [RPD](https://github.com/yysun/rpd) 工作。
 
 Project Manager 会先验证项目，只启动依赖已经完成的任务，并把互不依赖的就绪任务按批次并行
-执行。每个任务使用独立的子 Agent、Git 分支和 worktree；RPD 负责实现、测试、修正和独立评审。
+执行。每个任务使用独立的子 Agent、Git 分支和 worktree；[RPD](https://github.com/yysun/rpd) 负责实现、测试、修正和独立评审。
 随后，Project Manager 按依赖顺序集成各分支，测试组合后的结果，并记录能够证明每项验收条件
 的证据。
 
-这条命令不表示“同时运行整个待办列表”。非 RPD 任务仍由原执行器负责；被阻塞的执行尝试会被
+这条命令不表示“同时运行整个待办列表”。非 [RPD](https://github.com/yysun/rpd) 任务仍由原执行器负责；被阻塞的执行尝试会被
 保留；只有无关且已经就绪的工作会继续。该流程会创建本地提交和集成分支，但不会推送、创建
 Pull Request，也不会为了通过而削弱任务要求。最终报告会指出集成分支和保留的协调 worktree，
 供你检查。
@@ -298,7 +298,7 @@ Project Manager 会拒绝这种矛盾，而不是让声明变成空话。
 询问是什么事实阻碍了进展。原因可能是未完成依赖、明确阻塞、缺少证据、延期处置或已完成
 项目的边界限制。
 
-### RPD 执行没有启动任务
+### [RPD](https://github.com/yysun/rpd) 执行没有启动任务
 
 符合条件的工作必须处于启用状态、尚未完成、已分配给 `rpd` 执行器、没有阻塞，并且根据项目
 依赖规则已经就绪。执行器根目录还必须指向现有 Git 仓库。Project Manager 会报告每个任务被
