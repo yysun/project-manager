@@ -7,7 +7,7 @@ informed as you would a human colleague: talk about the outcome, what happened, 
 at risk, and what decision must be made. It handles the project-management mechanics and keeps the
 project aligned while you lead the outcome.
 
-![Four-panel overview of working with Project Manager as an AI project manager](assets/project-manager-ai-employee-en.jpg)
+![Four-panel overview of working with Project Manager as an AI project manager](assets/project-manager-ai-employee-en.png)
 
 ## What you get
 
@@ -140,6 +140,44 @@ Select the existing project in your AI agent app, then continue with the real si
 
 Within the conversation, you can refer to “this project.” Select another project when switching or
 when the reference is ambiguous.
+
+## Execute delegated agent work
+
+When project tasks are assigned to the `agent` executor, ask Project Manager to execute the project
+normally:
+
+> Execute the ready agent work for this project.
+
+Project Manager stays in the coordinator role. It validates the project, starts one bounded subagent
+for each dependency-ready task, and gives that worker only its immutable Task Contract and task-local
+context. Independent tasks can run together when capacity exists and their executor roots and write
+targets are proven separate. Shared roots, overlapping targets, uncertain writes, and dependency-linked
+tasks run serially. A task with no executor root is limited to filesystem-read-only work or one explicit
+non-filesystem target; local or uncertain mutation needs a safe declared root first.
+
+Each worker returns one compact terminal Evidence Manifest JSON object, not a transcript. Project
+Manager validates and ingests that payload before it treats the work as progress or unlocks the next
+dependency wave. It keeps the main coordinator's capacity slot and project context separate from worker
+context. A worker never edits the project's `PROJECT.md`, `TASKS.md`, `STATUS.md`, `CHANGES.md`, or
+`handoffs/` state.
+
+Human work stays human-owned. If a human task explicitly represents an approval, it is a real
+dependency gate: downstream agent and RPD work stays planned until specific approval evidence is
+recorded. Project Manager then revalidates those dependents and moves eligible work to ready before
+starting its execution route. Other human tasks may require authored work or custom evidence and are
+not reduced to approval-only steps. RPD tasks continue through the dedicated RPD execution route below.
+
+Under the hood, Project Manager uses the installed commands rather than generating `.pm-agent-exec.js`
+or another helper inside your project or executor folder:
+
+```bash
+node <skill-dir>/scripts/project-start-agent.js <project-folder> <task-id> --json
+node <skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task-id> --json
+```
+
+The first command returns the immutable contract path. The second reads exactly one Evidence Manifest
+payload object from standard input and applies only validated lifecycle progress. Blocked attempts remain
+visible and immutable; an explicit retry gets a new contract after its exact blocker is cleared.
 
 ## Execute RPD software work with one line
 

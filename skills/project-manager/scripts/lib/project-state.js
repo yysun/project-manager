@@ -4,8 +4,8 @@
  * Invariants: read-only operation, selected-root isolation, exact schema versions,
  * and schedule metadata that never changes execution-contract identity.
  * Recent changes: add PROJECT v2 declare-only PMI tailoring, RISKS v2 response
- * strategies, optional PMI modules, and exact project-name resolution inside a
- * validated direct-child projects catalog.
+ * strategies, optional PMI modules, exact project-name resolution, and export
+ * the canonical stored-attempt parser for governed execution adapters.
  */
 'use strict';
 
@@ -1122,5 +1122,5 @@ module.exports = {
   ProjectError, loadProject, loadProjectIndex, loadProjectsRoot, resolveProjectInRoot, validateData, statusData, nextData,
   blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility,
   dispositionEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
-  successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,
+  parseAttempt, successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,
 };

@@ -10,6 +10,30 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [1.5.0] — 2026-08-12
+
+### Added
+
+- Built-in `project-start-agent.js` and `project-ingest-agent-manifest.js` commands for issuing immutable
+  agent Task Contracts and ingesting exact Evidence Manifest payloads without generated project-local
+  execution helpers.
+- Governed agent orchestration: the main agent coordinates dependency-ready, capacity-bounded waves and
+  delegates one clean/minimal-context bounded worker per task while retaining project-state mutation and
+  evidence-ingestion ownership.
+
+### Changed
+
+- Agent workers now use an exact terminal-manifest return protocol with worker-only limits of 65,536
+  serialized UTF-8 bytes and 8,192 UTF-8 bytes per JSON string. Direct CLI ingestion retains the
+  existing Evidence Manifest schema boundary.
+- Execution preflight now makes capacity and mutation isolation explicit: shared or uncertain roots and
+  write surfaces serialize, null-root work is limited to read-only or explicit non-filesystem targets,
+  and post-issuance spawn failures preserve a visible governed attempt.
+- Human approval tasks act as explicit dependency gates without redefining all human work as
+  approval-only. Human and RPD execution routes remain unchanged.
+- Agent start, blocked retry, and verified completion now move the latest applicable `CHANGES.md`
+  re-verification binding through `pending`, `in_progress`, and `complete` in the same atomic mutation.
+
 ## [1.4.0] — 2026-08-12
 
 ### Added

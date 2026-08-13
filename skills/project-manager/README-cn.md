@@ -6,7 +6,7 @@ Project Manager 是一名通过对话与你协作的 AI 项目经理。像与真
 项目，并持续告诉它目标、现实变化、风险和必须做出的决策。你主导业务结果，它负责
 项目管理机制并让项目始终与现实保持一致。
 
-![与 Project Manager 这名 AI 项目经理协作的四格流程图](assets/project-manager-ai-employee-zh-cn.jpg)
+![与 Project Manager 这名 AI 项目经理协作的四格流程图](assets/project-manager-ai-employee-zh-cn.png)
 
 ## 你会得到什么
 
@@ -127,6 +127,39 @@ Project Manager 应该用事实、未知、判断和建议回答，而不是只�
 > 告诉我这会改变什么。
 
 在当前对话中，可以直接说“这个项目”。切换项目或指代不明确时，请选择另一个项目。
+
+## 执行委派给 Agent 的工作
+
+当项目任务分配给 `agent` 执行器时，直接要求 Project Manager 执行项目：
+
+> 执行这个项目中已就绪的 Agent 工作。
+
+Project Manager 保持协调者角色。它会验证项目，为每个依赖已就绪的任务启动一个有边界的
+子 Agent，并只交给它不可变 Task Contract 和任务局部上下文。只有当产能允许，且执行器根目录与
+写入目标被证明互不重叠时，独立任务才会并行。共享根目录、重叠目标、不确定写入和存在依赖的任务都会串行。
+没有执行器根目录的任务只能读取本地文件系统，或写入一个明确的非文件系统目标；本地或不确定的修改必须先指定
+安全的根目录。
+
+每个工作 Agent 只返回一个简洁的终态 Evidence Manifest JSON 对象，而不是对话记录。Project Manager 会先
+验证并导入该对象，然后才把工作视为进展并解锁下一个依赖批次。主 Agent 的协调产能和项目上下文与
+工作 Agent 分离。工作 Agent 绝不修改项目的 `PROJECT.md`、`TASKS.md`、`STATUS.md`、`CHANGES.md`
+或 `handoffs/` 状态。
+
+人工任务仍归人员所有。如果一项人工任务的明确结果是审批，它就是真正的依赖门：下游 Agent 和 RPD 工作会保持在
+`planned`，直到记录具体审批证据。之后 Project Manager 会重新验证依赖与阻塞，并把符合条件的工作推进到 `ready`，
+再启动对应执行路由。其他人工任务可能需要人工创作的产出或自定义证据，不会被简化为“只需审批”。RPD 任务继续使用
+下方的专用 RPD 执行路由。
+
+在底层，Project Manager 使用已安装的内置命令，而不会在项目或执行器文件夹中生成 `.pm-agent-exec.js`
+或其他辅助程序：
+
+```bash
+node <skill-dir>/scripts/project-start-agent.js <project-folder> <task-id> --json
+node <skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task-id> --json
+```
+
+第一条命令返回不可变合同路径。第二条命令从标准输入读取且仅读取一个 Evidence Manifest 载荷对象，并只应用
+验证通过的生命周期进展。被阻塞的尝试保持可见且不可变；在其精确阻塞已清除后，显式重试会获得新合同。
 
 ## 用一句话执行 RPD 软件工作
 

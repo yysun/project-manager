@@ -1701,6 +1701,7 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
       regenerateStatus,
       parseFrontmatter: parseFrontmatter2,
       parseCollection,
+      parseAttempt,
       successCounts,
       profilePolicy,
       taskDisposition,

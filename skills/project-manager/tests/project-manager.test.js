@@ -2,8 +2,8 @@
  * Responsibility: executable contract tests for folder isolation, deterministic
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
  * Invariants: temporary fixtures only; no repository mutation. Recent changes:
- * cover TASKS v3 dispositions, rigor policies, lightweight human completion,
- * Studio projection, and strict projects-root discovery.
+ * cover TASKS v3 dispositions, rigor policies, human and agent governed
+ * execution, Studio projection, and strict projects-root discovery.
  */
 'use strict';
 
@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, loadProjectsRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts,
+  loadProject, loadProjectIndex, loadProjectsRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts, parseAttempt,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
@@ -22,6 +22,8 @@ const {
 } = require('../scripts/lib/contracts');
 const { atomicProjectMutation, createProjectWork, cleanupProjectWork } = require('../scripts/lib/mutations');
 const { completeHumanTask, loadStableProject } = require('../scripts/lib/human-completion');
+const { startAgentTask, ingestAgentManifest } = require('../scripts/lib/agent-execution');
+const { parseTaskRecords, renderRecord } = require('../scripts/lib/task-editor');
 
 const SCRIPT_ROOT = path.join(__dirname, '..', 'scripts');
 
@@ -74,8 +76,8 @@ function treeHash(root) {
   walk(root); return sha256(rows);
 }
 
-function run(script, args) {
-  return spawnSync(process.execPath, [path.join(SCRIPT_ROOT, script), ...args], { encoding: 'utf8' });
+function run(script, args, input = undefined) {
+  return spawnSync(process.execPath, [path.join(SCRIPT_ROOT, script), ...args], { encoding: 'utf8', input });
 }
 
 test('minimal generic project validates without Git, milestones, traceability, or RPD', () => {
@@ -610,6 +612,329 @@ test('all provider defaults use valid deterministic staged any-of requirements',
     const records = provider === 'agent' ? [evidence('artifact'), evidence('review')] : [evidence('approval')];
     assert.doesNotThrow(() => validateManifest(manifest(contract, 'verified', 1, records, [records[0]]), contract));
   }
+});
+
+function createAgentProject(id = 'AGENT-EXECUTION', extra = {}) {
+  const record = task('TASK-WORK', 'Work', 'Produce the outcome.', ['Outcome is accepted.'], {
+    status: 'ready', success_criteria: ['SC-OUTCOME'], executor: { provider: 'agent', root: null },
+    ...extra,
+  });
+  const root = createProject(temp(), id, [record], { adapters: ['human', 'agent'] });
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  return root;
+}
+
+function storedContract(contractPath) {
+  const parsed = parseAttempt(fs.readFileSync(contractPath, 'utf8'), contractPath, 'contract');
+  return { payload: parsed.payload, payload_sha256: parsed.envelope.payload_sha256, contract_id: parsed.envelope.contract_id };
+}
+
+function rewriteProjectStatus(root, status) {
+  const target = path.join(root, 'PROJECT.md');
+  fs.writeFileSync(target, fs.readFileSync(target, 'utf8').replace(/^status: .+$/m, `status: ${JSON.stringify(status)}`));
+}
+
+function rewriteTaskRaw(root, taskId, mutate, schemaVersion = null) {
+  const target = path.join(root, 'TASKS.md'); const text = fs.readFileSync(target, 'utf8');
+  const record = parseTaskRecords(text).find((item) => item.id === taskId);
+  assert.ok(record, `fixture task ${taskId} exists`); mutate(record.raw);
+  let output = `${text.slice(0, record.start)}${renderRecord(record)}${text.slice(record.end)}`;
+  if (schemaVersion !== null) output = output.replace(/^schema_version: \d+$/m, `schema_version: ${schemaVersion}`);
+  fs.writeFileSync(target, output);
+}
+
+function assertNoMutation(root, operation, expected) {
+  const before = treeHash(root);
+  assert.throws(operation, expected);
+  assert.equal(treeHash(root), before);
+}
+
+function activeAgentFixture(id, extra = {}) {
+  const root = createAgentProject(id, extra);
+  const started = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' });
+  return { root, started, contract: storedContract(started.data.contract_path) };
+}
+
+function blockedAgentFixture(id, blocker = 'Worker unavailable', { change = false } = {}) {
+  const root = createAgentProject(id);
+  if (change) {
+    fs.writeFileSync(path.join(root, 'CHANGES.md'), collection([{ id: 'CHG-REVERIFY', title: 'Reverify', data: {
+      date: '2026-08-08', observed_at: '2026-08-08T00:00:00Z', sources: [], affected_tasks: ['TASK-WORK'],
+      affected_milestones: [], reverify_tasks: ['TASK-WORK'], reverification: { 'TASK-WORK': { status: 'pending', contract_id: null, manifest_id: null } }, risk_summary: 'Changed input.',
+    } }]));
+    regenerateStatus(root, '2026-08-08T00:00:00.500Z');
+  }
+  const started = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' });
+  const contract = storedContract(started.data.contract_path);
+  ingestAgentManifest(root, 'TASK-WORK', manifest(contract, 'blocked', 1, [], [], { blocker, observed_at: '2026-08-08T00:00:02Z' }));
+  return { root, started, contract };
+}
+
+function activeHumanFixture(id) {
+  const root = createProject(temp(), id, [], { adapters: ['human', 'agent'] });
+  const model = normalizedTask('human'); model.success_criteria = ['SC-OUTCOME']; model.spec_sha256 = taskSpecHash(model);
+  const contract = buildTaskContract({ id, root: fs.realpathSync(root) }, model, [], '2026-08-08T00:00:01Z');
+  const attemptRoot = path.join(root, 'handoffs', model.id, contract.contract_id); fs.mkdirSync(attemptRoot, { recursive: true });
+  fs.writeFileSync(path.join(attemptRoot, 'TASK-CONTRACT.md'), formatTaskContract(contract));
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([{ id: model.id, title: model.title, data: {
+    outcome: model.outcome, acceptance: model.acceptance, constraints: model.constraints, success_criteria: model.success_criteria,
+    executor: model.executor, evidence_requirements: model.evidence_requirements, status: 'in_progress', active_contract: contract.contract_id,
+  } }]));
+  regenerateStatus(root, '2026-08-08T00:00:01Z');
+  return { root, contract };
+}
+
+function progressedAgentFixture(id, target) {
+  const item = activeAgentFixture(id); const artifact = evidence('artifact');
+  if (target === 'implemented') {
+    ingestAgentManifest(item.root, 'TASK-WORK', manifest(item.contract, 'implemented', 1, [artifact], [], { observed_at: '2026-08-08T00:00:02Z' }));
+  } else if (target === 'verification') {
+    ingestAgentManifest(item.root, 'TASK-WORK', manifest(item.contract, 'implemented', 1, [artifact], [], { observed_at: '2026-08-08T00:00:02Z' }));
+    const note = evidence('note');
+    ingestAgentManifest(item.root, 'TASK-WORK', manifest(item.contract, 'verification', 2, [artifact, note], [], { observed_at: '2026-08-08T00:00:03Z' }));
+  } else {
+    const review = evidence('review');
+    if (target === 'verified') {
+      rewriteTaskRaw(item.root, 'TASK-WORK', (raw) => { raw.blocked_by = ['Release gate']; }); regenerateStatus(item.root, '2026-08-08T00:00:01.500Z');
+    }
+    ingestAgentManifest(item.root, 'TASK-WORK', manifest(item.contract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:02Z' }));
+  }
+  assert.equal(loadProject(item.root).tasks[0].status, target);
+  return item;
+}
+
+test('agent execution starts one immutable attempt and ingests staged evidence through done', () => {
+  const root = createAgentProject();
+  const started = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' });
+  assert.deepEqual(started.project, { id: 'AGENT-EXECUTION', root: fs.realpathSync(root) });
+  assert.equal(started.data.status, 'in_progress'); assert.equal(started.data.retry, false);
+  assert.equal(path.isAbsolute(started.data.contract_path), true); assert.equal(fs.existsSync(started.data.contract_path), true);
+  assert.equal(fs.existsSync(path.join(root, '.pm-agent-exec.js')), false);
+  let state = loadProject(root); assert.equal(state.tasks[0].active_contract, started.data.contract_id); assert.equal(state.tasks[0].last_manifest, null); assert.equal(state.status_stale, false);
+  const contract = storedContract(started.data.contract_path); const artifact = evidence('artifact'); const review = evidence('review');
+  const implemented = manifest(contract, 'implemented', 1, [artifact], [], { observed_at: '2026-08-08T00:00:02Z' });
+  const first = ingestAgentManifest(root, 'TASK-WORK', implemented);
+  assert.equal(first.data.status, 'implemented'); assert.equal(first.data.sequence, 1); assert.equal(fs.existsSync(first.data.manifest_path), true);
+  const verified = manifest(contract, 'verified', 2, [artifact, review], [review], { observed_at: '2026-08-08T00:00:03Z' });
+  const second = ingestAgentManifest(root, 'TASK-WORK', verified);
+  assert.equal(second.data.status, 'done'); assert.equal(second.data.sequence, 2);
+  state = loadProject(root); assert.equal(state.tasks[0].status, 'done'); assert.equal(state.tasks[0].last_manifest, second.data.manifest_id); assert.equal(state.status_stale, false);
+});
+
+test('blocked agent ingestion preserves blockers and exact retry preserves the old attempt', () => {
+  const root = createAgentProject('AGENT-RETRY');
+  fs.writeFileSync(path.join(root, 'CHANGES.md'), `${collection([
+    { id: 'CHG-REVERIFY', title: 'Reverify', data: { date: '2026-08-08', observed_at: '2026-08-08T00:00:00Z', sources: [], affected_tasks: ['TASK-WORK'], affected_milestones: [], reverify_tasks: ['TASK-WORK'], reverification: { 'TASK-WORK': { status: 'pending', contract_id: null, manifest_id: null } }, risk_summary: 'The source changed.' } },
+    { id: 'CHG-OTHER', title: 'Other', data: { date: '2026-08-07', observed_at: '2026-08-07T00:00:00Z', sources: [], affected_tasks: [], affected_milestones: [], reverify_tasks: [], reverification: {}, risk_summary: 'Unrelated.' } },
+  ])}\nSelected narrative stays exact.\n`);
+  regenerateStatus(root, '2026-08-08T00:00:00.500Z');
+  const unrelatedBefore = fs.readFileSync(path.join(root, 'CHANGES.md'), 'utf8').slice(fs.readFileSync(path.join(root, 'CHANGES.md'), 'utf8').indexOf('## CHG-OTHER'));
+  const first = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' });
+  let changes = loadProject(root).changes.items.find((item) => item.id === 'CHG-REVERIFY');
+  assert.deepEqual(changes.reverification['TASK-WORK'], { status: 'in_progress', contract_id: first.data.contract_id, manifest_id: null });
+  const firstContract = storedContract(first.data.contract_path);
+  const tasksPath = path.join(root, 'TASKS.md'); let tasksText = fs.readFileSync(tasksPath, 'utf8'); let taskRecords = parseTaskRecords(tasksText);
+  taskRecords[0].raw.blocked_by = ['Coordinate release', 'Runtime could not spawn worker'];
+  fs.writeFileSync(tasksPath, `${tasksText.slice(0, taskRecords[0].start)}${renderRecord(taskRecords[0])}${tasksText.slice(taskRecords[0].end)}`);
+  regenerateStatus(root, '2026-08-08T00:00:01.500Z');
+  const blocked = manifest(firstContract, 'blocked', 1, [], [], { blocker: 'Runtime could not spawn worker', observed_at: '2026-08-08T00:00:02Z' });
+  ingestAgentManifest(root, 'TASK-WORK', blocked);
+  let state = loadProject(root); assert.deepEqual(state.tasks[0].blocked_by, ['Coordinate release', 'Runtime could not spawn worker']); assert.equal(state.tasks[0].status, 'in_progress');
+  const oldAttempt = path.dirname(first.data.contract_path); const oldHash = treeHash(oldAttempt);
+  assert.throws(() => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:03Z', retry_blocker: 'different' }), (error) => error.code === 'RETRY_BLOCKER_MISMATCH');
+  assert.throws(() => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:03Z', retry_blocker: 'Runtime could not spawn worker' }), (error) => error.code === 'TASK_BLOCKED');
+  tasksText = fs.readFileSync(tasksPath, 'utf8'); taskRecords = parseTaskRecords(tasksText); taskRecords[0].raw.blocked_by = ['Runtime could not spawn worker'];
+  fs.writeFileSync(tasksPath, `${tasksText.slice(0, taskRecords[0].start)}${renderRecord(taskRecords[0])}${tasksText.slice(taskRecords[0].end)}`);
+  regenerateStatus(root, '2026-08-08T00:00:02.500Z');
+  const retry = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:03Z', retry_blocker: 'Runtime could not spawn worker' });
+  assert.equal(retry.data.retry, true); assert.notEqual(retry.data.contract_id, first.data.contract_id); assert.equal(treeHash(oldAttempt), oldHash);
+  state = loadProject(root); assert.equal(state.tasks[0].last_manifest, null); assert.deepEqual(state.tasks[0].blocked_by, []);
+  changes = state.changes.items.find((item) => item.id === 'CHG-REVERIFY');
+  assert.deepEqual(changes.reverification['TASK-WORK'], { status: 'in_progress', contract_id: retry.data.contract_id, manifest_id: null });
+  const retryContract = storedContract(retry.data.contract_path); const artifact = evidence('artifact'); const review = evidence('review');
+  const completed = ingestAgentManifest(root, 'TASK-WORK', manifest(retryContract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:04Z' }));
+  assert.equal(completed.data.status, 'done');
+  changes = loadProject(root).changes.items.find((item) => item.id === 'CHG-REVERIFY');
+  assert.deepEqual(changes.reverification['TASK-WORK'], { status: 'complete', contract_id: retry.data.contract_id, manifest_id: completed.data.manifest_id });
+  const changesText = fs.readFileSync(path.join(root, 'CHANGES.md'), 'utf8');
+  assert.equal(changesText.slice(changesText.indexOf('## CHG-OTHER')), unrelatedBefore); assert.match(changesText, /Selected narrative stays exact\./);
+});
+
+test('agent ingestion keeps verified work short of done when a blocker appears', () => {
+  const root = createAgentProject('AGENT-HELD'); const started = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' });
+  const tasksPath = path.join(root, 'TASKS.md'); const text = fs.readFileSync(tasksPath, 'utf8');
+  const records = parseTaskRecords(text); records[0].raw.blocked_by = ['Coordinate release'];
+  fs.writeFileSync(tasksPath, `${text.slice(0, records[0].start)}${renderRecord(records[0])}${text.slice(records[0].end)}`);
+  regenerateStatus(root, '2026-08-08T00:00:01.500Z');
+  const contract = storedContract(started.data.contract_path); const artifact = evidence('artifact'); const review = evidence('review');
+  const result = ingestAgentManifest(root, 'TASK-WORK', manifest(contract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:02Z' }));
+  assert.equal(result.data.status, 'verified'); assert.deepEqual(loadProject(root).tasks[0].blocked_by, ['Coordinate release']);
+});
+
+test('agent ingestion keeps verified work short of done when a dependency regresses', () => {
+  const root = createProject(temp(), 'AGENT-DEPENDENCY', [
+    task('TASK-GATE', 'Gate', 'Approve the gate.', ['The gate is approved.'], { status: 'planned', blocks: ['TASK-WORK'] }),
+    task('TASK-WORK', 'Work', 'Produce the outcome.', ['Outcome is accepted.'], { status: 'planned', depends_on: ['TASK-GATE'], success_criteria: ['SC-OUTCOME'], executor: { provider: 'agent', root: null } }),
+  ], { adapters: ['human', 'agent'] });
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  completeHumanTask(root, 'TASK-GATE', { ref: 'gate-owner', result: 'Gate approved.', observed_at: '2026-08-08T00:00:01Z' });
+  rewriteTaskRaw(root, 'TASK-WORK', (raw) => { raw.status = 'ready'; raw.updated = '2026-08-08'; }); regenerateStatus(root, '2026-08-08T00:00:02Z');
+  const started = startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:03Z' }); const contract = storedContract(started.data.contract_path);
+  rewriteTaskRaw(root, 'TASK-GATE', (raw) => { raw.status = 'planned'; delete raw.active_contract; delete raw.last_manifest; }); regenerateStatus(root, '2026-08-08T00:00:04Z');
+  const artifact = evidence('artifact'); const review = evidence('review');
+  const result = ingestAgentManifest(root, 'TASK-WORK', manifest(contract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:05Z' }));
+  assert.equal(result.data.status, 'verified'); assert.equal(loadProject(root).tasks.find((item) => item.id === 'TASK-GATE').status, 'planned');
+});
+
+test('agent start rejection matrix preserves exact project bytes', () => {
+  const cases = [
+    ['inactive project', () => { const root = createAgentProject('START-INACTIVE'); rewriteProjectStatus(root, 'on_hold'); regenerateStatus(root, '2026-08-08T00:00:00Z'); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), code: 'PROJECT_NOT_ACTIVE' }; }],
+    ['wrong provider', () => { const root = createProject(temp(), 'START-PROVIDER', [task('TASK-WORK', 'Work', 'Done.', ['Accepted.'], { status: 'ready' })]); regenerateStatus(root, '2026-08-08T00:00:00Z'); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), code: 'EXECUTOR_NOT_AGENT' }; }],
+    ...['deferred', 'cancelled'].map((disposition) => [`${disposition} disposition`, () => {
+      const root = createAgentProject(`START-${disposition.toUpperCase()}`); rewriteTaskRaw(root, 'TASK-WORK', (raw) => { raw.disposition = disposition; raw.disposition_changed_at = '2026-08-08T00:00:00Z'; }, 3); regenerateStatus(root, '2026-08-08T00:00:00Z');
+      return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), code: 'TASK_NOT_ACTIVE' };
+    }]),
+    ['planned lifecycle', () => { const root = createAgentProject('START-PLANNED', { status: 'planned' }); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), code: 'TASK_NOT_READY' }; }],
+    ...['implemented', 'verification', 'verified', 'done'].map((status) => [`${status} lifecycle`, () => { const { root } = progressedAgentFixture(`START-${status.toUpperCase()}`, status); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:04Z' }), code: 'TASK_NOT_READY' }; }]),
+    ['inconsistent pointers', () => { const root = createAgentProject('START-POINTER'); rewriteTaskRaw(root, 'TASK-WORK', (raw) => { raw.active_contract = `tc-${'0'.repeat(64)}`; }); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), pattern: /lifecycle pointers/ }; }],
+    ['ready blocker', () => { const root = createAgentProject('START-BLOCKER'); rewriteTaskRaw(root, 'TASK-WORK', (raw) => { raw.blocked_by = ['Not cleared']; }); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), pattern: /cannot be ready while blocked/ }; }],
+    ['incomplete dependency', () => {
+      const root = createProject(temp(), 'START-DEPENDENCY', [
+        task('TASK-GATE', 'Gate', 'Gate.', ['Gate accepted.'], { blocks: ['TASK-WORK'] }),
+        task('TASK-WORK', 'Work', 'Done.', ['Accepted.'], { status: 'ready', depends_on: ['TASK-GATE'], executor: { provider: 'agent', root: null } }),
+      ], { adapters: ['human', 'agent'] });
+      return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), pattern: /cannot be ready while blocked/ };
+    }],
+    ['active nonblocked retry', () => { const { root } = activeAgentFixture('START-ACTIVE'); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:02Z', retry_blocker: 'none' }), code: 'RETRY_NOT_BLOCKED' }; }],
+    ['retry blocker mismatch', () => { const { root } = blockedAgentFixture('START-MISMATCH'); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:03Z', retry_blocker: 'different' }), code: 'RETRY_BLOCKER_MISMATCH' }; }],
+    ['blocked retry not declared', () => { const { root } = blockedAgentFixture('START-NORETRY'); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:03Z' }), code: 'TASK_NOT_READY' }; }],
+    ['backdated retry', () => { const { root } = blockedAgentFixture('START-BACKRETRY', 'Worker unavailable', { change: true }); return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:02Z', retry_blocker: 'Worker unavailable' }), code: 'RETRY_CHRONOLOGY' }; }],
+    ['backdated re-verification start', () => {
+      const root = createAgentProject('START-BACKCHANGE'); fs.writeFileSync(path.join(root, 'CHANGES.md'), collection([{ id: 'CHG-REVERIFY', title: 'Reverify', data: { date: '2026-08-08', observed_at: '2026-08-08T00:00:02Z', sources: [], affected_tasks: ['TASK-WORK'], affected_milestones: [], reverify_tasks: ['TASK-WORK'], reverification: { 'TASK-WORK': { status: 'pending', contract_id: null, manifest_id: null } }, risk_summary: 'Changed.' } }])); regenerateStatus(root, '2026-08-08T00:00:02Z');
+      return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), code: 'CHANGE_REVERIFY_CHRONOLOGY' };
+    }],
+    ['duplicate contract', () => {
+      const root = createAgentProject('START-DUPLICATE'); const state = loadProject(root); const model = state.tasks[0]; const contract = buildTaskContract(state.project, model, [], '2026-08-08T00:00:01Z');
+      const attemptRoot = path.join(root, 'handoffs', model.id, contract.contract_id); fs.mkdirSync(attemptRoot, { recursive: true }); fs.writeFileSync(path.join(attemptRoot, 'TASK-CONTRACT.md'), formatTaskContract(contract));
+      return { root, run: () => startAgentTask(root, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }), code: 'CONTRACT_EXISTS' };
+    }],
+  ];
+  for (const [name, setup] of cases) {
+    const item = setup();
+    assertNoMutation(item.root, item.run, item.code ? (error) => error.code === item.code : item.pattern, name);
+  }
+});
+
+test('agent ingest eligibility, binding, progression, and source rejection matrix preserves exact bytes', () => {
+  const verifiedPayload = (contract, extra = {}) => { const artifact = evidence('artifact'); const review = evidence('review'); return manifest(contract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:02Z', ...extra }); };
+  const cases = [
+    ['inactive project', () => { const item = activeAgentFixture('INGEST-INACTIVE'); rewriteProjectStatus(item.root, 'on_hold'); regenerateStatus(item.root, '2026-08-08T00:00:01Z'); return { ...item, payload: verifiedPayload(item.contract), code: 'PROJECT_NOT_ACTIVE' }; }],
+    ['wrong provider', () => { const item = activeHumanFixture('INGEST-PROVIDER'); return { ...item, payload: {}, code: 'EXECUTOR_NOT_AGENT' }; }],
+    ...['deferred', 'cancelled'].map((disposition) => [`${disposition} disposition`, () => {
+      const item = activeAgentFixture(`INGEST-${disposition.toUpperCase()}`); rewriteTaskRaw(item.root, 'TASK-WORK', (raw) => { raw.disposition = disposition; raw.disposition_changed_at = '2026-08-08T00:00:01.500Z'; }, 3); regenerateStatus(item.root, '2026-08-08T00:00:01.500Z');
+      return { ...item, payload: verifiedPayload(item.contract), code: 'TASK_NOT_ACTIVE' };
+    }]),
+    ['ready lifecycle', () => { const root = createAgentProject('INGEST-READY'); return { root, payload: {}, code: 'TASK_NOT_INGESTIBLE' }; }],
+    ['missing active pointer', () => { const item = activeAgentFixture('INGEST-POINTER'); rewriteTaskRaw(item.root, 'TASK-WORK', (raw) => { delete raw.active_contract; }); return { ...item, payload: verifiedPayload(item.contract), pattern: /lifecycle pointers/ }; }],
+    ['contract binding mismatch', () => { const item = activeAgentFixture('INGEST-BINDING'); const payload = verifiedPayload(item.contract); payload.contract_id = `tc-${'0'.repeat(64)}`; return { ...item, payload, code: 'MANIFEST_INVALID' }; }],
+    ['contract tampering', () => { const item = activeAgentFixture('INGEST-TAMPER'); fs.appendFileSync(item.started.data.contract_path, '\ntamper\n'); return { ...item, payload: verifiedPayload(item.contract), pattern: /canonical payload block/ }; }],
+    ['invalid evidence', () => { const item = activeAgentFixture('INGEST-EVIDENCE'); const payload = verifiedPayload(item.contract); payload.evidence = []; payload.acceptance_evidence = { 'Outcome is accepted.': [] }; return { ...item, payload, code: 'MANIFEST_INVALID' }; }],
+    ['duplicate manifest', () => { const item = activeAgentFixture('INGEST-DUPLICATE'); const formatted = formatEvidenceManifest(verifiedPayload(item.contract), item.contract); fs.writeFileSync(path.join(path.dirname(item.started.data.contract_path), 'EVIDENCE-001.md'), formatted.document); return { ...item, payload: verifiedPayload(item.contract), pattern: /last manifest pointer is stale/ }; }],
+    ['missing source', () => { const item = activeAgentFixture('INGEST-MISSING'); return { ...item, payload: verifiedPayload(item.contract, { sources: [{ path: 'missing.bin', sha256: sha256('missing'), role: 'proof' }] }), pattern: /Missing required path/ }; }],
+    ['mismatched source hash', () => { const item = activeAgentFixture('INGEST-HASH'); fs.writeFileSync(path.join(item.root, 'proof.bin'), 'actual'); return { ...item, payload: verifiedPayload(item.contract, { sources: [{ path: 'proof.bin', sha256: sha256('different'), role: 'proof' }] }), pattern: /hash mismatch/ }; }],
+  ];
+  for (const [name, setup] of cases) {
+    const item = setup();
+    assertNoMutation(item.root, () => ingestAgentManifest(item.root, 'TASK-WORK', item.payload), item.code ? (error) => error.code === item.code : item.pattern, name);
+  }
+
+  const illegal = activeAgentFixture('INGEST-ILLEGAL'); const artifact = evidence('artifact');
+  ingestAgentManifest(illegal.root, 'TASK-WORK', manifest(illegal.contract, 'implemented', 1, [artifact], [], { observed_at: '2026-08-08T00:00:02Z' }));
+  assertNoMutation(illegal.root, () => ingestAgentManifest(illegal.root, 'TASK-WORK', manifest(illegal.contract, 'implemented', 2, [evidence('artifact', 'new')], [], { observed_at: '2026-08-08T00:00:03Z' })), (error) => error.code === 'MANIFEST_INVALID');
+
+  const replay = activeAgentFixture('INGEST-REPLAY'); ingestAgentManifest(replay.root, 'TASK-WORK', manifest(replay.contract, 'implemented', 1, [artifact], [], { observed_at: '2026-08-08T00:00:02Z' }));
+  assertNoMutation(replay.root, () => ingestAgentManifest(replay.root, 'TASK-WORK', manifest(replay.contract, 'verification', 2, [artifact], [], { observed_at: '2026-08-08T00:00:03Z' })), (error) => error.code === 'MANIFEST_INVALID');
+
+  const terminal = blockedAgentFixture('INGEST-BLOCKED');
+  assertNoMutation(terminal.root, () => ingestAgentManifest(terminal.root, 'TASK-WORK', {}), (error) => error.code === 'ATTEMPT_BLOCKED');
+  for (const status of ['verified', 'done']) {
+    const item = progressedAgentFixture(`INGEST-${status.toUpperCase()}`, status);
+    assertNoMutation(item.root, () => ingestAgentManifest(item.root, 'TASK-WORK', {}), (error) => error.code === 'TASK_NOT_INGESTIBLE');
+  }
+});
+
+test('agent mutations reject concurrency and injected replacement failure without losing live bytes', () => {
+  const concurrent = createAgentProject('AGENT-CONCURRENT');
+  assert.throws(() => startAgentTask(concurrent, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }, {
+    beforeMutation(root) { fs.writeFileSync(path.join(root, 'operator-note.txt'), 'newer live bytes'); },
+  }), (error) => error.code === 'MUTATION_CONFLICT');
+  assert.equal(fs.readFileSync(path.join(concurrent, 'operator-note.txt'), 'utf8'), 'newer live bytes'); assert.equal(fs.existsSync(path.join(concurrent, 'handoffs')), false);
+
+  const rollback = createAgentProject('AGENT-ROLLBACK'); const before = treeHash(rollback);
+  assert.throws(() => startAgentTask(rollback, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' }, { injectFailureAfterReplace: true }), /Injected failure/);
+  assert.equal(treeHash(rollback), before);
+
+  const ingestConcurrent = activeAgentFixture('INGEST-CONCURRENT'); const concurrentArtifact = evidence('artifact'); const concurrentReview = evidence('review');
+  const concurrentPayload = manifest(ingestConcurrent.contract, 'verified', 1, [concurrentArtifact, concurrentReview], [concurrentReview], { observed_at: '2026-08-08T00:00:02Z' });
+  assert.throws(() => ingestAgentManifest(ingestConcurrent.root, 'TASK-WORK', concurrentPayload, {
+    beforeMutation(root) { fs.writeFileSync(path.join(root, 'operator-note.txt'), 'newer ingest bytes'); },
+  }), (error) => error.code === 'MUTATION_CONFLICT');
+  assert.equal(fs.readFileSync(path.join(ingestConcurrent.root, 'operator-note.txt'), 'utf8'), 'newer ingest bytes');
+  assert.equal(fs.existsSync(path.join(path.dirname(ingestConcurrent.started.data.contract_path), 'EVIDENCE-001.md')), false);
+
+  const ingestRollback = activeAgentFixture('INGEST-ROLLBACK'); const ingestBefore = treeHash(ingestRollback.root); const rollbackArtifact = evidence('artifact'); const rollbackReview = evidence('review');
+  const rollbackPayload = manifest(ingestRollback.contract, 'verified', 1, [rollbackArtifact, rollbackReview], [rollbackReview], { observed_at: '2026-08-08T00:00:02Z' });
+  assert.throws(() => ingestAgentManifest(ingestRollback.root, 'TASK-WORK', rollbackPayload, { injectFailureAfterReplace: true }), /Injected failure/);
+  assert.equal(treeHash(ingestRollback.root), ingestBefore);
+
+  const missingSource = createAgentProject('AGENT-SOURCE'); const started = startAgentTask(missingSource, 'TASK-WORK', { created_at: '2026-08-08T00:00:01Z' });
+  const contract = storedContract(started.data.contract_path); const artifact = evidence('artifact'); const review = evidence('review'); const sourceBefore = treeHash(missingSource);
+  const payload = manifest(contract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:02Z', sources: [{ path: 'missing.bin', sha256: sha256('missing'), role: 'proof' }] });
+  assert.throws(() => ingestAgentManifest(missingSource, 'TASK-WORK', payload), /Missing required path/); assert.equal(treeHash(missingSource), sourceBefore);
+});
+
+test('agent CLIs enforce exact arguments, stdin framing, envelopes, and exit classes', () => {
+  let cli = run('project-start-agent.js', ['--help']); assert.equal(cli.status, 0); assert.match(cli.stdout, /^Usage:/); assert.equal(cli.stderr, '');
+  cli = run('project-start-agent.js', ['--help', 'extra']); assert.equal(cli.status, 2); assert.equal(cli.stdout, ''); assert.equal(JSON.parse(cli.stderr).errors[0].code, 'INVALID_ARGUMENT');
+  cli = run('project-start-agent.js', ['root', 'TASK', '--created-at', 'not-a-time']); assert.equal(cli.status, 2); assert.equal(JSON.parse(cli.stderr).errors[0].code, 'INVALID_TIMESTAMP');
+  for (const args of [
+    ['root', 'TASK', '--json', '--json'], ['root', 'TASK', '--unknown'], ['root'], ['root', 'TASK', '--created-at'],
+    ['root', 'TASK', '--retry-blocker'], ['root', 'TASK', '--retry-blocker='], ['root', 'TASK', '--retry-blocker=one', '--retry-blocker', 'two'],
+  ]) {
+    cli = run('project-start-agent.js', args); assert.equal(cli.status, 2, args.join(' ')); assert.equal(cli.stdout, ''); assert.equal(JSON.parse(cli.stderr).errors[0].code, 'INVALID_ARGUMENT');
+  }
+  for (const args of [['root', 'TASK', '--json', '--json'], ['root', 'TASK', '--unknown'], ['root'], ['--help', 'root']]) {
+    cli = run('project-ingest-agent-manifest.js', args, '{}'); assert.equal(cli.status, 2, args.join(' ')); assert.equal(cli.stdout, ''); assert.equal(JSON.parse(cli.stderr).errors[0].code, 'INVALID_ARGUMENT');
+  }
+  cli = run('project-ingest-agent-manifest.js', ['--help']); assert.equal(cli.status, 0); assert.match(cli.stdout, /^Usage:/); assert.equal(cli.stderr, '');
+  for (const input of ['', '   \n', '{', '1', 'null', '[]', '{} {}', '{} trailing']) {
+    cli = run('project-ingest-agent-manifest.js', ['root', 'TASK'], input); assert.equal(cli.status, 2, JSON.stringify(input)); assert.equal(cli.stdout, ''); assert.equal(JSON.parse(cli.stderr).errors[0].code, 'INVALID_STDIN');
+  }
+  cli = run('project-ingest-agent-manifest.js', [path.join(temp(), 'missing'), 'TASK'], '{}'); assert.equal(cli.status, 2); assert.equal(cli.stdout, '');
+
+  const executorRoot = temp(); const root = createAgentProject('AGENT-CLI', { executor: { provider: 'agent', root: executorRoot, scope: 'absolute' } });
+  cli = run('project-start-agent.js', [root, 'TASK-WORK', '--created-at', '2026-08-08T00:00:01Z', '--json']);
+  assert.equal(cli.status, 0); assert.equal(cli.stderr, ''); const started = JSON.parse(cli.stdout);
+  assert.deepEqual(Object.keys(started), ['ok', 'command', 'project', 'data']); assert.equal(started.command, 'start-agent'); assert.equal(started.data.retry, false);
+  const contract = storedContract(started.data.contract_path); const artifact = evidence('artifact'); const review = evidence('review');
+  const payload = manifest(contract, 'verified', 1, [artifact, review], [review], { observed_at: '2026-08-08T00:00:02Z' });
+  cli = run('project-ingest-agent-manifest.js', [root, 'TASK-WORK', '--json'], `${JSON.stringify(payload)}\n  `);
+  assert.equal(cli.status, 0); assert.equal(cli.stderr, ''); const ingested = JSON.parse(cli.stdout); assert.equal(ingested.data.status, 'done'); assert.equal(ingested.data.sequence, 1);
+  assert.equal(fs.existsSync(path.join(root, '.pm-agent-exec.js')), false); assert.equal(fs.existsSync(path.join(executorRoot, '.pm-agent-exec.js')), false);
+
+  const wrong = createProject(temp(), 'AGENT-WRONG', [task('TASK-WORK', 'Work', 'Done.', ['Accepted.'], { status: 'ready' })]); regenerateStatus(wrong, '2026-08-08T00:00:00Z');
+  cli = run('project-start-agent.js', [wrong, 'TASK-WORK', '--json']); assert.equal(cli.status, 1); assert.equal(cli.stdout, '');
+  const failure = JSON.parse(cli.stderr); assert.equal(failure.command, 'start-agent'); assert.equal(failure.errors[0].code, 'EXECUTOR_NOT_AGENT'); assert.equal(typeof failure.errors[0].usage, 'string');
+
+  const wrongIngest = activeHumanFixture('INGEST-CLI-WRONG'); cli = run('project-ingest-agent-manifest.js', [wrongIngest.root, 'TASK-WORK', '--json'], '{}');
+  assert.equal(cli.status, 1); assert.equal(cli.stdout, ''); assert.equal(JSON.parse(cli.stderr).errors[0].code, 'EXECUTOR_NOT_AGENT');
+
+  const retry = blockedAgentFixture('AGENT-CLI-RETRY', '--runtime-offline');
+  cli = run('project-start-agent.js', [retry.root, 'TASK-WORK', '--created-at', '2026-08-08T00:00:03Z', '--retry-blocker=--runtime-offline', '--json']);
+  assert.equal(cli.status, 0); assert.equal(cli.stderr, ''); assert.equal(JSON.parse(cli.stdout).data.retry, true); assert.deepEqual(loadProject(retry.root).tasks[0].blocked_by, []);
+  const spacedRetry = blockedAgentFixture('AGENT-CLI-SPACED', 'ordinary blocker');
+  cli = run('project-start-agent.js', [spacedRetry.root, 'TASK-WORK', '--created-at', '2026-08-08T00:00:03Z', '--retry-blocker', 'ordinary blocker', '--json']);
+  assert.equal(cli.status, 0); assert.equal(JSON.parse(cli.stdout).data.retry, true);
 });
 
 test('verified human manifest requires provider evidence and every exact acceptance mapping', () => {

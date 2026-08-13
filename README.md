@@ -11,7 +11,7 @@ You set direction and make the business decisions that require your authority. P
 manages the project. You do not have to convert reality into card movements, field edits, statuses,
 dependencies, or reports.
 
-![Four-panel overview of working with Project Manager as an AI project manager](skills/project-manager/assets/project-manager-ai-employee-en.jpg)
+![Four-panel overview of working with Project Manager as an AI project manager](skills/project-manager/assets/project-manager-ai-employee-en.png)
 
 > “The vendor API will not be available until September 15. The launch date cannot move. Show me the
 > credible options.”

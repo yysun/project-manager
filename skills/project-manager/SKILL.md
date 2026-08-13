@@ -5,7 +5,7 @@ description: Plan, coordinate, execute, track, review, and report folder-native 
 
 # Project Manager
 
-**Version:** `1.4.0`
+**Version:** `1.5.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 
@@ -94,6 +94,62 @@ omission a recorded decision, which is what PMI tailoring actually requires.
 
 Choose an enabled executor per task. Require active disposition before issuing a contract or ingesting a manifest. Starting governed work means issuing one immutable Task Contract bound to the selected project, current task specification, current sources, and provider evidence requirements. Contract issuance alone authorizes `ready → in_progress`.
 
+For agent work, the main agent is the coordinator, not the task worker. It owns project validation,
+capacity and isolation preflight, contract issuance, dependency-wave scheduling, returned-payload checks,
+manifest ingestion, and final reporting. For each dependency-ready `agent` task:
+
+1. Before issuing a contract, prove that a subagent can be spawned, retain the coordinator's own
+   capacity slot, and confirm a safe execution target. No available slot means the task waits without
+   project mutation.
+2. Start or explicitly retry the task only through the installed built-in command; never generate
+   `.pm-agent-exec.js` or any other project-local or executor-local execution helper.
+3. Spawn one bounded worker for that project task with clean or minimal context. Pass only the
+   readable absolute Task Contract path, the resolved executor root when present, a task-local
+   instruction to satisfy that contract, and the exact return protocol. Never pass the coordinator's
+   accumulated conversation when clean/minimal-context spawning is available.
+4. Require the worker to return exactly one concise canonical Evidence Manifest payload JSON object with
+   terminal status `verified` or `blocked`. The serialized worker return may be at most 65,536 UTF-8
+   bytes and no individual JSON string may exceed 8,192 UTF-8 bytes. Reject prose, transcripts,
+   malformed JSON, non-object JSON, nonterminal status, or over-limit output; these are worker-protocol
+   limits and do not narrow direct use of the manifest-ingestion CLI.
+5. The worker may create executor artifacts but must never edit `PROJECT.md`, `TASKS.md`, `STATUS.md`,
+   `CHANGES.md`, or `handoffs/`. The coordinator alone validates and ingests the returned payload.
+
+Run dependency- and mutation-independent agent tasks in capacity-bounded parallel waves. Distinct
+dependency chains are not enough: resolved executor roots, artifact paths, and external write surfaces
+must also be proven non-overlapping. Shared roots, shared targets, or uncertain mutation surfaces
+serialize. A null executor root permits only filesystem-read-only work or an explicitly identified
+non-filesystem artifact/write target, with no local write authority. If local mutation is required or
+the target is uncertain, stop before contract issuance until a safe project-scoped or absolute root is
+assigned.
+
+A concrete spawn failure after issuance becomes an exact blocked manifest naming that runtime blocker.
+If the post-issuance failure cannot be classified truthfully, leave the attempt visibly `in_progress`,
+ingest nothing, and stop that task. The same immutable contract may be dispatched again only after the
+runtime proves the earlier worker is terminated and project validation proves no manifest was ingested;
+otherwise require explicit operator resolution and never start a concurrent second worker for the
+attempt.
+
+Human tasks remain human-owned. A human task whose explicit outcome is approval is a dependency gate:
+keep dependent `agent` and `rpd` tasks `planned` until specific approval evidence makes that task `done`
+under the project profile. Human completion does not automatically promote dependents. Revalidate all
+blockers and dependencies, then use an ordinary coordination update to move each eligible dependent
+`planned → ready` before its execution route starts. Do not infer that every human task is approval-only;
+human-authored or custom-evidence work follows its applicable human execution policy and remains a gate
+until evidence-backed done.
+
+The built-in agent state commands are:
+
+```bash
+node <absolute-skill-dir>/scripts/project-start-agent.js <project-folder> <task-id> [--created-at <RFC3339-UTC>] [--retry-blocker <exact-blocker>|--retry-blocker=<exact-blocker>] --json
+node <absolute-skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task-id> --json
+```
+
+Supply exactly one Evidence Manifest payload JSON object, followed only by whitespace, to the ingest
+command on standard input. Start returns the immutable contract ID and absolute contract path. Ingest
+persists only the next gap-free manifest and advances only the lifecycle that validated evidence
+supports. Read [track.md](references/track.md) for the complete eligibility and failure rules.
+
 For RPD:
 
 1. Confirm the task selects provider `rpd` and an existing absolute execution root.
@@ -127,6 +183,10 @@ Ordinary presentation projects this as `Planned → Ready → Active → Done`. 
 - If dependencies clear after verification, revalidate the stored verified manifest and advance without inventing a new one.
 - Preserve immutable attempts. A blocked retry creates a new contract.
 - On source or task-spec change, regress stale active state and preserve history.
+- When the latest `CHANGES.md` record requires re-verification, start moves that task's binding from
+  `pending` to `in_progress` with the new contract; retry rebinds it to the strictly later retry
+  contract; only a verified manifest that supports `done` moves it to `complete`. Intermediate,
+  blocked, or verified-but-not-done ingestion leaves the binding `in_progress`.
 - Disposition is orthogonal: `deferred` pauses actionability and may reactivate; `cancelled` is terminal. Neither satisfies dependencies or success. Evidence observed after deferral/cancellation cannot advance lifecycle.
 
 ## Report

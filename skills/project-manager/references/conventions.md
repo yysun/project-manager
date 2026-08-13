@@ -81,6 +81,56 @@ utility. It validates the complete direct-child catalog before matching and retu
 project root. `PROJECT_NAME_NOT_FOUND` and `PROJECT_NAME_AMBIGUOUS` are semantic failures; they never
 trigger fuzzy matching or filesystem search.
 
+## Agent execution command contract
+
+The installable skill provides two agent-specific write commands. They are deterministic project-state
+adapters, not an agent runtime or scheduler:
+
+```bash
+node <absolute-skill-dir>/scripts/project-start-agent.js <project-folder> <task-id> [--created-at <RFC3339-UTC>] [--retry-blocker <exact-blocker>|--retry-blocker=<exact-blocker>] [--json] [--help]
+node <absolute-skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task-id> [--json] [--help]
+```
+
+Start success has the exact shape
+`{ok:true,command:"start-agent",project:{id,root},data:{task_id,status,contract_id,contract_path,retry}}`.
+Ingest success has the exact shape
+`{ok:true,command:"ingest-agent-manifest",project:{id,root},data:{task_id,status,contract_id,manifest_id,manifest_path,sequence}}`.
+Without `--json`, success is a concise human-readable summary. Errors always write exactly one JSON
+envelope to standard error and nothing to standard output:
+`{ok:false,command,project:null|{id,root},errors:[{code,path,message,usage}]}`.
+Semantic eligibility, evidence, and concurrency failures exit 1. Command syntax, standard-input
+grammar, selector/path, and unexpected grammar/I/O failures exit 2. `--help` must be the sole argument,
+prints usage to standard output, and exits 0; duplicate/unknown flags, missing values, wrong positional
+counts, or mixed help/execution fail with exit 2.
+
+Ingest accepts exactly one manifest payload JSON object from standard input followed only by
+whitespace. It rejects empty, malformed, scalar, multiple, or trailing-non-whitespace input. The
+payload uses the Exact Evidence Manifest schema below; no relaxed agent evidence schema exists.
+
+Both commands require an active project, provider `agent`, and active task disposition. Normal start
+accepts only an unblocked, dependency-complete `ready` task with no active current-specification
+pointers. Retry requires `--retry-blocker` to exactly clear the sole blocker from the active terminal
+blocked attempt and issues a new, strictly later contract without changing prior attempt bytes. Ingest
+validates the exact active contract, gap-free sequence, task/source bindings, typed evidence,
+acceptance mappings, replay fingerprint, and staged source bytes. It never copies artifacts. Verified
+evidence reaches `done` only when dependencies are complete and no blocker exists; otherwise it remains
+`verified`. Blocked evidence keeps lifecycle `in_progress` and preserves other blockers.
+Use `--retry-blocker=<exact-blocker>` when the blocker text itself begins with `--`; the equals form
+removes flag ambiguity while preserving the blocker exactly.
+
+When the latest `CHANGES.md` record requires re-verification, start atomically changes its binding from
+`pending` to `in_progress`, retry rebinds it to the distinct later contract, and only a verified
+manifest supporting `done` changes it to `complete`. Other ingestion stages retain `in_progress`.
+
+Host orchestration adds a narrower worker-return protocol: one bounded worker for one dependency-ready
+agent task returns exactly one canonical terminal (`verified` or `blocked`) manifest payload object, at most
+65,536 serialized UTF-8 bytes with no JSON string over 8,192 UTF-8 bytes. Those bounds do not apply to
+direct CLI ingestion. Workers receive minimal task-local context and never edit authoritative project
+state. Capacity, dependency, executor-root, artifact-target, and external-write isolation are proved
+before contract issuance; shared or uncertain mutation surfaces serialize. A null root permits only
+filesystem-read-only or explicitly targeted non-filesystem work without local write authority.
+Generated project-local or executor-local execution helpers are prohibited.
+
 ## Exact core schemas
 
 `PROJECT.md` v1 frontmatter has exactly:
