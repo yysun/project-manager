@@ -23,6 +23,18 @@ test('timeline ranges and bars are inclusive and use explicit facts only', async
   assert.deepEqual(padded, { start: '2026-07-29', end: '2026-09-03' });
 });
 
+test('timeline tasks sort chronologically with unscheduled work last', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const tasks = [
+    { id: 'LATE', milestone: 'M-FIRST', scheduled_start: '2026-08-20', scheduled_end: '2026-08-21' },
+    { id: 'UNSCHEDULED', milestone: 'M-FIRST', scheduled_start: null, scheduled_end: null },
+    { id: 'EARLY-LONG', milestone: 'M-LAST', scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' },
+    { id: 'EARLY-SHORT', milestone: 'M-LAST', scheduled_start: '2026-08-10', scheduled_end: '2026-08-11' },
+  ];
+  assert.deepEqual(model.sortTimelineTasks(tasks).map((task) => task.id), ['EARLY-SHORT', 'EARLY-LONG', 'LATE', 'UNSCHEDULED']);
+  assert.deepEqual(tasks.map((task) => task.id), ['LATE', 'UNSCHEDULED', 'EARLY-LONG', 'EARLY-SHORT']);
+});
+
 test('timeline canvas expands for long ranges instead of compressing weekly labels', async () => {
   const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
   assert.equal(model.timelineContentWidth({ start: '2026-08-10', end: '2026-08-16' }), 1020);

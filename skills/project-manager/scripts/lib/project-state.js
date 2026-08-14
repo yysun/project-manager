@@ -1179,7 +1179,7 @@ function kanbanData(state, mutationRevision = null) {
     const eligibility = taskEditEligibility(state, task);
     const scheduleEligibility = scheduleEditEligibility(state, task);
     const dispositionEligibility = dispositionEditEligibility(state, task);
-    const scheduleConflicts = task.depends_on.flatMap((dependencyId) => {
+    const scheduleConflicts = task.status === 'done' ? [] : task.depends_on.flatMap((dependencyId) => {
       const dependency = state.tasks.find((item) => item.id === dependencyId);
       if (!dependency?.scheduled_end || !task.scheduled_start || task.scheduled_start > dependency.scheduled_end) return [];
       return [{ dependency_id: dependencyId, dependency_end: dependency.scheduled_end, task_start: task.scheduled_start }];

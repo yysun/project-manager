@@ -3,7 +3,7 @@
 // task-local issue dots, and revision-safe schedule edits.
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest } from '../../shared/api';
-import { barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, timelineContentWidth, timelineRange, timelineScaleTicks, type DateRange } from '../timeline-model.mjs';
+import { barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, sortTimelineTasks, timelineContentWidth, timelineRange, timelineScaleTicks, type DateRange } from '../timeline-model.mjs';
 import type { SelectionRequest } from '../selection-guard.mjs';
 
 interface Props {
@@ -27,7 +27,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finish
   const headerScroll = useRef<HTMLDivElement | null>(null);
   const suppressClick = useRef(false);
 
-  const ordered = useMemo(() => [...tasks].sort((a, b) => (a.milestone ?? 'ZZZ').localeCompare(b.milestone ?? 'ZZZ') || (a.scheduled_start ?? '9999').localeCompare(b.scheduled_start ?? '9999') || a.id.localeCompare(b.id)), [tasks]);
+  const ordered = useMemo(() => sortTimelineTasks(tasks), [tasks]);
 
   function syncHeader(event: UIEvent<HTMLDivElement>) {
     if (headerScroll.current) headerScroll.current.scrollLeft = event.currentTarget.scrollLeft;
@@ -141,7 +141,7 @@ function TimelineLabel({ task, onOpen }: { task: KanbanTask; onOpen: Props['onOp
     {task.depends_on.length > 0 && <span className="timeline-context">After {task.depends_on.join(', ')}</span>}
     {task.dependency_blockers.length > 0 && <span className="timeline-blocker">Blocked by tasks: {task.dependency_blockers.join(', ')}</span>}
     {task.blocked_by.map((reason) => <span className="timeline-blocker" key={reason}>Blocker note: {reason}</span>)}
-    {task.schedule_conflicts.map((conflict) => <span className="schedule-conflict" key={conflict.dependency_id}>Date conflict: {conflict.dependency_id} ends {conflict.dependency_end}; starts {conflict.task_start}</span>)}
+    {task.schedule_conflicts.map((conflict) => <span className="schedule-conflict" key={conflict.dependency_id}>Planned schedule overlap: {conflict.dependency_id} ends {conflict.dependency_end}; this task starts {conflict.task_start}</span>)}
   </button>;
 }
 

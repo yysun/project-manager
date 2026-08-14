@@ -284,11 +284,13 @@ test('Timeline projection exposes schedules and isolates date conflicts from lif
     task('TASK-SECOND', 'Second', 'Second outcome.', ['Second accepted.'], { status: 'planned', scheduled_start: '2026-08-12', scheduled_end: '2026-08-14', depends_on: ['TASK-FIRST'] }),
   ], 2));
   regenerateStatus(root, '2026-08-08T00:00:00Z');
-  const data = kanbanData(loadProject(root)); const second = data.tasks.find((item) => item.id === 'TASK-SECOND');
+  const state = loadProject(root); const data = kanbanData(state); const second = data.tasks.find((item) => item.id === 'TASK-SECOND');
   assert.deepEqual(second.schedule_conflicts, [{ dependency_id: 'TASK-FIRST', dependency_end: '2026-08-12', task_start: '2026-08-12' }]);
   assert.deepEqual(second.blocked_by, []); assert.deepEqual(second.dependency_blockers, ['TASK-FIRST']);
   assert.equal(data.summary.tasks.blocked, 1); assert.deepEqual(data.next.map((item) => item.id), ['TASK-FIRST']);
   assert.equal(data.tasks.filter((item) => item.blocked_by.length || item.dependency_blockers.length).map((item) => item.id).join(','), 'TASK-SECOND');
+  state.tasks.find((item) => item.id === 'TASK-SECOND').status = 'done';
+  assert.deepEqual(kanbanData(state).tasks.find((item) => item.id === 'TASK-SECOND').schedule_conflicts, []);
 });
 
 test('ID bounds, trailing hyphens, and duplicate success criteria are rejected exactly', () => {

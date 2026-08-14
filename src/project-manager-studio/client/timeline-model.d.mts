@@ -6,6 +6,7 @@ export function fromDay(value: number): string;
 export function addDays(date: string, days: number): string;
 export function dayDiff(start: string, end: string): number;
 export function timelineRange(tasks: Array<{ scheduled_start: string | null; scheduled_end: string | null }>, project: { start_date: string | null; target_date: string | null }, milestones: Array<{ target_date: string | null; forecast_date: string | null }>, padding?: number): DateRange | null;
+export function sortTimelineTasks<T extends { id: string; milestone: string | null; scheduled_start: string | null; scheduled_end: string | null }>(tasks: T[]): T[];
 export function rangeDays(range: DateRange): number;
 export function timelineContentWidth(range: DateRange, minimum?: number, weekWidth?: number): number;
 export function timelineScaleTicks(range: DateRange, minimumLabelDays?: number): string[];

@@ -19,11 +19,11 @@ function timelineIndicator(task: KanbanTask): { tone: 'warning' | 'error'; title
     return { tone: 'error', title: 'Execution error · red timeline dot', message: localExecutionIssue(task) };
   }
   const blockerMessage = task.blocked_by.length > 0 ? `Recorded blocker note (not a project task): ${task.blocked_by.join('; ')}.` : null;
-  const conflictMessages = task.schedule_conflicts.map((conflict) => `Schedule conflict: ${conflict.dependency_id} ends ${conflict.dependency_end}, but this task starts ${conflict.task_start}.`);
+  const conflictMessages = task.schedule_conflicts.map((conflict) => `Planned schedule overlap: ${conflict.dependency_id} ends ${conflict.dependency_end}, but this task starts ${conflict.task_start}.`);
   if (!blockerMessage && conflictMessages.length === 0) return null;
   const title = blockerMessage && conflictMessages.length > 0
     ? 'Planning issues · amber timeline dot'
-    : blockerMessage ? 'Blocker note · amber timeline dot' : 'Schedule warning · amber timeline dot';
+    : blockerMessage ? 'Blocker note · amber timeline dot' : 'Planned schedule overlap · amber timeline dot';
   return { tone: 'warning', title, message: [blockerMessage, ...conflictMessages].filter(Boolean).join(' ') };
 }
 // Matches the bare-path convention used throughout SKILL.md/README.md routes;

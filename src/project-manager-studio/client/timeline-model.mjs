@@ -17,6 +17,17 @@ export function timelineRange(tasks, project, milestones, padding = 3) {
   return { start: addDays(dates[0], -padding), end: addDays(dates.at(-1), padding) };
 }
 
+export function sortTimelineTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    if (a.scheduled_start === null && b.scheduled_start !== null) return 1;
+    if (a.scheduled_start !== null && b.scheduled_start === null) return -1;
+    return (a.scheduled_start ?? '').localeCompare(b.scheduled_start ?? '')
+      || (a.scheduled_end ?? '').localeCompare(b.scheduled_end ?? '')
+      || (a.milestone ?? '').localeCompare(b.milestone ?? '')
+      || a.id.localeCompare(b.id);
+  });
+}
+
 export function rangeDays(range) { return dayDiff(range.start, range.end) + 1; }
 export function timelineContentWidth(range, minimum = 1020, weekWidth = 88) {
   return Math.max(minimum, Math.ceil(rangeDays(range) / 7) * weekWidth);
