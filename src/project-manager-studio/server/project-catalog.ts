@@ -2,10 +2,9 @@
 // canonical direct-child paths and stable project IDs without accepting paths.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 import type { KanbanData, ProjectCatalogData } from '../shared/api.js';
 
-const { parseFrontmatter } = require('../../../skills/project-manager/scripts/lib/project-state.js');
+const { loadProjectIdentity } = require('../../../skills/project-manager/scripts/lib/project-state.js');
 
 export interface ProjectSeed { id: string; name: string; root: string }
 interface CatalogEntry extends ProjectSeed { key: string }
@@ -66,13 +65,9 @@ export class ProjectCatalog {
     let real;
     try { real = fs.realpathSync(entry.root); } catch { stale(`Project path cannot be resolved: ${entry.name}`); }
     if (real !== entry.root) stale(`Project path changed: ${entry.name}`);
-    const projectFile = path.join(entry.root, 'PROJECT.md');
-    let fileStat;
-    try { fileStat = fs.lstatSync(projectFile); } catch { stale(`Project identity file is missing: ${entry.name}`); }
-    if (fileStat.isSymbolicLink() || !fileStat.isFile()) stale(`Project identity file is unsafe: ${entry.name}`);
-    let id: unknown;
-    try { id = parseFrontmatter(fs.readFileSync(projectFile, 'utf8'), projectFile).data.id; }
+    let identity;
+    try { identity = loadProjectIdentity(entry.root); }
     catch { stale(`Project identity cannot be read: ${entry.name}`); }
-    if (id !== entry.id) stale(`Project ID changed for ${entry.name}`);
+    if (identity.project.id !== entry.id) stale(`Project ID changed for ${entry.name}`);
   }
 }

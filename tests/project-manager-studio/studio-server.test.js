@@ -9,11 +9,36 @@ const http = require('node:http');
 const net = require('node:net');
 const test = require('node:test');
 const { mutationRevision } = require('../../skills/project-manager/scripts/lib/mutations');
-const { regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
+const { loadProject, regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
+const { buildTaskContract, formatTaskContract } = require('../../skills/project-manager/scripts/lib/contracts');
 const { makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection, builtServerPath } = require('./_helpers');
 
 function placeProject(parent, name, id, records = null) { const source = makeProject(records, id); const target = path.join(parent, name); fs.renameSync(source, target); return target; }
 function runFailure(args, cwd) { return require('node:child_process').spawnSync(process.execPath, [builtServerPath, ...args], { cwd, encoding: 'utf8', timeout: 6000 }); }
+function staleSourceBindingProject(id = 'STALE-SOURCE', targetRoot = null) {
+  const taskData = { outcome: 'Source mapping is complete.', acceptance: ['The mapping is verified.'], status: 'ready', sources: ['SRC-BRIEF'] };
+  const planRecord = { id: 'TASK-PLAN', title: 'Plan follow-up', data: { outcome: 'Follow-up is planned.', acceptance: ['The plan is accepted.'], status: 'planned' } };
+  const scopeRecord = { id: 'TASK-SCOPE-MAPPING', title: 'Map scope', data: taskData };
+  const initialScopeRecord = { id: scopeRecord.id, title: scopeRecord.title, data: { outcome: taskData.outcome, acceptance: taskData.acceptance, status: taskData.status } };
+  const root = makeProject([initialScopeRecord, planRecord], id, targetRoot);
+  const source = { kind: 'document', location: 'brief.md', role: 'scope', status: 'current', version: 'v1', sha256: null };
+  fs.writeFileSync(path.join(root, 'SOURCES.md'), collection([{ id: 'SRC-BRIEF', title: 'Brief', data: source }]));
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([scopeRecord, planRecord]));
+  regenerateStatus(root, '2026-08-08T00:00:00Z');
+  const state = loadProject(root); const model = state.tasks[0]; const normalizedSource = state.sources.items[0];
+  const contract = buildTaskContract(state.project, model, [{
+    id: normalizedSource.id, version: normalizedSource.version,
+    record_sha256: normalizedSource.record_sha256, content_sha256: normalizedSource.sha256,
+  }], '2026-08-08T00:00:01Z');
+  const attemptRoot = path.join(root, 'handoffs', model.id, contract.contract_id); fs.mkdirSync(attemptRoot, { recursive: true });
+  fs.writeFileSync(path.join(attemptRoot, 'TASK-CONTRACT.md'), formatTaskContract(contract));
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([{
+    id: model.id, title: model.title, data: { ...taskData, status: 'in_progress', active_contract: contract.contract_id },
+  }, planRecord]));
+  regenerateStatus(root, '2026-08-08T00:00:02Z');
+  source.version = 'v2'; fs.writeFileSync(path.join(root, 'SOURCES.md'), collection([{ id: 'SRC-BRIEF', title: 'Brief', data: source }]));
+  return root;
+}
 
 test('heartbeat requires session and Studio header, renews once, and leaves project state unchanged', async () => {
   const root = makeProject(); const { createServer, ProjectCatalog } = require(builtServerPath); let renewals = 0;
@@ -63,8 +88,48 @@ test('Studio opens projects with unavailable executor roots and returns an execu
     assert.equal(data.project.id, 'STUDIO');
     assert.deepEqual(data.warnings, [{
       code: 'TASK_EXECUTOR_ROOT_UNAVAILABLE',
-      message: 'Task TASK-RUN executor root must be an existing real directory. The project remains available, but this task cannot execute until the root is fixed.',
+      task_id: 'TASK-RUN',
+      path: 'TASKS.md',
+      message: 'Run delegated work (TASK-RUN) cannot run because its configured working folder is missing or inaccessible. Point the task to an existing folder before running it.',
     }]);
+    assert.equal(data.tasks[0].execution_issue, true);
+    assert.equal(data.summary.tasks.blocked, 1);
+  } finally { await stopStudio(handle); }
+});
+
+test('Studio starts from a catalog with stale task execution state and opens it with a blocking warning', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-stale-source-studio-')); const projectsRoot = path.join(workspace, '.projects'); fs.mkdirSync(projectsRoot);
+  placeProject(projectsRoot, 'healthy', 'HEALTHY');
+  const staleTarget = staleSourceBindingProject('STALE-SOURCE', path.join(projectsRoot, 'stale-source'));
+  assert.throws(() => loadProject(staleTarget), /source binding is stale/);
+  const handle = await startStudioArgs(['--projects-root', projectsRoot, '--project', staleTarget, '--no-open', '--port', '0'], { cwd: workspace });
+  try {
+    const { cookie } = await handshake(handle); const options = await catalog(handle, cookie);
+    assert.deepEqual(options.projects.map((item) => item.id), ['HEALTHY', 'STALE-SOURCE']);
+    const response = await fetch(`${handle.origin}/api/project?project=${options.initial_project_key}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200);
+    const data = (await response.json()).data;
+    assert.equal(data.project.id, 'STALE-SOURCE');
+    const affected = data.tasks.find((item) => item.id === 'TASK-SCOPE-MAPPING');
+    assert.equal(affected.status, 'in_progress');
+    assert.equal(affected.execution_issue, true);
+    assert.match(affected.execution_issue_reason, /source information that changed/);
+    assert.equal(data.summary.tasks.blocked, 1);
+    const warning = data.warnings.find((item) => item.code === 'TASK_EXECUTION_INVALID');
+    assert.equal(warning.task_id, 'TASK-SCOPE-MAPPING');
+    assert.equal(warning.cause_code, 'CONTRACT_SOURCE_BINDING');
+    assert.equal(warning.technical_message, 'Task TASK-SCOPE-MAPPING source binding is stale');
+    assert.match(warning.path, /TASK-CONTRACT\.md$/);
+
+    const editable = data.tasks.find((item) => item.id === 'TASK-PLAN');
+    const headers = { Cookie: cookie, 'Content-Type': 'application/json' };
+    const body = { projectKey: options.initial_project_key, mutationRevision: data.mutation_revision, taskRevision: editable.task_revision, edit: { owner: 'Lin' } };
+    assert.equal((await fetch(`${handle.origin}/api/tasks/TASK-PLAN/check`, { method: 'POST', headers, body: JSON.stringify(body) })).status, 200);
+    const saved = await fetch(`${handle.origin}/api/tasks/TASK-PLAN`, { method: 'PUT', headers, body: JSON.stringify(body) });
+    assert.equal(saved.status, 200);
+    const savedData = (await saved.json()).data;
+    assert.equal(savedData.tasks.find((item) => item.id === 'TASK-PLAN').owner, 'Lin');
+    assert.equal(savedData.tasks.find((item) => item.id === 'TASK-SCOPE-MAPPING').execution_issue, true);
   } finally { await stopStudio(handle); }
 });
 
@@ -229,6 +294,25 @@ test('catalog startup rejects malformed, symlinked, and duplicate-ID children di
   if (process.platform !== 'win32') { const symlinkRoot = path.join(workspace, 'symlink-root'); fs.mkdirSync(symlinkRoot); const outside = makeProject(null, 'OUTSIDE'); fs.symlinkSync(outside, path.join(symlinkRoot, 'linked')); result = runFailure(['--projects-root', symlinkRoot, '--no-open'], workspace); assert.match(result.stderr, /PROJECT_CATALOG_INVALID/); }
   const duplicateRoot = path.join(workspace, 'duplicate-root'); fs.mkdirSync(duplicateRoot); const first = placeProject(duplicateRoot, 'first', 'DUPLICATE'); fs.cpSync(first, path.join(duplicateRoot, 'copy'), { recursive: true });
   result = runFailure(['--projects-root', duplicateRoot, '--no-open'], workspace); assert.match(result.stderr, /PROJECT_ID_DUPLICATE/);
+});
+
+test('catalog startup uses safe identity only and defers unrelated PROJECT diagnostics until open', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-catalog-identity-')); const projectsRoot = path.join(workspace, '.projects'); fs.mkdirSync(projectsRoot);
+  const invalidDate = placeProject(projectsRoot, 'invalid-date', 'INVALID-DATE');
+  fs.writeFileSync(path.join(invalidDate, 'PROJECT.md'), fs.readFileSync(path.join(invalidDate, 'PROJECT.md'), 'utf8').replace('target_date: null', 'target_date: "not-a-date"'));
+  const invalidJson = placeProject(projectsRoot, 'invalid-json', 'INVALID-JSON');
+  fs.writeFileSync(path.join(invalidJson, 'PROJECT.md'), fs.readFileSync(path.join(invalidJson, 'PROJECT.md'), 'utf8').replace('target_date: null', 'target_date: not-json'));
+  const handle = await startStudioArgs(['--projects-root', projectsRoot, '--no-open', '--port', '0'], { cwd: workspace });
+  try {
+    const { cookie } = await handshake(handle); const options = await catalog(handle, cookie);
+    assert.deepEqual(options.projects.map((item) => item.id), ['INVALID-DATE', 'INVALID-JSON']);
+    for (const [id, code] of [['INVALID-DATE', 'INVALID_DATE'], ['INVALID-JSON', 'FRONTMATTER_JSON']]) {
+      const key = options.projects.find((item) => item.id === id).key;
+      const response = await fetch(`${handle.origin}/api/project?project=${key}`, { headers: { Cookie: cookie } });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).errors[0].code, code);
+    }
+  } finally { await stopStudio(handle); }
 });
 
 test('catalog startup ignores Git metadata when the projects root is version-controlled', async () => {

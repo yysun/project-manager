@@ -11,8 +11,7 @@ import { createHeartbeatLease, createShutdownController, createStudioWatchdog } 
 export { createServer } from './server.js';
 export { ProjectCatalog } from './project-catalog.js';
 
-const { loadRevisionedProject } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
-const { loadProjectsRoot } = require('../../../skills/project-manager/scripts/lib/project-state.js');
+const { loadProjectIdentity, loadProjectCatalogRoot } = require('../../../skills/project-manager/scripts/lib/project-state.js');
 const SKILL_DIR = path.resolve(__dirname, '..');
 const CLIENT_DIST_DIR = path.join(SKILL_DIR, 'studio', 'dist');
 const USAGE = 'Usage: project-manager-studio.js [--project <folder>] [--projects-root <folder>] [--port <port>] [--no-open]';
@@ -39,12 +38,12 @@ function parseArgs(argv: string[]): { project?: string; projectsRoot?: string; p
 
 function buildCatalog(args: ReturnType<typeof parseArgs>): ProjectCatalog {
   if (args.project && !args.projectsRoot) {
-    const snapshot = loadRevisionedProject(path.resolve(args.project));
-    const seed: ProjectSeed = { id: snapshot.state.project.id, name: snapshot.state.project.name, root: snapshot.state.root };
+    const identity = loadProjectIdentity(path.resolve(args.project));
+    const seed: ProjectSeed = { id: identity.project.id, name: identity.project.name, root: identity.root };
     return new ProjectCatalog([seed], seed.root);
   }
   const requestedRoot = path.resolve(args.projectsRoot ?? '.projects');
-  const discovered = loadProjectsRoot(requestedRoot) as { root: string; projects: ProjectSeed[] };
+  const discovered = loadProjectCatalogRoot(requestedRoot) as { root: string; projects: ProjectSeed[] };
   let initialRoot = discovered.projects[0].root;
   if (args.project) {
     const requestedProject = path.resolve(args.project);

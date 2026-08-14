@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, loadProjectsRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts, parseAttempt,
+  loadProject, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts, parseAttempt,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
@@ -105,10 +105,14 @@ test('unavailable executor roots warn during project reads and block only when e
   const state = loadProject(root);
   assert.deepEqual(state.warnings, [{
     code: 'TASK_EXECUTOR_ROOT_UNAVAILABLE', path: 'TASKS.md', task_id: 'TASK-RUN',
-    message: 'Task TASK-RUN executor root must be an existing real directory. The project remains available, but this task cannot execute until the root is fixed.',
+    message: 'Run (TASK-RUN) cannot run because its configured working folder is missing or inaccessible. Point the task to an existing folder before running it.',
   }]);
   assert.equal(validateData(state).valid, true);
-  assert.equal(kanbanData(state).warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
+  const board = kanbanData(state);
+  assert.equal(board.warnings[0].code, 'TASK_EXECUTOR_ROOT_UNAVAILABLE');
+  assert.equal(board.tasks[0].execution_issue, true);
+  assert.equal(board.summary.tasks.blocked, 1);
+  assert.deepEqual(board.next, []);
   assert.throws(
     () => startAgentTask(root, 'TASK-RUN', { created_at: '2026-08-08T00:01:00Z' }),
     /Executor root must be an existing real directory/,
@@ -365,6 +369,10 @@ test('projects-root discovery is direct, deterministic, and rejects invalid cata
 
   const malformed = path.join(root, 'malformed'); fs.mkdirSync(malformed); fs.writeFileSync(path.join(malformed, 'PROJECT.md'), 'bad');
   assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.rmSync(malformed, { recursive: true });
+  const invalidTasks = createProject(root, 'INVALID-TASKS', []); fs.writeFileSync(path.join(invalidTasks, 'TASKS.md'), 'bad');
+  assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID');
+  assert.equal(loadProjectCatalogRoot(root).projects.some((item) => item.id === 'INVALID-TASKS'), true);
+  fs.rmSync(invalidTasks, { recursive: true });
   if (process.platform !== 'win32') {
     fs.symlinkSync(path.join(root, 'first'), path.join(root, 'linked'));
     assert.throws(() => loadProjectsRoot(root), (error) => error.code === 'PROJECT_CATALOG_INVALID'); fs.unlinkSync(path.join(root, 'linked'));
@@ -451,6 +459,11 @@ test('dependency cycles, stale reverse links, and lifecycle pointer lies fail se
   ]);
   assert.throws(() => loadProject(cycle), /Dependency cycle/);
   const lie = createProject(base, 'LIE', [task('TASK-A', 'A', 'A.', ['A accepted.'], { status: 'done' })]);
+  const tolerant = loadProject(lie, { taskErrorsAsWarnings: true });
+  assert.equal(tolerant.warnings[0].cause_code, 'TASK_LIFECYCLE');
+  const tolerantBoard = kanbanData(tolerant);
+  assert.equal(tolerantBoard.tasks[0].execution_issue, true);
+  assert.equal(tolerantBoard.summary.tasks.blocked, 0);
   assert.throws(() => loadProject(lie), /lifecycle pointers/);
 });
 
@@ -1011,14 +1024,26 @@ test('stored attempt documents bind lifecycle pointers to the latest validated m
   assert.throws(() => loadProject(root), /cannot be done/); delete raw.depends_on;
   fs.writeFileSync(path.join(root, 'TASKS.md'), collection([{ id: model.id, title: model.title, data: raw }]));
   sourceRaw.version = 'v2'; fs.writeFileSync(path.join(root, 'SOURCES.md'), collection([{ id: 'SRC-ONE', title: 'Source', data: sourceRaw }]));
+  const tolerant = loadProject(root, { taskErrorsAsWarnings: true });
+  assert.equal(tolerant.tasks[0].status, 'done');
+  assert.deepEqual(tolerant.warnings.map(({ code, cause_code, task_id }) => ({ code, cause_code, task_id })), [{
+    code: 'TASK_EXECUTION_INVALID', cause_code: 'CONTRACT_SOURCE_BINDING', task_id: model.id,
+  }]);
   assert.throws(() => loadProject(root), /source binding is stale/); sourceRaw.version = 'v1';
   fs.writeFileSync(path.join(root, 'SOURCES.md'), collection([{ id: 'SRC-ONE', title: 'Source', data: sourceRaw }]));
   const moved = path.join(base, 'attempt-moved'); fs.renameSync(root, moved);
   assert.equal(loadProject(moved).tasks[0].status, 'done'); fs.renameSync(moved, root);
   const changeObservedAt = '2026-08-08T00:00:00.999Z';
   fs.writeFileSync(path.join(root, 'CHANGES.md'), collection([{ id: 'CHG-REVERIFY', title: 'Reverify', data: { date: '2026-08-08', observed_at: changeObservedAt, sources: [], affected_tasks: [model.id], affected_milestones: [], reverify_tasks: [model.id], risk_summary: 'Source changed' } }]));
+  const tolerantPending = loadProject(root, { taskErrorsAsWarnings: true });
+  assert.equal(tolerantPending.warnings.find((warning) => warning.code === 'TASK_EXECUTION_INVALID').cause_code, 'CHANGE_REVERIFY');
   assert.throws(() => loadProject(root), /must regress/);
   fs.writeFileSync(path.join(root, 'CHANGES.md'), collection([{ id: 'CHG-REVERIFY', title: 'Reverify', data: { date: '2026-08-08', observed_at: changeObservedAt, sources: [], affected_tasks: [model.id], affected_milestones: [], reverify_tasks: [model.id], reverification: { [model.id]: { status: 'complete', contract_id: contract.contract_id, manifest_id: formatted.manifest_id } }, risk_summary: 'Source changed' } }]));
+  const tolerantReverification = loadProject(root, { taskErrorsAsWarnings: true });
+  assert.equal(tolerantReverification.warnings.find((warning) => warning.code === 'TASK_EXECUTION_INVALID').cause_code, 'CHANGE_REVERIFY_BINDING');
+  const tolerantReverificationBoard = kanbanData(tolerantReverification);
+  assert.equal(tolerantReverificationBoard.tasks[0].execution_issue, true);
+  assert.equal(tolerantReverificationBoard.summary.tasks.blocked, 0);
   assert.throws(() => loadProject(root), /predates or mismatches/);
   const retry = buildTaskContract({ id: 'ATTEMPT', root: fs.realpathSync(root) }, model, binding, '2026-08-08T00:00:02Z');
   const retryRoot = path.join(root, 'handoffs', model.id, retry.contract_id); fs.mkdirSync(retryRoot, { recursive: true });
@@ -1127,6 +1152,12 @@ test('Studio exposes a concise RPD command for every task and prefers issued con
   record.data.disposition = 'deferred'; record.data.disposition_changed_at = '2026-08-08T00:01:00Z';
   fs.writeFileSync(path.join(root, 'TASKS.md'), collection([record], 3));
   assert.equal(kanbanData(loadProject(root)).tasks[0].rpd_command, projected.rpd_command);
+
+  fs.writeFileSync(contractPath, 'malformed contract');
+  assert.throws(() => loadProject(root), /Expected opening ---/);
+  const blocked = kanbanData(loadProject(root, { taskErrorsAsWarnings: true })).tasks[0];
+  assert.equal(blocked.execution_issue, true);
+  assert.match(blocked.rpd_command, /^Execution blocked for TASK-RPD:/);
 
   const genericRoot = createProject(temp(), 'RPD-FALLBACK', [task('TASK-ANY', 'Any work', 'Produce any outcome.', ['Outcome is accepted.'])]);
   assert.equal(kanbanData(loadProject(genericRoot)).tasks[0].rpd_command, `RPD "Any work" using project task ${JSON.stringify(path.join(fs.realpathSync(genericRoot), 'TASKS.md'))}.`);

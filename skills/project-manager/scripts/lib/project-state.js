@@ -4,8 +4,8 @@
  * Invariants: read-only operation, selected-root isolation, exact schema versions,
  * and schedule metadata that never changes execution-contract identity.
  * Recent changes: add PROJECT v2 tailoring, optional PMI modules, exact
- * project-name resolution, and read-time warnings for unavailable executor
- * roots while retaining execution-time contract enforcement.
+ * project-name resolution, safe identity-only Studio discovery, and scoped
+ * read-time warnings while retaining strict execution-time enforcement.
  */
 'use strict';
 
@@ -93,7 +93,12 @@ function taskClosed(task) {
   return task.status === 'done' || taskDisposition(task) === 'cancelled';
 }
 
-function rpdCommand(state, task) {
+function taskLabel(task) {
+  return `${task.title} (${task.id})`;
+}
+
+function rpdCommand(state, task, executionWarning = null) {
+  if (executionWarning) return `${taskClosed(task) ? 'Execution history warning' : 'Execution blocked'} for ${task.id}: ${executionWarning.cause_code ?? executionWarning.code}.`;
   if (task.executor.provider === 'rpd' && task.active_contract !== null) {
     const contractPath = path.join(state.root, 'handoffs', task.id, task.active_contract, 'TASK-CONTRACT.md');
     const contractDoc = readSafe(state.root, path.relative(state.root, contractPath), true);
@@ -384,7 +389,7 @@ function executorRootWarning(task, physicalProjectRoot) {
     code: 'TASK_EXECUTOR_ROOT_UNAVAILABLE',
     path: 'TASKS.md',
     task_id: task.id,
-    message: `Task ${task.id} executor root must be an existing real directory. The project remains available, but this task cannot execute until the root is fixed.`,
+    message: `${taskLabel(task)} cannot run because its configured working folder is missing or inaccessible. Point the task to an existing folder before running it.`,
   };
 }
 
@@ -564,7 +569,7 @@ function loadTraceability(text, filePath, project, tasks, sources) {
   return { configured: true, items: parsed.data.items };
 }
 
-function validateGraph(state) {
+function validateGraph(state, options = {}) {
   const byId = new Map(state.tasks.map((task) => [task.id, task]));
   const successIds = new Set(state.project.success_criteria_items.map((item) => item.id));
   const milestoneIds = new Set(state.milestones.items.map((item) => item.id));
@@ -577,9 +582,14 @@ function validateGraph(state) {
     assert(task.success_criteria.every((id) => successIds.has(id)), 'TASK_SUCCESS_REF', 'TASKS.md', `Task ${task.id} has unknown success criterion`, state.project);
     assert(task.milestone === null || milestoneIds.has(task.milestone), 'TASK_MILESTONE_REF', 'TASKS.md', `Task ${task.id} has unknown milestone`, state.project);
     assert(task.sources.every((id) => sourceIds.has(id) && state.sources.items.find((source) => source.id === id).status === 'current'), 'TASK_SOURCE_REF', 'TASKS.md', `Task ${task.id} has invalid source`, state.project);
-    const active = task.active_contract !== null;
-    assert((['planned', 'ready'].includes(task.status) && !active && task.last_manifest === null) || (!['planned', 'ready'].includes(task.status) && active), 'TASK_LIFECYCLE', 'TASKS.md', `Task ${task.id} lifecycle pointers are inconsistent`, state.project);
-    assert(!['implemented', 'verification', 'verified', 'done'].includes(task.status) || task.last_manifest !== null, 'TASK_LIFECYCLE', 'TASKS.md', `Task ${task.id} requires a manifest pointer`, state.project);
+    try {
+      const active = task.active_contract !== null;
+      assert((['planned', 'ready'].includes(task.status) && !active && task.last_manifest === null) || (!['planned', 'ready'].includes(task.status) && active), 'TASK_LIFECYCLE', 'TASKS.md', `Task ${task.id} lifecycle pointers are inconsistent`, state.project);
+      assert(!['implemented', 'verification', 'verified', 'done'].includes(task.status) || task.last_manifest !== null, 'TASK_LIFECYCLE', 'TASKS.md', `Task ${task.id} requires a manifest pointer`, state.project);
+    } catch (error) {
+      if (!options.taskErrorsAsWarnings || !(error instanceof ProjectError)) throw error;
+      recordTaskExecutionWarning(state, task.id, error);
+    }
     if (task.status === 'ready' && taskDisposition(task) === 'active') assert(task.blocked_by.length === 0 && task.depends_on.every((id) => byId.get(id).status === 'done'), 'TASK_READY', 'TASKS.md', `Task ${task.id} cannot be ready while blocked`, state.project);
     if (task.status === 'done') {
       assert(taskDisposition(task) === 'active', 'TASK_DONE', 'TASKS.md', `Task ${task.id} cannot be done with a non-active disposition`, state.project);
@@ -643,9 +653,14 @@ function validateGraph(state) {
   }
   for (const [id, { value }] of latestReverification) {
     const target = byId.get(id);
-    if (value.status === 'pending') assert(['planned', 'ready'].includes(target.status) && target.active_contract === null && target.last_manifest === null, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} must regress and clear execution pointers before re-verification`, state.project);
-    if (value.status === 'in_progress') assert(['in_progress', 'implemented', 'verification', 'verified'].includes(target.status) && target.active_contract === value.contract_id, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} re-verification must use its bound active contract`, state.project);
-    if (value.status === 'complete') assert(target.status === 'done' && target.active_contract === value.contract_id && target.last_manifest === value.manifest_id, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} re-verification is not complete on its bound evidence`, state.project);
+    try {
+      if (value.status === 'pending') assert(['planned', 'ready'].includes(target.status) && target.active_contract === null && target.last_manifest === null, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} must regress and clear execution pointers before re-verification`, state.project);
+      if (value.status === 'in_progress') assert(['in_progress', 'implemented', 'verification', 'verified'].includes(target.status) && target.active_contract === value.contract_id, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} re-verification must use its bound active contract`, state.project);
+      if (value.status === 'complete') assert(target.status === 'done' && target.active_contract === value.contract_id && target.last_manifest === value.manifest_id, 'CHANGE_REVERIFY', 'CHANGES.md', `Task ${id} re-verification is not complete on its bound evidence`, state.project);
+    } catch (error) {
+      if (!options.taskErrorsAsWarnings || !(error instanceof ProjectError)) throw error;
+      recordTaskExecutionWarning(state, id, error);
+    }
   }
   if (state.project.status === 'complete') {
     assert(state.tasks.every(taskClosed), 'PROJECT_COMPLETE', 'PROJECT.md', 'Complete project has unfinished tasks', state.project);
@@ -654,8 +669,7 @@ function validateGraph(state) {
   }
 }
 
-function validateAttempts(state) {
-  for (const task of state.tasks.filter((item) => item.active_contract !== null)) {
+function validateAttempt(state, task) {
     const attemptRoot = path.join(state.root, 'handoffs', task.id, task.active_contract);
     const contractPath = path.join(attemptRoot, 'TASK-CONTRACT.md');
     const contractDoc = readSafe(state.root, path.relative(state.root, contractPath), true);
@@ -728,38 +742,138 @@ function validateAttempts(state) {
     if (last?.status === 'blocked') {
       assert(task.blocked_by.includes(last.blocker), 'MANIFEST_BLOCKER', attemptRoot, `Task ${task.id} must store the blocked manifest blocker`, state.project);
     }
-  }
 }
 
-function validateReverificationBindings(state) {
-  for (const change of state.changes.items) for (const [taskId, value] of Object.entries(change.reverification)) {
-    if (value.status === 'pending') continue;
-    const attemptRoot = path.join(state.root, 'handoffs', taskId, value.contract_id);
-    const contractPath = path.join(attemptRoot, 'TASK-CONTRACT.md');
-    const parsedContract = parseAttempt(readSafe(state.root, path.relative(state.root, contractPath), true), contractPath, 'contract');
-    assert(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), 'CHANGE_REVERIFY_BINDING', 'CHANGES.md', `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
-    if (value.status === 'complete') {
-      const evidenceNames = fs.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
-      const matched = evidenceNames.some((name) => {
-        const manifestPath = path.join(attemptRoot, name); const parsed = parseAttempt(readSafe(state.root, path.relative(state.root, manifestPath), true), manifestPath, 'manifest');
-        return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === 'verified' && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
-      });
-      assert(matched, 'CHANGE_REVERIFY_BINDING', 'CHANGES.md', `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
+function taskExecutionWarning(state, taskId) {
+  return state.warnings.find((warning) => warning.task_id === taskId && warning.code === 'TASK_EXECUTION_INVALID')
+    ?? state.warnings.find((warning) => warning.task_id === taskId && warning.code === 'TASK_EXECUTOR_ROOT_UNAVAILABLE')
+    ?? null;
+}
+
+function taskExecutionMessage(state, taskId, error) {
+  const task = state.tasks.find((item) => item.id === taskId);
+  const label = task ? taskLabel(task) : taskId;
+  if (error.code === 'CONTRACT_SOURCE_BINDING') {
+    return `${label} uses source information that changed after this run started. Review the updated source and create a fresh run before continuing.`;
+  }
+  if (error.code === 'CONTRACT_INVALID' && /project\.root/.test(error.message)) {
+    return `${label} was started from a project folder that moved or no longer exists. Create a fresh run from the current project folder.`;
+  }
+  if (error.code === 'CONTRACT_INVALID' && /executor root/i.test(error.message)) {
+    return `${label} cannot run because its configured working folder is missing or inaccessible. Point the task to an existing folder, then create a fresh run.`;
+  }
+  if (['CONTRACT_BINDING', 'CONTRACT_DERIVED', 'RPD_STORY', 'RPD_PROMPT'].includes(error.code)) {
+    return `${label} has a saved run that no longer matches the current task or project. Review the task and create a fresh run before continuing.`;
+  }
+  if (error.code === 'TASK_LIFECYCLE') {
+    return `${label} has a status that does not match its saved run. Repair or restart the run before continuing.`;
+  }
+  if (['CHANGE_REVERIFY', 'CHANGE_REVERIFY_BINDING'].includes(error.code)) {
+    return `${label} is out of sync with a recorded project change. Review that change and verify the task again before continuing.`;
+  }
+  if (error.code.startsWith('MANIFEST') || ['ATTEMPT_FIELD', 'ATTEMPT_PAYLOAD', 'ATTEMPT_JSON', 'ATTEMPT_CANONICAL', 'ATTEMPT_HASH'].includes(error.code)) {
+    return `${label} has incomplete or inconsistent saved execution records. Review its run history before continuing.`;
+  }
+  return `${label} has invalid saved execution data and cannot continue. Review the task's run history and fix the problem before trying again.`;
+}
+
+function recordTaskExecutionWarning(state, taskId, error) {
+  const existing = taskExecutionWarning(state, taskId);
+  if (existing?.code === 'TASK_EXECUTION_INVALID') return existing;
+  const warning = {
+    code: 'TASK_EXECUTION_INVALID',
+    cause_code: error.code,
+    path: error.path,
+    task_id: taskId,
+    technical_message: error.message,
+    message: taskExecutionMessage(state, taskId, error),
+  };
+  state.warnings.push(warning);
+  return warning;
+}
+
+function validateAttempts(state, options = {}) {
+  for (const task of state.tasks.filter((item) => item.active_contract !== null)) {
+    try {
+      validateAttempt(state, task);
+    } catch (error) {
+      if (!options.taskErrorsAsWarnings || !(error instanceof ProjectError)) throw error;
+      recordTaskExecutionWarning(state, task.id, error);
     }
   }
 }
 
-function loadProject(folder, options = {}) {
+function validateReverificationBinding(state, change, taskId, value) {
+  const attemptRoot = path.join(state.root, 'handoffs', taskId, value.contract_id);
+  const contractPath = path.join(attemptRoot, 'TASK-CONTRACT.md');
+  const parsedContract = parseAttempt(readSafe(state.root, path.relative(state.root, contractPath), true), contractPath, 'contract');
+  assert(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), 'CHANGE_REVERIFY_BINDING', 'CHANGES.md', `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
+  if (value.status === 'complete') {
+    const evidenceNames = fs.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
+    const matched = evidenceNames.some((name) => {
+      const manifestPath = path.join(attemptRoot, name); const parsed = parseAttempt(readSafe(state.root, path.relative(state.root, manifestPath), true), manifestPath, 'manifest');
+      return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === 'verified' && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
+    });
+    assert(matched, 'CHANGE_REVERIFY_BINDING', 'CHANGES.md', `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
+  }
+}
+
+function validateReverificationBindings(state, options = {}) {
+  for (const change of state.changes.items) for (const [taskId, value] of Object.entries(change.reverification)) {
+    if (value.status === 'pending') continue;
+    if (options.taskErrorsAsWarnings && state.warnings.some((warning) => warning.task_id === taskId && warning.code === 'TASK_EXECUTION_INVALID')) continue;
+    try { validateReverificationBinding(state, change, taskId, value); }
+    catch (error) {
+      if (!options.taskErrorsAsWarnings || !(error instanceof ProjectError)) throw error;
+      recordTaskExecutionWarning(state, taskId, error);
+    }
+  }
+}
+
+function resolveProjectRoot(folder) {
   if (!folder) fail('path', 'MISSING_SELECTOR', '', 'Project folder is required');
   let root;
   try { root = fs.realpathSync(folder); } catch { fail('path', 'INVALID_SELECTOR', folder, 'Project folder does not exist'); }
   if (!fs.lstatSync(root).isDirectory()) fail('path', 'INVALID_SELECTOR', folder, 'Project folder must be a directory');
-  checkOptionalDirectories(root);
-  const texts = Object.fromEntries(REQUIRED.map((name) => [name, readSafe(root, name, true)]));
-  for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
+  return root;
+}
+
+function parseProjectIdentity(text, filePath, root) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  if (lines[0] !== '---') fail('grammar', 'FRONTMATTER_OPEN', filePath, 'Expected opening ---');
+  const end = lines.indexOf('---', 1);
+  if (end < 0) fail('grammar', 'FRONTMATTER_CLOSE', filePath, 'Expected closing ---');
+  const identity = {};
+  for (let index = 1; index < end; index += 1) {
+    const match = /^([a-z][a-z0-9_]*): (.+)$/.exec(lines[index]);
+    if (!match || !['schema_version', 'id', 'name'].includes(match[1])) continue;
+    if (Object.hasOwn(identity, match[1])) fail('grammar', 'DUPLICATE_KEY', filePath, `Duplicate key ${match[1]}`);
+    try { identity[match[1]] = JSON.parse(match[2]); }
+    catch { fail('grammar', 'FRONTMATTER_JSON', filePath, `Value for ${match[1]} must be complete JSON`); }
+  }
+  assert(identity.schema_version === 1 || identity.schema_version === 2, 'SCHEMA_VERSION', filePath, 'Unsupported project schema');
+  assert(ID.test(identity.id), 'INVALID_ID', filePath, 'Invalid project ID');
+  assert(nonEmpty(identity.name), 'INVALID_NAME', filePath, 'Project name is required');
+  return { ...identity, root };
+}
+
+function loadProjectIdentity(folder, options = {}) {
+  const root = resolveProjectRoot(folder);
   const logicalRoot = options.logicalRoot ?? root;
   if (!path.isAbsolute(logicalRoot)) fail('path', 'INVALID_LOGICAL_ROOT', logicalRoot, 'Logical project root must be absolute');
-  const project = parseProject(texts['PROJECT.md'], path.join(root, 'PROJECT.md'), logicalRoot);
+  const projectPath = path.join(root, 'PROJECT.md');
+  const project = parseProjectIdentity(readSafe(root, 'PROJECT.md', true), projectPath, logicalRoot);
+  return { root, project };
+}
+
+function loadProject(folder, options = {}) {
+  const root = resolveProjectRoot(folder);
+  const logicalRoot = options.logicalRoot ?? root;
+  if (!path.isAbsolute(logicalRoot)) fail('path', 'INVALID_LOGICAL_ROOT', logicalRoot, 'Logical project root must be absolute');
+  const project = parseProject(readSafe(root, 'PROJECT.md', true), path.join(root, 'PROJECT.md'), logicalRoot);
+  checkOptionalDirectories(root);
+  const texts = Object.fromEntries(REQUIRED.filter((name) => name !== 'PROJECT.md').map((name) => [name, readSafe(root, name, true)]));
+  for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
   const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2, 3] });
   const tasks = taskRecords.map((record) => normalizeTask(record, project, path.join(root, 'TASKS.md'), taskRecords.schema_version));
   const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
@@ -779,7 +893,7 @@ function loadProject(folder, options = {}) {
     lessons: module('LESSONS.md', 'lessons'), closure: module('CLOSURE.md', 'closure'),
   };
   state.traceability = loadTraceability(texts['TRACEABILITY.md'], path.join(root, 'TRACEABILITY.md'), project, tasks, state.sources.items);
-  validateGraph(state);
+  validateGraph(state, options);
   // Unconfigured modules contribute `undefined`, which canonical JSON omits, so
   // installing this capability cannot stale any existing STATUS.md cache.
   const whenConfigured = (entry) => (entry.configured ? entry.items : undefined);
@@ -793,8 +907,8 @@ function loadProject(folder, options = {}) {
   exactKeys(statusParsed.data, ['schema_version', 'project_id', 'generated_at', 'source_sha256'], path.join(root, 'STATUS.md'), 'STATUS frontmatter', project);
   assert(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), 'STATUS_SCHEMA', path.join(root, 'STATUS.md'), 'Invalid STATUS cache envelope', project);
   state.status_stale = statusParsed.data.source_sha256 !== state.source_sha256;
-  validateAttempts(state);
-  validateReverificationBindings(state);
+  validateAttempts(state, options);
+  validateReverificationBindings(state, options);
   return state;
 }
 
@@ -827,7 +941,7 @@ function loadProjectIndex(indexPath) {
   return projects;
 }
 
-function loadProjectsRoot(folder) {
+function loadProjectsRootWith(folder, identityOnly) {
   let rootStat;
   try { rootStat = fs.lstatSync(folder); }
   catch (error) {
@@ -863,13 +977,18 @@ function loadProjectsRoot(folder) {
     }
     if (stat.isSymbolicLink()) fail('path', 'PROJECT_CATALOG_INVALID', target, `Project catalog child cannot be a symlink: ${name}`);
     if (!stat.isDirectory()) continue;
-    let state;
-    try { state = loadProject(target); }
+    let loaded;
+    try {
+      loaded = identityOnly ? loadProjectIdentity(target) : (() => {
+        const state = loadProject(target);
+        return { root: state.root, project: state.project };
+      })();
+    }
     catch (error) {
       const detail = error instanceof ProjectError ? `${error.code}: ${error.message}` : error.message;
       fail('semantic', 'PROJECT_CATALOG_INVALID', target, `Invalid project catalog child ${name}: ${detail}`);
     }
-    projects.push({ id: state.project.id, name: state.project.name, child: name, root: state.root });
+    projects.push({ id: loaded.project.id, name: loaded.project.name, child: name, root: loaded.root });
   }
   if (projects.length === 0) fail('semantic', 'PROJECTS_ROOT_EMPTY', root, 'Projects root contains no valid direct-child projects');
   const seen = new Set();
@@ -880,6 +999,14 @@ function loadProjectsRoot(folder) {
   }
   projects.sort((left, right) => left.id.localeCompare(right.id) || left.child.localeCompare(right.child));
   return { root, projects };
+}
+
+function loadProjectsRoot(folder) {
+  return loadProjectsRootWith(folder, false);
+}
+
+function loadProjectCatalogRoot(folder) {
+  return loadProjectsRootWith(folder, true);
 }
 
 function resolveProjectInRoot(folder, selector) {
@@ -930,7 +1057,7 @@ function coverageData(state) {
 
 function nextData(state) {
   if (state.project.status !== 'active') return { schema_version: 1, tasks: [] };
-  const candidates = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state).length);
+  const candidates = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state).length && !taskExecutionWarning(state, task.id));
   const taskById = new Map(state.tasks.map((task) => [task.id, task]));
   const rows = candidates.map((task) => {
     const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === 'active' && candidate.status === 'planned' && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === 'done')).length;
@@ -1038,10 +1165,17 @@ function dispositionEditEligibility(state, task) {
 function kanbanData(state, mutationRevision = null) {
   const status = statusData(state);
   const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
+  const executionWarnings = new Map(state.tasks.flatMap((task) => {
+    const warning = taskExecutionWarning(state, task.id);
+    return warning ? [[task.id, warning]] : [];
+  }));
+  const executionBlockers = state.tasks.filter((task) => !taskClosed(task) && executionWarnings.has(task.id)).map((task) => task.id);
+  status.tasks.blocked = new Set([...blockers.keys(), ...executionBlockers]).size;
   const next = nextData(state).tasks;
   const nextRank = new Map(next.map((item, index) => [item.id, index + 1]));
   const tasks = state.tasks.map((task) => {
     const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
+    const executionWarning = executionWarnings.get(task.id) ?? null;
     const eligibility = taskEditEligibility(state, task);
     const scheduleEligibility = scheduleEditEligibility(state, task);
     const dispositionEligibility = dispositionEditEligibility(state, task);
@@ -1073,7 +1207,9 @@ function kanbanData(state, mutationRevision = null) {
       critical: task.critical,
       active_contract: task.active_contract,
       last_manifest: task.last_manifest,
-      rpd_command: rpdCommand(state, task),
+      execution_issue: executionWarning !== null,
+      execution_issue_reason: executionWarning?.message ?? null,
+      rpd_command: rpdCommand(state, task, executionWarning),
       scheduled_start: task.scheduled_start ?? null,
       scheduled_end: task.scheduled_end ?? null,
       schedule_conflicts: scheduleConflicts,
@@ -1116,8 +1252,14 @@ function kanbanData(state, mutationRevision = null) {
       owner_gaps: tasks.filter((task) => task.owner === null).length,
     },
     warnings: [
-      ...state.warnings.map(({ code, message }) => ({ code, message })),
-      ...(state.status_stale ? [{ code: 'STATUS_STALE', message: 'STATUS.md is stale; the board is showing validated authoritative state.' }] : []),
+      ...state.warnings.map(({ code, message, task_id, cause_code, technical_message, path: warningPath }) => ({
+        code, message,
+        ...(task_id ? { task_id } : {}),
+        ...(cause_code ? { cause_code } : {}),
+        ...(technical_message ? { technical_message } : {}),
+        ...(warningPath ? { path: warningPath } : {}),
+      })),
+      ...(state.status_stale ? [{ code: 'STATUS_STALE', message: 'The saved project summary is out of date. The board is already showing the latest project data.' }] : []),
     ],
     milestones: state.milestones.items.map((item) => ({ id: item.id, title: item.title, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, forecast_updated: item.forecast_updated, critical: item.critical })),
     options: {
@@ -1146,7 +1288,7 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
 }
 
 module.exports = {
-  ProjectError, loadProject, loadProjectIndex, loadProjectsRoot, resolveProjectInRoot, validateData, statusData, nextData,
+  ProjectError, loadProject, loadProjectIdentity, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData,
   blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility,
   dispositionEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
   parseAttempt, successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,

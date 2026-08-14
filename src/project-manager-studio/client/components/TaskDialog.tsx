@@ -1,11 +1,31 @@
 // Accessible key-bound task inspection and edit dialog. Specification/status
-// authority stays limited; eligible unfinished work can be rescheduled.
+// authority stays limited; eligible work can be rescheduled and task-local
+// execution or planning issues are explained without repetitive banners.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEdit, TaskEditRequest } from '../../shared/api';
 import type { SelectionRequest } from '../selection-guard.mjs';
 
 function lines(value: string): string[] { return value.split('\n').map((item) => item.trim()).filter(Boolean); }
 function valueOrDash(value: string | null): string { return value ?? 'Not set'; }
+function localExecutionIssue(task: KanbanTask): string {
+  if (!task.execution_issue_reason) return 'None';
+  const prefix = `${task.title} (${task.id}) `;
+  return task.execution_issue_reason.startsWith(prefix)
+    ? `This task ${task.execution_issue_reason.slice(prefix.length)}`
+    : task.execution_issue_reason;
+}
+function timelineIndicator(task: KanbanTask): { tone: 'warning' | 'error'; title: string; message: string } | null {
+  if (task.execution_issue) {
+    return { tone: 'error', title: 'Execution error · red timeline dot', message: localExecutionIssue(task) };
+  }
+  const blockerMessage = task.blocked_by.length > 0 ? `Recorded blocker note (not a project task): ${task.blocked_by.join('; ')}.` : null;
+  const conflictMessages = task.schedule_conflicts.map((conflict) => `Schedule conflict: ${conflict.dependency_id} ends ${conflict.dependency_end}, but this task starts ${conflict.task_start}.`);
+  if (!blockerMessage && conflictMessages.length === 0) return null;
+  const title = blockerMessage && conflictMessages.length > 0
+    ? 'Planning issues · amber timeline dot'
+    : blockerMessage ? 'Blocker note · amber timeline dot' : 'Schedule warning · amber timeline dot';
+  return { tone: 'warning', title, message: [blockerMessage, ...conflictMessages].filter(Boolean).join(' ') };
+}
 // Matches the bare-path convention used throughout SKILL.md/README.md routes;
 // only quotes when the path actually needs it (contains whitespace).
 function quoteArg(value: string): string { return /\s/.test(value) ? `"${value.replace(/[\\"]/g, '\\$&')}"` : value; }
@@ -34,6 +54,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const reviewCommand = `project validate-task ${quoteArg(data.project.root)} ${task.id}`;
+  const indicator = timelineIndicator(task);
   const request = useMemo<TaskEditRequest>(() => ({ projectKey: data.project.key, mutationRevision: data.mutation_revision, taskRevision: task.task_revision, edit }), [data.project.key, data.mutation_revision, task.task_revision, edit]);
 
   useEffect(() => {
@@ -108,9 +129,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
           <span>{valueOrDash(task.owner)}</span>
           {task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}
         </div>
-        {!task.editable && <div className="read-only-note"><strong>Specification and status are read-only</strong><p>{task.edit_reason}</p></div>}
-        {!task.schedule_editable && <div className="read-only-note"><strong>Schedule is read-only</strong><p>{task.schedule_edit_reason}</p></div>}
-        {!task.disposition_editable && <div className="read-only-note"><strong>Disposition is read-only</strong><p>{task.disposition_edit_reason}</p></div>}
+        {indicator && <div className={`timeline-indicator timeline-indicator--${indicator.tone}`} role="status"><strong>{indicator.title}</strong><p>{indicator.message}</p></div>}
         <div className="dialog-grid">
           <div className="editor-column">
             {task.editable ? <>
@@ -128,7 +147,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
               <label className="checkbox-field"><input type="checkbox" checked={edit.critical ?? false} onChange={(e) => setEdit({ ...edit, critical: e.target.checked })} /><span>Critical work</span></label>
               <fieldset className="check-group"><legend>Dependencies</legend>{data.options.tasks.filter((item) => item.id !== task.id).map((item) => <label key={item.id}><input type="checkbox" checked={(edit.depends_on ?? []).includes(item.id)} onChange={() => toggleList('depends_on', item.id)} /> {item.id} · {item.title}</label>)}</fieldset>
               <fieldset className="check-group"><legend>Success criteria</legend>{data.options.success_criteria.map((item) => <label key={item.id}><input type="checkbox" checked={(edit.success_criteria ?? []).includes(item.id)} onChange={() => toggleList('success_criteria', item.id)} /> {item.text}</label>)}</fieldset>
-              <label className="field"><span>Explicit blockers <small>One per line</small></span><textarea rows={3} value={(edit.blocked_by ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, blocked_by: lines(e.target.value).sort() })} /></label>
+              <label className="field"><span>Blocker notes <small>Not task dependencies · one per line</small></span><textarea rows={3} value={(edit.blocked_by ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, blocked_by: lines(e.target.value).sort() })} /></label>
               <label className="field"><span>Constraints <small>One per line</small></span><textarea rows={3} value={(edit.constraints ?? []).join('\n')} onChange={(e) => setEdit({ ...edit, constraints: lines(e.target.value) })} /></label>
             </> : <ReadOnlyTask task={task} />}
             {task.disposition_editable ? <section className="schedule-editor" aria-labelledby="disposition-editor-title"><div className="section-heading"><div><span className="eyebrow">Coordination state</span><h3 id="disposition-editor-title">Disposition</h3></div></div><label className="field"><span>Disposition</span><select value={edit.disposition} onChange={(e) => setEdit({ ...edit, disposition: e.target.value as KanbanTask['disposition'] })}><option value="active">Active</option><option value="deferred">Deferred</option><option value="cancelled">Cancelled</option></select></label><p>Deferral pauses actionability. Cancellation is terminal and does not satisfy dependencies or success criteria.</p></section> : null}
@@ -143,7 +162,7 @@ export function TaskDialog({ data, task, opener, onClose, beginMutation, finishM
             <Definition label="Milestone" value={valueOrDash(task.milestone)} />
             <Definition label="Dependencies" value={task.depends_on.join(', ') || 'None'} />
             <Definition label="Dependency blockers" value={task.dependency_blockers.join(', ') || 'None'} />
-            <Definition label="Explicit blockers" value={task.blocked_by.join(', ') || 'None'} />
+            <Definition label="Blocker notes (not tasks)" value={task.blocked_by.join(', ') || 'None'} />
             <Definition label="Active contract" value={valueOrDash(task.active_contract)} mono />
             <Definition label="Latest manifest" value={valueOrDash(task.last_manifest)} mono />
             <Definition label="Scheduled start" value={valueOrDash(task.scheduled_start)} />

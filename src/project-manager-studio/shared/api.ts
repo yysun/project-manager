@@ -14,6 +14,7 @@ export interface KanbanTask {
   depends_on: string[]; blocks: string[]; blocked_by: string[]; dependency_blockers: string[];
   sources: string[]; success_criteria: string[]; constraints: string[]; critical: boolean;
   active_contract: string | null; last_manifest: string | null; rpd_command: string; created: string | null;
+  execution_issue: boolean; execution_issue_reason: string | null;
   scheduled_start: string | null; scheduled_end: string | null;
   schedule_conflicts: Array<{ dependency_id: string; dependency_end: string; task_start: string }>;
   updated: string | null; task_revision: string; next_rank: number | null;
@@ -27,7 +28,7 @@ export interface KanbanData {
   schema_version: 2; mutation_revision: string; semantic_revision: string;
   project: { key: string; id: string; name: string; root: string; status: string; owner: string | null; objective: string; start_date: string | null; target_date: string | null; current_milestone: string | null; profile: string; policy: { human_completion: 'lightweight' | 'governed'; delegated_execution: 'governed' } };
   summary: { tasks: { total: number; by_status: Record<TaskStatus, number>; by_disposition: Record<TaskDisposition, number>; actionable: number; blocked: number }; success: { total: number; covered: number; verified: number }; coverage: { configured: boolean; total?: number; covered?: number; verified?: number }; risks: { configured: boolean; open?: number; high?: number }; decisions: { configured: boolean; proposed?: number }; owner_gaps: number };
-  warnings: Array<{ code: string; message: string }>;
+  warnings: Array<{ code: string; message: string; task_id?: string; cause_code?: string; technical_message?: string; path?: string }>;
   milestones: Array<{ id: string; title: string; status: 'planned' | 'active' | 'complete'; target_date: string | null; forecast_date: string | null; forecast_updated: string | null; critical: boolean }>;
   options: { owners: string[]; priorities: Priority[]; milestones: Array<{ id: string; title: string }>; success_criteria: Array<{ id: string; text: string }>; tasks: Array<{ id: string; title: string }> };
   next: Array<{ id: string; title: string; reasons: string[] }>;

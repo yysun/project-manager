@@ -1,6 +1,6 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
 // guards, URL-addressable views, coherent filters, shared sticky view headers,
-// locally restored Summary/Filters preferences, and browser lease renewal.
+// task-local execution warnings, restored preferences, and browser lease renewal.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
@@ -120,7 +120,8 @@ export function App() {
       const matchesSearch = !query || `${task.id} ${task.title} ${task.outcome} ${task.owner ?? ''}`.toLowerCase().includes(query);
       const matchesPriority = priority === 'all' || task.priority === priority;
       const matchesOwner = owner === 'all' || (owner === 'unassigned' ? task.owner === null : task.owner === owner);
-      const matchesBlocked = !blockedOnly || task.blocked_by.length > 0 || task.dependency_blockers.length > 0;
+      const executionBlocked = task.execution_issue && !['done', 'cancelled'].includes(task.display_status);
+      const matchesBlocked = !blockedOnly || executionBlocked || task.blocked_by.length > 0 || task.dependency_blockers.length > 0;
       return matchesSearch && matchesPriority && matchesOwner && matchesBlocked;
     });
   }, [data, search, priority, owner, blockedOnly]);
@@ -134,6 +135,7 @@ export function App() {
   if (!data) return <div className={`loading-screen ${error ? 'error-screen' : ''}`}><div className="mark">{error ? '!' : 'PM'}</div><h1>{error ? 'Project could not be loaded' : 'Loading project…'}</h1>{catalog && <ProjectSelect catalog={catalog} selectedKey={selectedKey} disabled={false} onChange={switchProject} />}{error && <p>{error}</p>}{error && selectedKey && <button className="primary-button" onClick={refreshProject}>Try again</button>}</div>;
 
   const acceptProjectData = (next: KanbanData, request: SelectionRequest) => { if (guard.current.accepts(request, next.project.key)) setData(next); };
+  const projectWarnings = data.warnings.filter((warning) => warning.task_id === undefined && warning.code !== 'STATUS_STALE');
 
   return <main className="app-shell">
     <header className="topbar" ref={topbar}>
@@ -150,7 +152,7 @@ export function App() {
         <button className="refresh-button" onClick={refreshProject} disabled={loading || mutationPending}><span aria-hidden="true">↻</span> {loading ? 'Refreshing…' : 'Refresh'}</button>
       </div>
     </header>
-    {data.warnings.map((warning) => <div className="warning-banner" role="status" key={`${warning.code}:${warning.message}`}>{warning.message}</div>)}
+    {projectWarnings.map((warning) => <div className="warning-banner" role="status" key={`${warning.code}:${warning.message}`}>{warning.message}</div>)}
     {error && <div className="error-banner" role="alert">Refresh failed: {error}</div>}
     <section className="summary-panel">
       <button type="button" className="panel-toggle" aria-expanded={!panelPreferences.summaryCollapsed} aria-controls="summary-grid" onClick={() => togglePanel('summaryCollapsed')}>
@@ -160,7 +162,7 @@ export function App() {
         <div className="summary-collapse-inner">
           <div className="summary-grid" id="summary-grid" role="group" aria-label="Project summary">
             <Metric label="Total tasks" value={data.summary.tasks.total} detail={`${data.summary.tasks.actionable} actionable`} />
-            <Metric label="Blocked" value={data.summary.tasks.blocked} detail="dependency or explicit" tone={data.summary.tasks.blocked ? 'warn' : 'good'} />
+            <Metric label="Blocked" value={data.summary.tasks.blocked} detail="execution, dependency, or explicit" tone={data.summary.tasks.blocked ? 'warn' : 'good'} />
             <Metric label="Success verified" value={`${data.summary.success.verified}/${data.summary.success.total}`} detail={`${data.summary.success.covered} covered`} />
             <Metric label="Owner gaps" value={data.summary.owner_gaps} detail="tasks need an owner" tone={data.summary.owner_gaps ? 'warn' : 'good'} />
             <Metric label="Target" value={data.project.target_date ?? 'Unknown'} detail={data.project.current_milestone ?? 'No active milestone'} compact />
@@ -200,7 +202,7 @@ export function App() {
 
 function ProjectSelect({ catalog, selectedKey, disabled, onChange }: { catalog: ProjectCatalogData; selectedKey: string | null; disabled: boolean; onChange: (key: string) => void }) { return <label className="project-selector"><span>Project</span><select aria-label="Select project" value={selectedKey ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{catalog.projects.map((project) => <option value={project.key} key={project.key}>{project.name} · {project.id}</option>)}</select></label>; }
 function Metric({ label, value, detail, tone, compact }: { label: string; value: string | number; detail: string; tone?: 'warn' | 'good'; compact?: boolean }) { return <article className={`metric ${tone ? `metric--${tone}` : ''}`}><span>{label}</span><strong className={compact ? 'metric-compact' : ''}>{value}</strong><small>{detail}</small></article>; }
-function TaskCard({ task, onOpen }: { task: KanbanTask; onOpen: (opener: HTMLElement) => void }) { const blocked = task.blocked_by.length + task.dependency_blockers.length; return <button className={`task-card ${task.next_rank ? 'task-card--next' : ''}`} onClick={(event) => onOpen(event.currentTarget)}>
+function TaskCard({ task, onOpen }: { task: KanbanTask; onOpen: (opener: HTMLElement) => void }) { const blocked = task.blocked_by.length + task.dependency_blockers.length + Number(task.execution_issue && !['done', 'cancelled'].includes(task.display_status)); return <button className={`task-card ${task.next_rank ? 'task-card--next' : ''}`} onClick={(event) => onOpen(event.currentTarget)}>
   <div className="task-card-top"><span className="task-id">{task.id}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span></div>
   <h3>{task.title}</h3><p>{task.outcome}</p>
   <div className="task-badges"><span className={`state state--${task.display_status}`}>{task.display_status.replaceAll('_', ' ')}</span>{task.critical && <span className="critical-chip">Critical</span>}{blocked > 0 && <span className="blocked-chip">{blocked} blocked</span>}{task.next_rank && <span className="next-chip">Next #{task.next_rank}</span>}</div>

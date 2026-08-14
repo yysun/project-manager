@@ -10,6 +10,7 @@ import { ProjectCatalog, ProjectCatalogError } from './project-catalog.js';
 const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
 const SESSION_COOKIE = 'pm_studio_session';
 const HEARTBEAT_HEADER = 'x-project-manager-studio';
+const STUDIO_PROJECT_OPTIONS = { taskErrorsAsWarnings: true };
 
 function cookies(header: string | undefined): Record<string, string> {
   return Object.fromEntries((header ?? '').split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
@@ -63,7 +64,7 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
 
   function loadProject(key: unknown): KanbanData {
     const entry = options.catalog.resolve(key);
-    return options.catalog.decorate(entry.key, loadRevisionedProject(entry.root).data);
+    return options.catalog.decorate(entry.key, loadRevisionedProject(entry.root, 3, STUDIO_PROJECT_OPTIONS).data);
   }
 
   api.get('/projects', (_req, res) => {
@@ -85,7 +86,7 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
   api.post('/tasks/:taskId/check', (req, res) => {
     try {
       const request = editRequest(req.body); const entry = options.catalog.resolve(request.projectKey);
-      res.json({ ok: true, data: checkTaskEdit(entry.root, String(req.params.taskId), request.edit) });
+      res.json({ ok: true, data: checkTaskEdit(entry.root, String(req.params.taskId), request.edit, { projectOptions: STUDIO_PROJECT_OPTIONS }) });
     }
     catch (error) { const result = apiError(error); res.status(result.status).json(result.body); }
   });
@@ -101,7 +102,7 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
       const request = editRequest(req.body);
       const data = await enqueue(() => {
         const entry = options.catalog.resolve(request.projectKey);
-        return options.catalog.decorate(entry.key, saveTaskEdit(entry.root, String(req.params.taskId), request.edit));
+        return options.catalog.decorate(entry.key, saveTaskEdit(entry.root, String(req.params.taskId), request.edit, { projectOptions: STUDIO_PROJECT_OPTIONS }));
       });
       res.json({ ok: true, data });
     } catch (error) { const result = apiError(error); res.status(result.status).json(result.body); }

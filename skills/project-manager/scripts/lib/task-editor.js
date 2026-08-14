@@ -103,12 +103,12 @@ function transformTaskDocument(text, taskId, edit, date, observedAt = null) {
   return output;
 }
 
-function loadRevisionedProject(root, attempts = 3) {
+function loadRevisionedProject(root, attempts = 3, options = {}) {
   let transient = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const before = mutationRevision(root);
-      const state = loadProject(root);
+      const state = loadProject(root, options);
       const data = kanbanData(state, before);
       const after = mutationRevision(root);
       if (before === after) return { state, data, mutation_revision: after };
@@ -156,17 +156,18 @@ function validateEnvelope(snapshot, taskId, request) {
   return task;
 }
 
-function applyCandidateEdit(candidate, logicalRoot, taskId, request) {
+function applyCandidateEdit(candidate, logicalRoot, taskId, request, projectOptions = {}) {
   const tasksPath = path.join(candidate, 'TASKS.md');
   const observedAt = new Date().toISOString();
   const date = observedAt.slice(0, 10);
   fs.writeFileSync(tasksPath, transformTaskDocument(fs.readFileSync(tasksPath, 'utf8'), taskId, request.edit, date, observedAt));
-  regenerateStatus(candidate, observedAt, { logicalRoot });
-  return loadProject(candidate, { logicalRoot });
+  regenerateStatus(candidate, observedAt, { ...projectOptions, logicalRoot });
+  return loadProject(candidate, { ...projectOptions, logicalRoot });
 }
 
-function checkTaskEdit(root, taskId, request) {
-  const snapshot = loadRevisionedProject(root);
+function checkTaskEdit(root, taskId, request, options = {}) {
+  const projectOptions = options.projectOptions ?? {};
+  const snapshot = loadRevisionedProject(root, 3, projectOptions);
   validateEnvelope(snapshot, taskId, request);
   const canonicalRoot = snapshot.state.root;
   const parent = path.dirname(canonicalRoot); const name = path.basename(canonicalRoot);
@@ -175,7 +176,7 @@ function checkTaskEdit(root, taskId, request) {
   try {
     fs.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
     if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError('MUTATION_CONFLICT', 'Candidate copy did not match the loaded project', { currentRevision: mutationRevision(canonicalRoot) });
-    const state = applyCandidateEdit(candidate, canonicalRoot, taskId, request);
+    const state = applyCandidateEdit(candidate, canonicalRoot, taskId, request, projectOptions);
     const task = state.tasks.find((item) => item.id === taskId);
     return { valid: true, task: kanbanData(state).tasks.find((item) => item.id === task.id) };
   } finally {
@@ -184,14 +185,16 @@ function checkTaskEdit(root, taskId, request) {
 }
 
 function saveTaskEdit(root, taskId, request, options = {}) {
-  const snapshot = loadRevisionedProject(root);
+  const projectOptions = options.projectOptions ?? {};
+  const loadForMutation = (folder, context = {}) => loadProject(folder, { ...projectOptions, ...context });
+  const snapshot = loadRevisionedProject(root, 3, projectOptions);
   validateEnvelope(snapshot, taskId, request);
   const canonicalRoot = snapshot.state.root;
   try {
     atomicProjectMutation(canonicalRoot, (candidate, context) => {
-      applyCandidateEdit(candidate, context.logicalRoot, taskId, request);
-    }, loadProject, {
-      validateLive: loadProject,
+      applyCandidateEdit(candidate, context.logicalRoot, taskId, request, projectOptions);
+    }, loadForMutation, {
+      validateLive: loadForMutation,
       expectedMutationRevision: request.mutationRevision,
       injectFailureAfterReplace: options.injectFailureAfterReplace,
       injectRollbackFailure: options.injectRollbackFailure,
@@ -200,7 +203,7 @@ function saveTaskEdit(root, taskId, request, options = {}) {
     if (error instanceof MutationConflictError) throw new TaskEditError('MUTATION_CONFLICT', error.message, { currentRevision: error.currentRevision });
     throw error;
   }
-  return loadRevisionedProject(canonicalRoot).data;
+  return loadRevisionedProject(canonicalRoot, 3, projectOptions).data;
 }
 
 module.exports = {

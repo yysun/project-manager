@@ -10,6 +10,19 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [1.5.2] — 2026-08-13
+
+### Fixed
+
+- Studio now opens every safely identified project even when a task has invalid execution state. Affected tasks
+  remain visible with task-scoped warnings, unrelated planning edits continue to work, and execution plus standard
+  validation commands remain strict.
+- Timeline bars preserve lifecycle colors without severity borders. Amber and red dots mark planning or execution
+  issues, while task details explain the issue and distinguish dependency tasks, free-text blocker notes, and
+  schedule conflicts.
+- Task warnings no longer repeat as page-level banners. Technical diagnostics, including stale `STATUS.md` state,
+  remain available through the API and validation output.
+
 ## [1.5.1] — 2026-08-13
 
 ### Fixed
@@ -176,6 +189,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.5.2]: https://github.com/yysun/project-manager/releases/tag/v1.5.2
 [1.5.1]: https://github.com/yysun/project-manager/releases/tag/v1.5.1
 [1.5.0]: https://github.com/yysun/project-manager/releases/tag/v1.5.0
 [1.4.0]: https://github.com/yysun/project-manager/releases/tag/v1.4.0
