@@ -35,7 +35,7 @@ intents and explicit escape hatches, not the product interaction model:
 1. `project init <folder> <objective-or-source>` — create the minimal three-file project atomically. Read [init.md](references/init.md).
 2. `project plan <folder>` — clarify success, decompose outcomes, and establish dependencies. Read [plan.md](references/plan.md).
 3. `project update <folder> <change-or-evidence>` — add/update a task, change disposition, issue a Task Contract, complete eligible human work, or ingest evidence. Read [track.md](references/track.md); for task structure also read [tasks.md](references/tasks.md).
-4. `project status <folder>` — calculate current facts with `project-status.js`.
+4. `project status <folder>` — show the MCP App status view when the user asks to show, display, or open status; otherwise calculate current facts with `project-status.js`.
 5. `project next <folder>` — rank executable work with `project-next.js`.
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
 7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage. Read [review.md](references/review.md).
@@ -45,6 +45,14 @@ intents and explicit escape hatches, not the product interaction model:
    an explicit folder is isolated, while no folder uses selectable direct children of `.projects`.
 
 For source or scope changes, read [impact.md](references/impact.md). For exact schemas, lifecycle rules, and output contracts, read [conventions.md](references/conventions.md).
+
+## Render plugin views
+
+When the Project Manager MCP tools are available, treat display intent as an explicit UI request:
+
+- For “show status”, “display status”, “open status”, or an equivalent request, call `pm_project_status` once. Its tool metadata attaches the status card. Do not substitute `project-status.js` or call both routes.
+- For “show the board”, “open the board”, or an equivalent request, call `pm_open_board` once. Its tool metadata attaches the full board. Do not substitute Studio or a board-audience report.
+- Use the deterministic status scripts for fact-only analysis, reports, reviews, and any workflow that needs their JSON. If the required MCP tool is unavailable or fails, fall back to the scripts and say that the interactive view was unavailable.
 
 ## Load state safely
 

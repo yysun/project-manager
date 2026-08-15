@@ -1,16 +1,13 @@
-/* Agent Plugins 1.0 package: the standard's fixed root layout, manifest fields
-   and constraints checked offline against the published spec's rules, and the
-   exclusion of repository sources from what users install. */
+/* Agent Plugins 1.0 package: the repository root is the installable plugin and
+   uses the standard's fixed layout and manifest constraints. */
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const pkg = path.resolve(__dirname, '../../dist/plugin');
-const codexPkg = path.resolve(__dirname, '../../dist/codex-plugin/project-manager');
+const pkg = path.resolve(__dirname, '../..');
 const read = (file) => JSON.parse(fs.readFileSync(path.join(pkg, file), 'utf-8'));
-const readCodex = (file) => JSON.parse(fs.readFileSync(path.join(codexPkg, file), 'utf-8'));
 
 test('the package uses the standard fixed root layout', () => {
   for (const entry of ['plugin.json', 'mcp.json', 'skills', 'bin', 'ui']) {
@@ -62,50 +59,21 @@ test('both views ship with the package', () => {
   }
 });
 
+test('the packaged skill routes display requests through the UI-bearing MCP tools', () => {
+  const skill = fs.readFileSync(path.join(pkg, 'skills/project-manager/SKILL.md'), 'utf-8');
+  assert.match(skill, /call `pm_project_status` once/);
+  assert.match(skill, /call `pm_open_board` once/);
+  assert.match(skill, /Do not substitute `project-status\.js` or call both routes/);
+  assert.match(skill, /If the required MCP tool is unavailable or fails, fall back to the scripts/);
+});
+
 test('compiled MCP artifacts stay outside the skill runtime', () => {
   assert.equal(fs.existsSync(path.join(pkg, 'skills/project-manager/scripts/project-manager-mcp.js')), false);
   assert.equal(fs.existsSync(path.join(pkg, 'skills/project-manager/mcp-app')), false);
 });
 
-test('repository sources and tests are excluded from what users install', () => {
-  for (const excluded of [
-    'src',
-    'node_modules',
-    'package.json',
-    'tsconfig.json',
-    '.codex-plugin',
-    '.mcp.json',
-    'skills/project-manager/tests',
-    'skills/project-manager/README.md',
-    'skills/project-manager/README-cn.md',
-    'skills/project-manager/assets/project-manager-ai-employee-en.png',
-    'skills/project-manager/assets/project-manager-ai-employee-zh-cn.png',
-  ]) {
-    assert.equal(fs.existsSync(path.join(pkg, excluded)), false, `${excluded} must not ship`);
-  }
-});
-
-test('the Codex distribution wraps the same runtime without polluting the portable package', () => {
-  assert.ok(fs.existsSync(path.join(codexPkg, '.codex-plugin/plugin.json')));
-  assert.ok(fs.existsSync(path.join(codexPkg, '.mcp.json')));
-  assert.ok(fs.existsSync(path.join(codexPkg, 'skills/project-manager/SKILL.md')));
-  assert.ok(fs.existsSync(path.join(codexPkg, 'bin/project-manager-mcp.mjs')));
-  assert.equal(fs.existsSync(path.join(codexPkg, 'plugin.json')), false);
-  assert.equal(fs.existsSync(path.join(codexPkg, 'mcp.json')), false);
-  assert.equal(fs.existsSync(path.join(pkg, '.codex-plugin')), false);
-  assert.equal(fs.existsSync(path.join(pkg, '.mcp.json')), false);
-});
-
-test('the Codex MCP launcher uses package-relative paths', () => {
-  const servers = Object.values(readCodex('.mcp.json').mcpServers);
-  assert.equal(servers.length, 1);
-  const [server] = servers;
-  assert.equal(server.command, 'node');
-  assert.deepEqual(server.args, ['./bin/project-manager-mcp.mjs']);
-  assert.equal(server.cwd, '.');
-  assert.doesNotMatch(JSON.stringify(server), /\$\{PLUGIN_ROOT\}/);
-
-  const entry = path.resolve(codexPkg, server.cwd, server.args[0]);
-  assert.ok(entry.startsWith(`${codexPkg}${path.sep}`), 'the entry point must stay inside the Codex package');
-  assert.ok(fs.existsSync(entry), `${path.relative(codexPkg, entry)} must ship in the Codex package`);
+test('no generated package directory duplicates the root plugin', () => {
+  assert.equal(fs.existsSync(path.join(pkg, 'dist')), false);
+  assert.equal(fs.existsSync(path.join(pkg, 'plugins')), false);
+  assert.equal(fs.existsSync(path.join(pkg, '.agents/plugins/marketplace.json')), false);
 });

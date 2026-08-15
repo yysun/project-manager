@@ -99,27 +99,22 @@ instead of a view.
 
 ### Install as an Agent Plugin
 
-`npm run build:plugin` produces `dist/plugin/`, a self-contained
-[Agent Plugins 1.0](https://agent-plugins.org/) package. Point a conformant client at that directory.
+The repository root is a self-contained [Agent Plugins 1.0](https://agent-plugins.org/) package.
+An Agent Plugins client that supports GitHub installation can clone `yysun/project-manager` and load
+the repository root without selecting a generated subdirectory.
 
 ```text
-dist/plugin/
+project-manager/
 ├── plugin.json
 ├── mcp.json
-├── skills/project-manager/       # runtime skill only
+├── skills/project-manager/       # canonical skill
 ├── bin/project-manager-mcp.mjs   # bundled MCP server
 └── ui/                           # self-contained MCP App views
 ```
 
-Source, tests, TypeScript, React modules, and build tooling stay in the repository. The installed
-package contains runtime artifacts only.
-
-### Install in Codex
-
-`npm run build:codex-plugin` keeps the portable package unchanged and writes the Codex-specific
-distribution to `dist/codex-plugin/project-manager/`. Install that directory through a local Codex
-marketplace. Do not also keep the standalone `~/.agents/skills/project-manager/` installation enabled;
-both distributions declare the same `project-manager` skill.
+`npm run build:plugin` refreshes the committed `bin/` and `ui/` runtime artifacts in place. Source,
+tests, and build tooling may coexist with the portable components; Agent Plugins clients discover
+only the fixed root manifest, `skills/`, and `mcp.json` locations.
 
 ### Install in Claude Desktop
 
@@ -131,7 +126,7 @@ Claude Desktop does not read Agent Plugins packages, so add the server to
   "mcpServers": {
     "project-manager": {
       "command": "node",
-      "args": ["/absolute/path/to/dist/plugin/bin/project-manager-mcp.mjs"]
+      "args": ["/absolute/path/to/project-manager/bin/project-manager-mcp.mjs"]
     }
   }
 }
@@ -158,7 +153,7 @@ parse as a project, never arbitrary files. Set a projects root if you want that 
 
 In your AI agent app, ask:
 
-> Install the `project-manager` skill from `yysun/project-manager`.
+> Install the Project Manager plugin from GitHub `yysun/project-manager`.
 
 ## Development
 

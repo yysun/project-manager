@@ -18,13 +18,13 @@ project written by an older release keeps loading unchanged; no release has requ
   status card and a fullscreen board rendered inside supporting hosts. Model-facing tools return a
   compact summary; the full project payload travels only over app-only tools, keeping task
   collections out of model context.
-- Agent Plugins 1.0 package built to `dist/plugin/`, carrying the runtime skill, bundled MCP server,
-  self-contained MCP App views, and portable manifests without client-specific packaging metadata.
+- Root-native Agent Plugins 1.0 package carrying the canonical skill, bundled MCP server,
+  self-contained MCP App views, and portable manifests without a generated package directory.
 - Source and distribution boundaries restructured around the plugin: MCP server code lives in
   `src/mcp-app/`, the MCP App adapter lives with Studio in `src/project-manager-studio/mcp-app/`, and
   generated MCP artifacts no longer pollute the installable skill source.
-- A separate `dist/codex-plugin/project-manager/` build adds Codex manifests without mixing
-  client-specific metadata into the portable Agent Plugins package.
+- GitHub installation now targets the repository root directly; generated `dist/plugin/`,
+  `plugins/project-manager/`, and repository-local Codex marketplace copies were removed.
 - MCP App project selection by the agent: model-facing tools accept a project folder path as well as
   a configured ID or name, and the server starts with no project arguments, so no absolute path has
   to be written into host configuration. This matches how the skill already drives the CLI scripts,

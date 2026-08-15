@@ -6,8 +6,8 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { makeProject } = require('../project-manager-studio/_helpers');
 
-const builtServerPath = path.resolve(__dirname, '../../dist/plugin/bin/project-manager-mcp.mjs');
-const viewDir = path.resolve(__dirname, '../../dist/plugin/ui');
+const builtServerPath = path.resolve(__dirname, '../../bin/project-manager-mcp.mjs');
+const viewDir = path.resolve(__dirname, '../../ui');
 
 function loadBuiltServer() {
   return import(pathToFileURL(builtServerPath).href);
