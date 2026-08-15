@@ -10,6 +10,7 @@ const path = require('node:path');
 const pkg = path.resolve(__dirname, '../../dist/plugin');
 const codexPkg = path.resolve(__dirname, '../../dist/codex-plugin/project-manager');
 const read = (file) => JSON.parse(fs.readFileSync(path.join(pkg, file), 'utf-8'));
+const readCodex = (file) => JSON.parse(fs.readFileSync(path.join(codexPkg, file), 'utf-8'));
 
 test('the package uses the standard fixed root layout', () => {
   for (const entry of ['plugin.json', 'mcp.json', 'skills', 'bin', 'ui']) {
@@ -93,4 +94,18 @@ test('the Codex distribution wraps the same runtime without polluting the portab
   assert.equal(fs.existsSync(path.join(codexPkg, 'mcp.json')), false);
   assert.equal(fs.existsSync(path.join(pkg, '.codex-plugin')), false);
   assert.equal(fs.existsSync(path.join(pkg, '.mcp.json')), false);
+});
+
+test('the Codex MCP launcher uses package-relative paths', () => {
+  const servers = Object.values(readCodex('.mcp.json').mcpServers);
+  assert.equal(servers.length, 1);
+  const [server] = servers;
+  assert.equal(server.command, 'node');
+  assert.deepEqual(server.args, ['./bin/project-manager-mcp.mjs']);
+  assert.equal(server.cwd, '.');
+  assert.doesNotMatch(JSON.stringify(server), /\$\{PLUGIN_ROOT\}/);
+
+  const entry = path.resolve(codexPkg, server.cwd, server.args[0]);
+  assert.ok(entry.startsWith(`${codexPkg}${path.sep}`), 'the entry point must stay inside the Codex package');
+  assert.ok(fs.existsSync(entry), `${path.relative(codexPkg, entry)} must ship in the Codex package`);
 });
