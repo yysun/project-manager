@@ -99,8 +99,27 @@ instead of a view.
 
 ### Install as an Agent Plugin
 
-`npm run build` produces `dist/agent-plugin/`, an [Agent Plugins 1.0](https://agent-plugins.org/)
-package carrying both the skill and the MCP server. Point a conformant client at that directory.
+`npm run build:plugin` produces `dist/plugin/`, a self-contained
+[Agent Plugins 1.0](https://agent-plugins.org/) package. Point a conformant client at that directory.
+
+```text
+dist/plugin/
+├── plugin.json
+├── mcp.json
+├── skills/project-manager/       # runtime skill only
+├── bin/project-manager-mcp.mjs   # bundled MCP server
+└── ui/                           # self-contained MCP App views
+```
+
+Source, tests, TypeScript, React modules, and build tooling stay in the repository. The installed
+package contains runtime artifacts only.
+
+### Install in Codex
+
+`npm run build:codex-plugin` keeps the portable package unchanged and writes the Codex-specific
+distribution to `dist/codex-plugin/project-manager/`. Install that directory through a local Codex
+marketplace. Do not also keep the standalone `~/.agents/skills/project-manager/` installation enabled;
+both distributions declare the same `project-manager` skill.
 
 ### Install in Claude Desktop
 
@@ -112,7 +131,7 @@ Claude Desktop does not read Agent Plugins packages, so add the server to
   "mcpServers": {
     "project-manager": {
       "command": "node",
-      "args": ["/absolute/path/to/skills/project-manager/scripts/project-manager-mcp.js"]
+      "args": ["/absolute/path/to/dist/plugin/bin/project-manager-mcp.mjs"]
     }
   }
 }
@@ -167,7 +186,9 @@ That writes `demo/pm-studio-demo/` (gitignored), which you can then pass with
 `npm run pm-studio:dev -- --project demo/pm-studio-demo`.
 
 The installable skill is in `skills/project-manager/` and Studio source is in
-`src/project-manager-studio/`.
+`src/project-manager-studio/`. The MCP server is isolated in `src/mcp-app/`; the MCP App adapter and views
+live beside the shared Studio code in `src/project-manager-studio/mcp-app/`. Portable manifests stay
+at the repository root.
 
 ## Technical documentation
 

@@ -5,7 +5,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useDisplayMode, useProjectHost } from '../host.js';
-import type { ProjectSummary } from '../../server/project-reads.js';
+import type { ProjectSummary } from '../../../mcp-app/tools/project-reads.js';
 import '../theme.css';
 import './status.css';
 

@@ -1,6 +1,12 @@
 # Repository Instructions
 
-## Installation sync
+## Plugin installation sync
 
-- After any edit that affects the installable skill in `skills/project-manager/`, always sync that directory to the global installation at `~/.agents/skills/project-manager/` before considering the work complete.
-- Sync the complete installable directory, not only the files edited, so removed and generated files do not leave the global installation stale.
+- The Codex plugin is the active installation. Do not recreate the standalone
+  `~/.agents/skills/project-manager/` copy while the plugin is installed; duplicate skill identities
+  have undefined precedence.
+- After an edit that affects `skills/project-manager/`, rebuild the Codex package, sync the complete
+  `dist/codex-plugin/project-manager/` directory to `~/plugins/project-manager/`, update its cachebuster,
+  and reinstall it from the personal marketplace before considering the work complete.
+- Sync complete directories, not only edited files, so removed and generated files do not leave the
+  installed plugin stale.

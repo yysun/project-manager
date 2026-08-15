@@ -7,11 +7,12 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const pkg = path.resolve(__dirname, '../../dist/agent-plugin');
+const pkg = path.resolve(__dirname, '../../dist/plugin');
+const codexPkg = path.resolve(__dirname, '../../dist/codex-plugin/project-manager');
 const read = (file) => JSON.parse(fs.readFileSync(path.join(pkg, file), 'utf-8'));
 
 test('the package uses the standard fixed root layout', () => {
-  for (const entry of ['plugin.json', 'mcp.json', 'skills']) {
+  for (const entry of ['plugin.json', 'mcp.json', 'skills', 'bin', 'ui']) {
     assert.ok(fs.existsSync(path.join(pkg, entry)), `${entry} must sit at the plugin root`);
   }
   // Skills are discovered as immediate child directories containing SKILL.md.
@@ -56,12 +57,40 @@ test('the declared server entry point exists inside the package', () => {
 
 test('both views ship with the package', () => {
   for (const view of ['status.html', 'board.html']) {
-    assert.ok(fs.existsSync(path.join(pkg, 'skills/project-manager/mcp-app', view)), `${view} must ship`);
+    assert.ok(fs.existsSync(path.join(pkg, 'ui', view)), `${view} must ship`);
   }
 });
 
+test('compiled MCP artifacts stay outside the skill runtime', () => {
+  assert.equal(fs.existsSync(path.join(pkg, 'skills/project-manager/scripts/project-manager-mcp.js')), false);
+  assert.equal(fs.existsSync(path.join(pkg, 'skills/project-manager/mcp-app')), false);
+});
+
 test('repository sources and tests are excluded from what users install', () => {
-  for (const excluded of ['src', 'node_modules', 'package.json', 'tsconfig.json', 'skills/project-manager/tests']) {
+  for (const excluded of [
+    'src',
+    'node_modules',
+    'package.json',
+    'tsconfig.json',
+    '.codex-plugin',
+    '.mcp.json',
+    'skills/project-manager/tests',
+    'skills/project-manager/README.md',
+    'skills/project-manager/README-cn.md',
+    'skills/project-manager/assets/project-manager-ai-employee-en.png',
+    'skills/project-manager/assets/project-manager-ai-employee-zh-cn.png',
+  ]) {
     assert.equal(fs.existsSync(path.join(pkg, excluded)), false, `${excluded} must not ship`);
   }
+});
+
+test('the Codex distribution wraps the same runtime without polluting the portable package', () => {
+  assert.ok(fs.existsSync(path.join(codexPkg, '.codex-plugin/plugin.json')));
+  assert.ok(fs.existsSync(path.join(codexPkg, '.mcp.json')));
+  assert.ok(fs.existsSync(path.join(codexPkg, 'skills/project-manager/SKILL.md')));
+  assert.ok(fs.existsSync(path.join(codexPkg, 'bin/project-manager-mcp.mjs')));
+  assert.equal(fs.existsSync(path.join(codexPkg, 'plugin.json')), false);
+  assert.equal(fs.existsSync(path.join(codexPkg, 'mcp.json')), false);
+  assert.equal(fs.existsSync(path.join(pkg, '.codex-plugin')), false);
+  assert.equal(fs.existsSync(path.join(pkg, '.mcp.json')), false);
 });

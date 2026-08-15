@@ -5,7 +5,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useProject, useProjectHost } from '../host.js';
-import type { KanbanData, KanbanTask } from '../../../project-manager-studio/shared/api.js';
+import type { KanbanData, KanbanTask } from '../../shared/api.js';
 import '../theme.css';
 import './board.css';
 

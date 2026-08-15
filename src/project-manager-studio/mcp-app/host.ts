@@ -5,8 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { App } from '@modelcontextprotocol/ext-apps';
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react';
-import type { KanbanData, ProjectCatalogData } from '../../project-manager-studio/shared/api.js';
-import type { ProjectSummary } from '../server/project-reads.js';
+import type { KanbanData, ProjectCatalogData } from '../shared/api.js';
+import type { ProjectSummary } from '../../mcp-app/tools/project-reads.js';
 
 const APP_INFO = { name: 'Project Manager', version: '1.0.0' };
 // Inline and fullscreen only. Picture-in-picture would need change polling to

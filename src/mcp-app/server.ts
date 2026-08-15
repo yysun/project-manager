@@ -4,20 +4,20 @@
 // HTML resources for the inline status card and the fullscreen board.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
-import type { ProjectCatalog } from '../../project-manager-studio/server/project-catalog.js';
-import { getProject, listProjects, projectSummary, resolveProjectKey, summaryText } from './project-reads.js';
+import type { ProjectCatalog } from '../project-manager-studio/server/project-catalog.js';
+import { getProject, listProjects, projectSummary, resolveProjectKey, summaryText } from './tools/project-reads.js';
 
 export const STATUS_URI = 'ui://project-manager/status.html';
 export const BOARD_URI = 'ui://project-manager/board.html';
 
-/** Views are built by vite into the packaged skill; the server only reads them.
- *  Resolved relative to the bundled server at `skills/project-manager/scripts/`,
- *  which is the only form that ships. Tests pass `viewDir` explicitly. */
-export const DEFAULT_VIEW_DIR = path.resolve(__dirname, '..', 'mcp-app');
+/** Views are built beside the bundled server in the Agent Plugin package.
+ *  The source server is never launched directly; tests pass `viewDir` explicitly. */
+export const DEFAULT_VIEW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui');
 
 export interface McpAppServerOptions {
   catalog: ProjectCatalog;

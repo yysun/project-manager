@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "project-manager": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/bin/project-manager-mcp.mjs"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

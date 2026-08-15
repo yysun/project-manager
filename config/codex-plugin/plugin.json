@@ -1,0 +1,41 @@
+{
+  "name": "project-manager",
+  "version": "1.7.0",
+  "description": "An AI project manager you work with through conversation, with project views rendered inside Codex.",
+  "author": {
+    "name": "YY Sun",
+    "url": "https://github.com/yysun"
+  },
+  "homepage": "https://github.com/yysun/project-manager",
+  "repository": "https://github.com/yysun/project-manager",
+  "license": "MIT",
+  "keywords": [
+    "project-management",
+    "planning",
+    "tasks",
+    "kanban",
+    "mcp-app"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Project Manager",
+    "shortDescription": "Plan, execute, track, and review projects",
+    "longDescription": "Manage durable folder-native projects through conversation. Project Manager coordinates plans, dependencies, execution, evidence, and reporting, while its MCP App renders project status and the board inside Codex.",
+    "developerName": "YY Sun",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/yysun/project-manager",
+    "defaultPrompt": [
+      "Show the status of this project",
+      "Open the project board",
+      "Tell me what is blocked and what should move next"
+    ],
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}

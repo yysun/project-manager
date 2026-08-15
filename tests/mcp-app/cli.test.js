@@ -8,9 +8,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { builtServerPath, makeProject } = require('./_helpers');
+const { builtServerPath, loadBuiltServer, makeProject } = require('./_helpers');
 
-const { parseArgs, resolveProjectsRoot, buildCatalog } = require(builtServerPath);
+let parseArgs; let resolveProjectsRoot; let buildCatalog;
+test.before(async () => {
+  ({ parseArgs, resolveProjectsRoot, buildCatalog } = await loadBuiltServer());
+});
 
 /** A projects root holding one generated project, as a catalog launch expects. */
 function makeProjectsRoot() {

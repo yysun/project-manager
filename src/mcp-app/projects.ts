@@ -9,9 +9,9 @@
 // the way it already does for every CLI script.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ProjectCatalog, ProjectCatalogError, type ProjectSeed } from '../../project-manager-studio/server/project-catalog.js';
+import { ProjectCatalog, ProjectCatalogError, type ProjectSeed } from '../project-manager-studio/server/project-catalog.js';
 
-const { loadProjectIdentity, loadProjectCatalogRoot } = require('../../../skills/project-manager/scripts/lib/project-state.js');
+const { loadProjectIdentity, loadProjectCatalogRoot } = require('../../skills/project-manager/scripts/lib/project-state.js');
 
 export const PROJECTS_ROOT_ENV = 'PROJECT_MANAGER_PROJECTS_ROOT';
 export const DEFAULT_PROJECTS_ROOT = '.projects';

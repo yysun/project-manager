@@ -3,10 +3,15 @@
    and resource contents are observed through the protocol rather than internals. */
 'use strict';
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { makeProject } = require('../project-manager-studio/_helpers');
 
-const builtServerPath = path.resolve(__dirname, '../../skills/project-manager/scripts/project-manager-mcp.js');
-const viewDir = path.resolve(__dirname, '../../skills/project-manager/mcp-app');
+const builtServerPath = path.resolve(__dirname, '../../dist/plugin/bin/project-manager-mcp.mjs');
+const viewDir = path.resolve(__dirname, '../../dist/plugin/ui');
+
+function loadBuiltServer() {
+  return import(pathToFileURL(builtServerPath).href);
+}
 
 /**
  * Connect an MCP client to the packaged server.
@@ -18,7 +23,7 @@ const viewDir = path.resolve(__dirname, '../../skills/project-manager/mcp-app');
 async function connect({ projectRoot = null, projectsRoot = null, configured = true } = {}) {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
-  const { buildCatalog, createServer } = require(builtServerPath);
+  const { buildCatalog, createServer } = await loadBuiltServer();
 
   const root = projectRoot ?? makeProject();
   const selection = projectsRoot ? { projectsRoot } : configured ? { project: root } : {};
@@ -44,4 +49,4 @@ function text(result) {
   return (result.content ?? []).filter((item) => item.type === 'text').map((item) => item.text).join('\n');
 }
 
-module.exports = { builtServerPath, viewDir, connect, text, makeProject };
+module.exports = { builtServerPath, viewDir, loadBuiltServer, connect, text, makeProject };

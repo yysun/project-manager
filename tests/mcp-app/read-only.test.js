@@ -9,7 +9,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { connect } = require('./_helpers');
 
-const appRoot = path.resolve(__dirname, '../../src/mcp-app');
+const serverRoot = path.resolve(__dirname, '../../src/mcp-app');
+const appRoot = path.resolve(__dirname, '../../src/project-manager-studio/mcp-app');
 const MUTATION_ENTRY_POINTS = ['saveTaskEdit', 'checkTaskEdit', 'regenerateStatus', 'atomicProjectMutation'];
 
 function sources(dir) {
@@ -22,7 +23,7 @@ function sources(dir) {
 
 test('no MCP App source references a mutation entry point', () => {
   const offenders = [];
-  for (const file of sources(appRoot)) {
+  for (const file of [...sources(serverRoot), ...sources(appRoot)]) {
     const text = fs.readFileSync(file, 'utf-8');
     for (const symbol of MUTATION_ENTRY_POINTS) {
       // Skip the comment that explains why the read path shares a module with writes.
@@ -33,9 +34,9 @@ test('no MCP App source references a mutation entry point', () => {
   assert.deepEqual(offenders, [], 'the MCP App must never reach a write path');
 });
 
-test('no MCP App client module imports from the Studio client', () => {
+test('the MCP App adapter does not import the standalone Studio client', () => {
   const offenders = [];
-  for (const file of sources(path.join(appRoot, 'client'))) {
+  for (const file of sources(appRoot)) {
     const text = fs.readFileSync(file, 'utf-8');
     if (/project-manager-studio\/client/.test(text)) offenders.push(path.relative(appRoot, file));
   }

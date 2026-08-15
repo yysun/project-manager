@@ -3,6 +3,8 @@
 // listener, no port, and no bind surface. stdout carries JSON-RPC framing only;
 // every diagnostic goes to stderr.
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { buildCatalog, PROJECTS_ROOT_ENV } from './projects.js';
 import { createServer } from './server.js';
 
@@ -42,7 +44,10 @@ export async function main(argv = process.argv.slice(2)) {
   return { server };
 }
 
-if (require.main === module) {
+const launchedDirectly = process.argv[1] !== undefined
+  && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+
+if (launchedDirectly) {
   main().catch((error) => {
     const code = error && typeof error === 'object' && 'code' in error ? `${String(error.code)}: ` : '';
     console.error(`${code}${error instanceof Error ? error.message : error}`);
