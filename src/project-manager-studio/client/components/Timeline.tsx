@@ -1,7 +1,7 @@
 // Project Manager Studio Timeline: range-sized weekly planning grid with a
 // shared app-header offset, synchronized dates, lifecycle-only bar fills,
-// task-local issue dots, and revision-safe schedule edits.
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
+// task-local issue dots, edit-safe auto-refresh barriers, and revision-safe saves.
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest } from '../../shared/api';
 import { barGeometry, datePercent, dayDiff, moveSchedule, pixelsToDays, rangeDays, resizeSchedule, sortTimelineTasks, timelineContentWidth, timelineRange, timelineScaleTicks, type DateRange } from '../timeline-model.mjs';
 import type { SelectionRequest } from '../selection-guard.mjs';
@@ -11,6 +11,7 @@ interface Props {
   tasks: KanbanTask[];
   stickyTop: number;
   onOpen: (task: KanbanTask, opener: HTMLElement) => void;
+  onDraftChange: (pending: boolean) => void;
   beginMutation: () => SelectionRequest | null;
   finishMutation: (request: SelectionRequest) => void;
   onSaved: (data: KanbanData, request: SelectionRequest) => void;
@@ -18,7 +19,7 @@ interface Props {
 interface Draft { taskId: string; start: string; end: string }
 interface Drag { task: KanbanTask; mode: 'move' | 'start' | 'end'; originX: number; width: number; start: string; end: string; moved: boolean }
 
-export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finishMutation, onSaved }: Props) {
+export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginMutation, finishMutation, onSaved }: Props) {
   const range = useMemo(() => timelineRange(data.tasks, data.project, data.milestones), [data]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,9 @@ export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finish
   const suppressClick = useRef(false);
 
   const ordered = useMemo(() => sortTimelineTasks(tasks), [tasks]);
+  useEffect(() => () => onDraftChange(false), [onDraftChange]);
+
+  function updateDraft(next: Draft | null) { onDraftChange(next !== null); setDraft(next); }
 
   function syncHeader(event: UIEvent<HTMLDivElement>) {
     if (headerScroll.current) headerScroll.current.scrollLeft = event.currentTarget.scrollLeft;
@@ -38,7 +42,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finish
     event.currentTarget.setPointerCapture(event.pointerId);
     const track = event.currentTarget.closest('.timeline-track') as HTMLElement | null;
     drag.current = { task, mode, originX: event.clientX, width: track?.getBoundingClientRect().width ?? 0, start: task.scheduled_start, end: task.scheduled_end, moved: false };
-    setDraft({ taskId: task.id, start: task.scheduled_start, end: task.scheduled_end });
+    updateDraft({ taskId: task.id, start: task.scheduled_start, end: task.scheduled_end });
     setError(null);
   }
 
@@ -48,7 +52,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finish
     const days = pixelsToDays(event.clientX - current.originX, current.width, rangeDays(range));
     current.moved ||= days !== 0;
     const next = current.mode === 'move' ? moveSchedule(current.start, current.end, days) : resizeSchedule(current.start, current.end, current.mode, days);
-    setDraft({ taskId: current.task.id, ...next });
+    updateDraft({ taskId: current.task.id, ...next });
   }
 
   function finish() {
@@ -63,7 +67,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finish
     const current = draft?.taskId === task.id ? { start: draft.start, end: draft.end } : { start: task.scheduled_start, end: task.scheduled_end };
     const days = event.key === 'ArrowLeft' ? -1 : 1;
     const next = mode === 'move' ? moveSchedule(current.start, current.end, days) : resizeSchedule(current.start, current.end, mode, days);
-    setDraft({ taskId: task.id, ...next });
+    updateDraft({ taskId: task.id, ...next });
   }
 
   async function saveDraft() {
@@ -78,13 +82,13 @@ export function Timeline({ data, tasks, stickyTop, onOpen, beginMutation, finish
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
       const body = await response.json();
       if (!response.ok) throw new Error((body.errors as ApiError[] | undefined)?.[0]?.message ?? 'Could not save schedule.');
-      setDraft(null); onSaved(body.data, operation);
+      updateDraft(null); onSaved(body.data, operation);
     } catch (value) { setError(value instanceof Error ? value.message : 'Could not save schedule.'); }
     finally { finishMutation(operation); setBusy(false); }
   }
 
   return <section className="timeline-panel" aria-label="Task timeline">
-    {draft && <div className="timeline-draft-actions" role="status"><span>{draft.start} → {draft.end}</span><button className="secondary-button" disabled={busy} onClick={() => { setDraft(null); setError(null); }}>Cancel</button><button className="primary-button" disabled={busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save schedule'}</button></div>}
+    {draft && <div className="timeline-draft-actions" role="status"><span>{draft.start} → {draft.end}</span><button className="secondary-button" disabled={busy} onClick={() => { updateDraft(null); setError(null); }}>Cancel</button><button className="primary-button" disabled={busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save schedule'}</button></div>}
     {error && <div className="error-banner" role="alert">Schedule save failed: {error}</div>}
     {!range ? <div className="timeline-no-range"><strong>No dated work yet</strong><p>Open a task to add its scheduled start and end. No dates are inferred.</p>{ordered.map((task) => <TimelineLabel key={task.id} task={task} onOpen={onOpen} />)}</div> : <>
       <div className="timeline-sticky-header" style={{ '--timeline-content-width': `${timelineContentWidth(range)}px`, top: stickyTop } as React.CSSProperties}>

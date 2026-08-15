@@ -210,6 +210,10 @@ hatch, but it is not required.
 Conversation is the primary management interface. Project Manager Studio is useful when you want to
 inspect the same project visually or adjust eligible planning details.
 
+Studio watches the selected project's durable state and refreshes automatically after changes made by
+the CLI, an agent, or another editor. It defers that refresh while a task dialog or Timeline schedule
+draft is open, then reconciles once editing is safe. Manual Refresh remains available for recovery.
+
 > Let me inspect this project in Project Manager Studio.
 
 From a workspace containing `.projects/`, you can also ask to choose among its projects.
@@ -345,8 +349,10 @@ Provide both the project start date and target date, then refresh Studio.
 
 ### Studio says the project changed
 
-Another process changed the project after Studio loaded it. Refresh and reconsider the edit against
-the latest facts instead of overwriting them.
+Another process changed the project after Studio loaded an edit form. Studio will normally refresh
+automatically once the form or schedule draft closes. If a save reports a revision conflict, close or
+cancel the stale draft, use Refresh if needed, and reconsider the edit against the latest facts instead
+of overwriting them.
 
 ## Learn more
 

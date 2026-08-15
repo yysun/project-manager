@@ -1,6 +1,6 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
-// guards, URL-addressable views, coherent filters, shared sticky view headers,
-// task-local execution warnings, restored preferences, and browser lease renewal.
+// guards, SSE auto refresh with edit barriers, URL-addressable views, coherent
+// filters, shared sticky headers, task warnings, preferences, and browser lease.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
@@ -8,6 +8,9 @@ import { Timeline } from './components/Timeline';
 import { createSelectionGuard, type SelectionRequest } from './selection-guard.mjs';
 import { readPanelPreferences, writePanelPreferences, type PanelPreferences } from './panel-preferences.mjs';
 import { startStudioHeartbeat } from './studio-heartbeat.mjs';
+import { startStudioEvents } from './studio-events.mjs';
+import { createAutoRefreshCoordinator, type AutoRefreshCommit } from './auto-refresh.mjs';
+import { fetchProjectSnapshot } from './project-fetch.mjs';
 
 type StudioView = 'kanban' | 'timeline';
 function viewFromUrl(): StudioView { return new URLSearchParams(window.location.search).get('view') === 'timeline' ? 'timeline' : 'kanban'; }
@@ -22,6 +25,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mutationPending, setMutationPending] = useState(false);
+  const [timelineDraftPending, setTimelineDraftPending] = useState(false);
   const [search, setSearch] = useState('');
   const [priority, setPriority] = useState<Priority | 'all'>('all');
   const [owner, setOwner] = useState('all');
@@ -33,14 +37,15 @@ export function App() {
 
   useEffect(() => startStudioHeartbeat(), []);
 
-  const loadProject = useCallback(async (request: SelectionRequest) => {
+  const loadProject = useCallback(async (request: SelectionRequest, automatic?: AutoRefreshCommit) => {
     if (!request.key) return;
     setLoading(true); setError(null);
     try {
-      const response = await fetch(`/api/project?project=${encodeURIComponent(request.key)}`); const body = await response.json();
-      if (!response.ok) throw new Error(body.errors?.[0]?.message ?? 'Could not load project.');
-      if (!guard.current.accepts(request, body.data.project.key)) return;
-      const next = body.data as KanbanData; setData(next);
+      const result = await fetchProjectSnapshot<KanbanData>({ projectKey: request.key, canCommit: automatic?.canCommit });
+      if (result.status === 'discarded') return;
+      if (result.status === 'error') throw result.error;
+      if (!guard.current.accepts(request, result.data.project.key)) return;
+      const next = result.data; setData(next);
       setSelected((current) => {
         if (!current) return null;
         const task = next.tasks.find((item) => item.id === current.task.id);
@@ -53,6 +58,17 @@ export function App() {
       if (guard.current.isCurrent(request)) setLoading(false);
     }
   }, []);
+
+  const autoRefresh = useMemo(() => createAutoRefreshCoordinator({
+    refresh: (automatic: AutoRefreshCommit) => {
+      const request = guard.current.read();
+      return request ? loadProject(request, automatic) : undefined;
+    },
+  }), [loadProject, selectedKey]);
+
+  useEffect(() => () => autoRefresh.stop(), [autoRefresh]);
+  useEffect(() => { autoRefresh.setBlocked(mutationPending || timelineDraftPending || selected !== null); }, [autoRefresh, mutationPending, timelineDraftPending, selected]);
+  useEffect(() => selectedKey ? startStudioEvents({ projectKey: selectedKey, onReconcile: () => autoRefresh.notify() }) : undefined, [autoRefresh, selectedKey]);
 
   useEffect(() => {
     let active = true;
@@ -89,14 +105,14 @@ export function App() {
   function switchProject(key: string) {
     if (key === selectedKey) return;
     const request = guard.current.begin(key);
-    setSelectedKey(key); setData(null); setSelected(null); setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); setError(null); setMutationPending(false);
+    setSelectedKey(key); setData(null); setSelected(null); setTimelineDraftPending(false); setSearch(''); setPriority('all'); setOwner('all'); setBlockedOnly(false); setError(null); setMutationPending(false);
     void loadProject(request);
   }
 
   function refreshProject() { const request = guard.current.read(); if (request) void loadProject(request); }
   function beginMutation(): SelectionRequest | null {
     const request = guard.current.beginMutation();
-    if (request) setMutationPending(true);
+    if (request) { autoRefresh.setBlocked(true); setMutationPending(true); }
     return request;
   }
   function finishMutation(request: SelectionRequest) { if (guard.current.finishMutation(request)) { setMutationPending(false); setLoading(false); } }
@@ -112,6 +128,16 @@ export function App() {
     setPanelPreferences(next);
     writePanelPreferences(window, next);
   }
+
+  function openTask(task: KanbanTask, opener: HTMLElement) {
+    autoRefresh.setBlocked(true);
+    setSelected({ task, opener, formRevision: data!.mutation_revision });
+  }
+
+  const setTimelineDraft = useCallback((next: boolean) => {
+    if (next) autoRefresh.setBlocked(true);
+    setTimelineDraftPending(next);
+  }, [autoRefresh]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -192,10 +218,10 @@ export function App() {
       </div>
       <div className="board-scroll" role="region" aria-label="Scrollable Task Kanban board" tabIndex={0} onScroll={syncKanbanHeader}>
         <div className="board">{visibleLanes.map(({ lane, tasks }) => <section className={`lane lane--${lane.id}`} key={lane.id} aria-labelledby={`lane-${lane.id}`}>
-          <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} />)}</div>
+          <div className="lane-tasks">{tasks.length === 0 ? <div className="empty-lane"><span>—</span><p>No matching tasks</p></div> : tasks.map((task) => <TaskCard key={task.id} task={task} onOpen={(opener) => openTask(task, opener)} />)}</div>
         </section>)}</div>
       </div>
-    </section> : <Timeline key={data.project.key} data={data} tasks={filtered} stickyTop={stickyTop} onOpen={(task, opener) => setSelected({ task, opener, formRevision: data.mutation_revision })} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={acceptProjectData} />}
+    </section> : <Timeline key={data.project.key} data={data} tasks={filtered} stickyTop={stickyTop} onOpen={openTask} onDraftChange={setTimelineDraft} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={acceptProjectData} />}
     {selected && <TaskDialog key={`${data.project.key}:${selected.task.id}:${selected.formRevision}`} data={data} task={selected.task} opener={selected.opener} onClose={() => setSelected(null)} beginMutation={beginMutation} finishMutation={finishMutation} onSaved={(next, request) => { if (!guard.current.accepts(request, next.project.key)) return; setData(next); const updated = next.tasks.find((task) => task.id === selected.task.id); if (updated) setSelected({ ...selected, task: updated, formRevision: next.mutation_revision }); }} />}
   </main>;
 }

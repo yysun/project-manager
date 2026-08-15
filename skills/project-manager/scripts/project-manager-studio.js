@@ -40,8 +40,8 @@ var require_contracts = __commonJS({
   "skills/project-manager/scripts/lib/contracts.js"(exports2, module2) {
     "use strict";
     var crypto3 = require("node:crypto");
-    var fs3 = require("node:fs");
-    var path2 = require("node:path");
+    var fs4 = require("node:fs");
+    var path3 = require("node:path");
     var EVIDENCE_KINDS = /* @__PURE__ */ new Set(["file", "command", "review", "artifact", "approval", "note", "commit"]);
     var MANIFEST_STATUSES = /* @__PURE__ */ new Set(["implemented", "verification", "verified", "blocked"]);
     var STAGE_ORDER = { implemented: 0, verification: 1, verified: 2 };
@@ -142,7 +142,7 @@ var require_contracts = __commonJS({
     function contractExecutor(executor, projectRoot) {
       const scope = executor.scope ?? (executor.root === null ? null : "absolute");
       const declared = executor.root;
-      const resolved = declared === null ? null : scope === "project" ? path2.resolve(projectRoot, declared) : declared;
+      const resolved = declared === null ? null : scope === "project" ? path3.resolve(projectRoot, declared) : declared;
       return { provider: executor.provider, scope, declared_root: declared, root: resolved };
     }
     function buildTaskContract(project, task, sourceBindings, createdAt) {
@@ -181,8 +181,8 @@ var require_contracts = __commonJS({
       exactKeys(contract.payload.task, ["id", "spec_sha256", "title", "outcome", "constraints", "acceptance", "success_criteria", "milestone", "critical", "sources", "dependencies", "evidence_requirements", "executor"], "Task Contract task");
       for (const key of ["id", "title", "outcome"]) nonEmptyString(contract.payload.task[key], `Task Contract task.${key}`);
       if (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.project.id) || !/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.id)) throw new Error("Task Contract project/task ID is invalid");
-      if (!path2.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
-      if (!options.allowHistoricalRoot && (!fs3.existsSync(contract.payload.project.root) || !fs3.lstatSync(contract.payload.project.root).isDirectory() || fs3.lstatSync(contract.payload.project.root).isSymbolicLink() || fs3.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error("Task Contract project.root must be an existing canonical real directory");
+      if (!path3.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
+      if (!options.allowHistoricalRoot && (!fs4.existsSync(contract.payload.project.root) || !fs4.lstatSync(contract.payload.project.root).isDirectory() || fs4.lstatSync(contract.payload.project.root).isSymbolicLink() || fs4.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error("Task Contract project.root must be an existing canonical real directory");
       if (!/^[a-f0-9]{64}$/.test(contract.payload.task.spec_sha256)) throw new Error("Task Contract spec hash is invalid");
       for (const key of ["constraints", "acceptance", "success_criteria", "sources", "dependencies"]) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ["success_criteria", "dependencies", "sources"].includes(key) && key !== "sources" });
       if (contract.payload.task.acceptance.length === 0 || contract.payload.task.acceptance.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract acceptance must contain non-empty strings");
@@ -201,23 +201,23 @@ var require_contracts = __commonJS({
       const declaredRoot = contract.payload.task.executor.declared_root;
       if (provider === "human" && (executorRoot !== null || scope !== null || declaredRoot !== null)) throw new Error("Human executor root must be null");
       if (!(["agent", "external"].includes(provider) && executorRoot === null && scope === null && declaredRoot === null) && provider !== "human" && !["absolute", "project"].includes(scope)) throw new Error("Executor scope must be absolute, project, or null for agent/external");
-      if (scope === "absolute" && (declaredRoot !== executorRoot || !path2.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
+      if (scope === "absolute" && (declaredRoot !== executorRoot || !path3.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
       if (scope === "project") {
-        if (typeof declaredRoot !== "string" || declaredRoot === "" || path2.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
-        if (executorRoot !== path2.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
+        if (typeof declaredRoot !== "string" || declaredRoot === "" || path3.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
+        if (executorRoot !== path3.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
         if (!options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
           let cursor = contract.payload.project.root;
           for (const piece of declaredRoot.split(/[\\/]/)) {
-            cursor = path2.join(cursor, piece);
-            if (!fs3.existsSync(cursor) || fs3.lstatSync(cursor).isSymbolicLink() || !fs3.lstatSync(cursor).isDirectory()) throw new Error("Project executor root prefixes must be existing real directories");
+            cursor = path3.join(cursor, piece);
+            if (!fs4.existsSync(cursor) || fs4.lstatSync(cursor).isSymbolicLink() || !fs4.lstatSync(cursor).isDirectory()) throw new Error("Project executor root prefixes must be existing real directories");
           }
-          if (!fs3.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path2.sep}`)) throw new Error("Project executor root escapes the project");
+          if (!fs4.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path3.sep}`)) throw new Error("Project executor root escapes the project");
         }
       }
-      if (provider === "rpd" && (typeof executorRoot !== "string" || !path2.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
-      if (["agent", "external"].includes(provider) && executorRoot !== null && !path2.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
+      if (provider === "rpd" && (typeof executorRoot !== "string" || !path3.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
+      if (["agent", "external"].includes(provider) && executorRoot !== null && !path3.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
       if (executorRoot !== null && !options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
-        if (!fs3.existsSync(executorRoot) || fs3.lstatSync(executorRoot).isSymbolicLink() || !fs3.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
+        if (!fs4.existsSync(executorRoot) || fs4.lstatSync(executorRoot).isSymbolicLink() || !fs4.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
       }
       contract.payload.task.sources.forEach((source, index) => {
         exactKeys(source, ["id", "version", "record_sha256", "content_sha256"], `Task Contract source[${index}]`);
@@ -398,29 +398,29 @@ ${canonicalJson(contract.payload)}
       };
     }
     function findExactArtifact(root, category, filename, required = true) {
-      const realRoot = fs3.realpathSync(root);
-      if (fs3.lstatSync(root).isSymbolicLink() || !fs3.lstatSync(realRoot).isDirectory()) throw new Error("RPD executor root must be a real directory");
+      const realRoot = fs4.realpathSync(root);
+      if (fs4.lstatSync(root).isSymbolicLink() || !fs4.lstatSync(realRoot).isDirectory()) throw new Error("RPD executor root must be a real directory");
       let cursor = realRoot;
       for (const piece of [".docs", category]) {
-        cursor = path2.join(cursor, piece);
-        if (!fs3.existsSync(cursor)) {
+        cursor = path3.join(cursor, piece);
+        if (!fs4.existsSync(cursor)) {
           if (required) throw new Error(`Missing RPD evidence directory ${piece}`);
           return null;
         }
-        const stat = fs3.lstatSync(cursor);
-        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs3.realpathSync(cursor).startsWith(`${realRoot}${path2.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
+        const stat = fs4.lstatSync(cursor);
+        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs4.realpathSync(cursor).startsWith(`${realRoot}${path3.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
       }
       const categoryRoot = cursor;
       const matches = [];
       function walk(folder) {
-        if (!fs3.existsSync(folder)) return;
-        for (const entry of fs3.readdirSync(folder, { withFileTypes: true })) {
-          const full = path2.join(folder, entry.name);
-          const stat = fs3.lstatSync(full);
+        if (!fs4.existsSync(folder)) return;
+        for (const entry of fs4.readdirSync(folder, { withFileTypes: true })) {
+          const full = path3.join(folder, entry.name);
+          const stat = fs4.lstatSync(full);
           if (stat.isSymbolicLink()) throw new Error("RPD evidence cannot traverse symlinks");
           if (stat.isDirectory()) walk(full);
           else {
-            if (!stat.isFile() || !fs3.realpathSync(full).startsWith(`${realRoot}${path2.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
+            if (!stat.isFile() || !fs4.realpathSync(full).startsWith(`${realRoot}${path3.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
             if (entry.name === filename) matches.push(full);
           }
         }
@@ -430,16 +430,16 @@ ${canonicalJson(contract.payload)}
       return matches[0] ?? null;
     }
     function snapshotRpdEvidence({ executor_root, project_root, attempt_root, story, terminal }) {
-      if (!path2.isAbsolute(executor_root) || !path2.isAbsolute(project_root) || !path2.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
-      const realProject = fs3.realpathSync(project_root);
-      if (fs3.lstatSync(project_root).isSymbolicLink() || realProject !== project_root) throw new Error("Project root must be canonical for RPD snapshot");
-      const attemptRelative = path2.relative(realProject, attempt_root);
-      if (attemptRelative === "" || attemptRelative.startsWith("..") || path2.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
+      if (!path3.isAbsolute(executor_root) || !path3.isAbsolute(project_root) || !path3.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
+      const realProject = fs4.realpathSync(project_root);
+      if (fs4.lstatSync(project_root).isSymbolicLink() || realProject !== project_root) throw new Error("Project root must be canonical for RPD snapshot");
+      const attemptRelative = path3.relative(realProject, attempt_root);
+      if (attemptRelative === "" || attemptRelative.startsWith("..") || path3.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
       let projectCursor = realProject;
-      for (const piece of attemptRelative.split(path2.sep)) {
-        projectCursor = path2.join(projectCursor, piece);
-        if (!fs3.existsSync(projectCursor)) break;
-        const stat = fs3.lstatSync(projectCursor);
+      for (const piece of attemptRelative.split(path3.sep)) {
+        projectCursor = path3.join(projectCursor, piece);
+        if (!fs4.existsSync(projectCursor)) break;
+        const stat = fs4.lstatSync(projectCursor);
         if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("RPD snapshot path prefixes must be real project directories");
       }
       nonEmptyString(story, "RPD story");
@@ -450,26 +450,26 @@ ${canonicalJson(contract.payload)}
         ["tests", `test-${story}.md`, "rpd-test", false],
         ["done", `${story}.md`, "rpd-done", true]
       ];
-      if (fs3.existsSync(attempt_root)) throw new Error("RPD evidence snapshot already exists");
-      fs3.mkdirSync(attempt_root, { recursive: true });
-      if (!fs3.realpathSync(path2.dirname(attempt_root)).startsWith(`${realProject}${path2.sep}`) || fs3.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
+      if (fs4.existsSync(attempt_root)) throw new Error("RPD evidence snapshot already exists");
+      fs4.mkdirSync(attempt_root, { recursive: true });
+      if (!fs4.realpathSync(path3.dirname(attempt_root)).startsWith(`${realProject}${path3.sep}`) || fs4.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
       const sources = [];
       try {
         for (const [category, filename, role, required] of artifacts) {
           const source = findExactArtifact(executor_root, category, filename, required);
           if (!source) continue;
-          const relative = path2.join(category, filename);
-          const target = path2.join(attempt_root, relative);
-          fs3.mkdirSync(path2.dirname(target), { recursive: true });
-          fs3.copyFileSync(source, target, fs3.constants.COPYFILE_EXCL);
-          sources.push({ path: path2.relative(project_root, target).split(path2.sep).join("/"), sha256: sha256(fs3.readFileSync(target)), role });
+          const relative = path3.join(category, filename);
+          const target = path3.join(attempt_root, relative);
+          fs4.mkdirSync(path3.dirname(target), { recursive: true });
+          fs4.copyFileSync(source, target, fs4.constants.COPYFILE_EXCL);
+          sources.push({ path: path3.relative(project_root, target).split(path3.sep).join("/"), sha256: sha256(fs4.readFileSync(target)), role });
         }
-        const terminalPath = path2.join(attempt_root, "RPD-TERMINAL.md");
-        fs3.writeFileSync(terminalPath, terminal, { flag: "wx" });
-        sources.push({ path: path2.relative(project_root, terminalPath).split(path2.sep).join("/"), sha256: sha256(fs3.readFileSync(terminalPath)), role: "rpd-terminal" });
+        const terminalPath = path3.join(attempt_root, "RPD-TERMINAL.md");
+        fs4.writeFileSync(terminalPath, terminal, { flag: "wx" });
+        sources.push({ path: path3.relative(project_root, terminalPath).split(path3.sep).join("/"), sha256: sha256(fs4.readFileSync(terminalPath)), role: "rpd-terminal" });
         return sources.sort((a, b) => a.role.localeCompare(b.role));
       } catch (error) {
-        fs3.rmSync(attempt_root, { recursive: true, force: true });
+        fs4.rmSync(attempt_root, { recursive: true, force: true });
         throw error;
       }
     }
@@ -528,13 +528,13 @@ var require_work_area = __commonJS({
 var require_project_state = __commonJS({
   "skills/project-manager/scripts/lib/project-state.js"(exports2, module2) {
     "use strict";
-    var fs3 = require("node:fs");
-    var path2 = require("node:path");
+    var fs4 = require("node:fs");
+    var path3 = require("node:path");
     var { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
     var { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
     var REQUIRED = ["PROJECT.md", "TASKS.md", "STATUS.md"];
     var OPTIONAL_FILES = ["MILESTONES.md", "RISKS.md", "DECISIONS.md", "SOURCES.md", "TRACEABILITY.md", "CHANGES.md", "ASSUMPTIONS.md", "ISSUES.md", "STAKEHOLDERS.md", "LESSONS.md", "CLOSURE.md"];
-    var OPTIONAL_DIRS = ["handoffs", path2.join("reports", "history")];
+    var OPTIONAL_DIRS = ["handoffs", path3.join("reports", "history")];
     var TASK_STATUSES = ["planned", "ready", "in_progress", "implemented", "verification", "verified", "done"];
     var TASK_DISPOSITIONS = ["active", "deferred", "cancelled"];
     var PROVIDERS = ["human", "rpd", "agent", "external"];
@@ -602,12 +602,12 @@ var require_project_state = __commonJS({
     function rpdCommand(state, task, executionWarning = null) {
       if (executionWarning) return `${taskClosed(task) ? "Execution history warning" : "Execution blocked"} for ${task.id}: ${executionWarning.cause_code ?? executionWarning.code}.`;
       if (task.executor.provider === "rpd" && task.active_contract !== null) {
-        const contractPath = path2.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
-        const contractDoc = readSafe(state.root, path2.relative(state.root, contractPath), true);
+        const contractPath = path3.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
+        const contractDoc = readSafe(state.root, path3.relative(state.root, contractPath), true);
         const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
         return `RPD ${parsedContract.envelope.story} using task contract ${JSON.stringify(contractPath)}.`;
       }
-      return `RPD ${JSON.stringify(task.title)} using project task ${JSON.stringify(path2.join(state.root, "TASKS.md"))}.`;
+      return `RPD ${JSON.stringify(task.title)} using project task ${JSON.stringify(path3.join(state.root, "TASKS.md"))}.`;
     }
     function namespacedId(value, prefix) {
       return ID.test(value) && value.startsWith(prefix);
@@ -718,23 +718,23 @@ var require_project_state = __commonJS({
       return { envelope: parsed.data, payload };
     }
     function readSafeBuffer(root, relative, required = false) {
-      const normalized = path2.normalize(relative);
-      if (path2.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path2.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
-      const target = path2.join(root, relative);
-      const parentRelative = path2.dirname(normalized);
+      const normalized = path3.normalize(relative);
+      if (path3.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path3.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
+      const target = path3.join(root, relative);
+      const parentRelative = path3.dirname(normalized);
       if (parentRelative !== ".") assertRealDirectoryChain(root, parentRelative);
       let stat;
       try {
-        stat = fs3.lstatSync(target);
+        stat = fs4.lstatSync(target);
       } catch (error) {
         if (!required && error.code === "ENOENT") return null;
         fail("path", "MISSING_PATH", target, `Missing required path ${relative}`);
       }
       if (stat.isSymbolicLink()) fail("path", "SYMLINK", target, "Known project state paths cannot be symlinks");
       if (!stat.isFile()) fail("path", "NOT_FILE", target, "Expected a regular file");
-      const real = fs3.realpathSync(target);
-      if (real !== root && !real.startsWith(`${root}${path2.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
-      return fs3.readFileSync(target);
+      const real = fs4.realpathSync(target);
+      if (real !== root && !real.startsWith(`${root}${path3.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
+      return fs4.readFileSync(target);
     }
     function readSafe(root, relative, required = false) {
       const value = readSafeBuffer(root, relative, required);
@@ -742,10 +742,10 @@ var require_project_state = __commonJS({
     }
     function assertRealDirectoryChain(root, relative) {
       let cursor = root;
-      for (const piece of relative.split(path2.sep)) {
-        cursor = path2.join(cursor, piece);
-        if (!fs3.existsSync(cursor)) return false;
-        const stat = fs3.lstatSync(cursor);
+      for (const piece of relative.split(path3.sep)) {
+        cursor = path3.join(cursor, piece);
+        if (!fs4.existsSync(cursor)) return false;
+        const stat = fs4.lstatSync(cursor);
         if (stat.isSymbolicLink() || !stat.isDirectory()) fail("path", "UNSAFE_DIRECTORY", cursor, "Known project directories must be real directories");
       }
       return true;
@@ -800,8 +800,8 @@ var require_project_state = __commonJS({
       assert(PROVIDERS.includes(executor.provider) && project.adapters.includes(executor.provider), "TASK_EXECUTOR", filePath, `Task ${record.id} provider is not enabled`, project);
       const nullRootAllowed = ["human", "agent", "external"].includes(executor.provider) && executor.root === null && executor.scope === null;
       assert(nullRootAllowed || ["absolute", "project"].includes(executor.scope), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} executor scope is invalid`, project);
-      if (executor.scope === "absolute") assert(path2.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} absolute executor root is invalid`, project);
-      if (executor.scope === "project") assert(nonEmpty(executor.root) && !path2.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root must be a safe relative path`, project);
+      if (executor.scope === "absolute") assert(path3.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} absolute executor root is invalid`, project);
+      if (executor.scope === "project") assert(nonEmpty(executor.root) && !path3.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record.id} project executor root must be a safe relative path`, project);
       assert(executor.provider !== "rpd" || executor.root !== null, "TASK_EXECUTOR_ROOT", filePath, `RPD task ${record.id} requires a root`, project);
       assert(executor.provider !== "human" || executor.root === null, "TASK_EXECUTOR_ROOT", filePath, `Human task ${record.id} root must be null`, project);
       const providerRequirements = JSON.parse(JSON.stringify(DEFAULT_EVIDENCE[executor.provider]));
@@ -877,27 +877,27 @@ var require_project_state = __commonJS({
     }
     function executorRootWarning(task, physicalProjectRoot) {
       if (task.status === "done" || task.executor.root === null) return null;
-      const executorRoot = task.executor.scope === "project" ? path2.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
+      const executorRoot = task.executor.scope === "project" ? path3.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
       let available = false;
       try {
         if (task.executor.scope === "project") {
           let cursor = physicalProjectRoot;
           available = true;
           for (const piece of task.executor.root.split(/[\\/]/)) {
-            cursor = path2.join(cursor, piece);
-            if (!fs3.existsSync(cursor)) {
+            cursor = path3.join(cursor, piece);
+            if (!fs4.existsSync(cursor)) {
               available = false;
               break;
             }
-            const stat = fs3.lstatSync(cursor);
+            const stat = fs4.lstatSync(cursor);
             if (stat.isSymbolicLink() || !stat.isDirectory()) {
               available = false;
               break;
             }
           }
-          if (available) available = fs3.realpathSync(executorRoot).startsWith(`${fs3.realpathSync(physicalProjectRoot)}${path2.sep}`);
-        } else if (fs3.existsSync(executorRoot)) {
-          const stat = fs3.lstatSync(executorRoot);
+          if (available) available = fs4.realpathSync(executorRoot).startsWith(`${fs4.realpathSync(physicalProjectRoot)}${path3.sep}`);
+        } else if (fs4.existsSync(executorRoot)) {
+          const stat = fs4.lstatSync(executorRoot);
           available = !stat.isSymbolicLink() && stat.isDirectory();
         }
       } catch {
@@ -1202,9 +1202,9 @@ var require_project_state = __commonJS({
       }
     }
     function validateAttempt(state, task) {
-      const attemptRoot = path2.join(state.root, "handoffs", task.id, task.active_contract);
-      const contractPath = path2.join(attemptRoot, "TASK-CONTRACT.md");
-      const contractDoc = readSafe(state.root, path2.relative(state.root, contractPath), true);
+      const attemptRoot = path3.join(state.root, "handoffs", task.id, task.active_contract);
+      const contractPath = path3.join(attemptRoot, "TASK-CONTRACT.md");
+      const contractDoc = readSafe(state.root, path3.relative(state.root, contractPath), true);
       const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
       const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
       const allowHistoricalRoot = task.status === "done";
@@ -1232,20 +1232,20 @@ var require_project_state = __commonJS({
         const digest = contract.contract_id.slice(3);
         const storyPrefix = `pm-${state.project.id.toLowerCase()}-${task.id.toLowerCase()}-`;
         assert([12, 16, 32, 64].some((length) => derived.story === `${storyPrefix}${digest.slice(0, length)}`), "RPD_STORY", contractPath, "RPD story is not derived from this attempt", state.project);
-        const relativeContract = path2.relative(state.root, contractPath).split(path2.sep).join("/");
-        const issuanceContractPath = path2.join(contract.payload.project.root, relativeContract);
+        const relativeContract = path3.relative(state.root, contractPath).split(path3.sep).join("/");
+        const issuanceContractPath = path3.join(contract.payload.project.root, relativeContract);
         const expectedPrompt = renderRpdPrompt({ project_id: state.project.id, task_id: task.id, contract_id: contract.contract_id, story: derived.story, executor_root: contract.payload.task.executor.root, contract_absolute_path: issuanceContractPath, contract_relative_path: relativeContract, acceptance: task.acceptance, constraints: task.constraints, evidence_requirements: task.evidence_requirements });
         assert(derived.executor_prompt === expectedPrompt && derived.executor_prompt_sha256 === sha256(expectedPrompt), "RPD_PROMPT", contractPath, "RPD executor prompt/hash is stale or tampered", state.project);
       }
-      const allEntries = fs3.readdirSync(attemptRoot);
+      const allEntries = fs4.readdirSync(attemptRoot);
       const reservedEvidence = allEntries.filter((name) => name.startsWith("EVIDENCE-"));
       assert(reservedEvidence.every((name) => /^EVIDENCE-\d{3}\.md$/.test(name)), "MANIFEST_FILENAME", attemptRoot, "Every EVIDENCE-* entry must use exact three-digit numbering", state.project);
       const entries = reservedEvidence.sort();
       const previous = [];
       for (const [index, name] of entries.entries()) {
         assert(name === `EVIDENCE-${String(index + 1).padStart(3, "0")}.md`, "MANIFEST_SEQUENCE", attemptRoot, "Manifest filenames must be gap-free", state.project);
-        const manifestPath = path2.join(attemptRoot, name);
-        const manifestDoc = readSafe(state.root, path2.relative(state.root, manifestPath), true);
+        const manifestPath = path3.join(attemptRoot, name);
+        const manifestDoc = readSafe(state.root, path3.relative(state.root, manifestPath), true);
         const parsed = parseAttempt(manifestDoc, manifestPath, "manifest");
         let result;
         try {
@@ -1270,7 +1270,7 @@ var require_project_state = __commonJS({
           assert(canonicalJson(roles) === canonicalJson(allowedRoles.sort()) || canonicalJson(roles) === canonicalJson(allowedWithTest), "RPD_SOURCE_ROLE", manifestPath, "RPD source roles must be exact and unique", state.project);
           const byRole = new Map(parsed.payload.sources.map((source) => [source.role, source]));
           for (const role of ["rpd-req", "rpd-plan", "rpd-done", "rpd-terminal"]) assert(byRole.has(role), "RPD_SOURCE_ROLE", manifestPath, `RPD verified evidence missing ${role}`, state.project);
-          assert(path2.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path2.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path2.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
+          assert(path3.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path3.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path3.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
           assert(byRole.get("rpd-req").path === `${requiredPrefix}reqs/req-${derived.story}.md` && byRole.get("rpd-plan").path === `${requiredPrefix}plans/plan-${derived.story}.md` && byRole.get("rpd-done").path === `${requiredPrefix}done/${derived.story}.md` && byRole.get("rpd-terminal").path === `${requiredPrefix}RPD-TERMINAL.md` && (!byRole.has("rpd-test") || byRole.get("rpd-test").path === `${requiredPrefix}tests/test-${derived.story}.md`), "RPD_SOURCE_LAYOUT", manifestPath, "RPD source layout is invalid", state.project);
           const terminal = readSafe(state.root, byRole.get("rpd-terminal").path, true);
           try {
@@ -1343,15 +1343,15 @@ var require_project_state = __commonJS({
       }
     }
     function validateReverificationBinding(state, change, taskId, value) {
-      const attemptRoot = path2.join(state.root, "handoffs", taskId, value.contract_id);
-      const contractPath = path2.join(attemptRoot, "TASK-CONTRACT.md");
-      const parsedContract = parseAttempt(readSafe(state.root, path2.relative(state.root, contractPath), true), contractPath, "contract");
+      const attemptRoot = path3.join(state.root, "handoffs", taskId, value.contract_id);
+      const contractPath = path3.join(attemptRoot, "TASK-CONTRACT.md");
+      const parsedContract = parseAttempt(readSafe(state.root, path3.relative(state.root, contractPath), true), contractPath, "contract");
       assert(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
       if (value.status === "complete") {
-        const evidenceNames = fs3.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
+        const evidenceNames = fs4.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
         const matched = evidenceNames.some((name) => {
-          const manifestPath = path2.join(attemptRoot, name);
-          const parsed = parseAttempt(readSafe(state.root, path2.relative(state.root, manifestPath), true), manifestPath, "manifest");
+          const manifestPath = path3.join(attemptRoot, name);
+          const parsed = parseAttempt(readSafe(state.root, path3.relative(state.root, manifestPath), true), manifestPath, "manifest");
           return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === "verified" && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
         });
         assert(matched, "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
@@ -1373,11 +1373,11 @@ var require_project_state = __commonJS({
       if (!folder) fail("path", "MISSING_SELECTOR", "", "Project folder is required");
       let root;
       try {
-        root = fs3.realpathSync(folder);
+        root = fs4.realpathSync(folder);
       } catch {
         fail("path", "INVALID_SELECTOR", folder, "Project folder does not exist");
       }
-      if (!fs3.lstatSync(root).isDirectory()) fail("path", "INVALID_SELECTOR", folder, "Project folder must be a directory");
+      if (!fs4.lstatSync(root).isDirectory()) fail("path", "INVALID_SELECTOR", folder, "Project folder must be a directory");
       return root;
     }
     function parseProjectIdentity(text, filePath, root) {
@@ -1385,46 +1385,46 @@ var require_project_state = __commonJS({
       if (lines[0] !== "---") fail("grammar", "FRONTMATTER_OPEN", filePath, "Expected opening ---");
       const end = lines.indexOf("---", 1);
       if (end < 0) fail("grammar", "FRONTMATTER_CLOSE", filePath, "Expected closing ---");
-      const identity = {};
+      const identity2 = {};
       for (let index = 1; index < end; index += 1) {
         const match = /^([a-z][a-z0-9_]*): (.+)$/.exec(lines[index]);
         if (!match || !["schema_version", "id", "name"].includes(match[1])) continue;
-        if (Object.hasOwn(identity, match[1])) fail("grammar", "DUPLICATE_KEY", filePath, `Duplicate key ${match[1]}`);
+        if (Object.hasOwn(identity2, match[1])) fail("grammar", "DUPLICATE_KEY", filePath, `Duplicate key ${match[1]}`);
         try {
-          identity[match[1]] = JSON.parse(match[2]);
+          identity2[match[1]] = JSON.parse(match[2]);
         } catch {
           fail("grammar", "FRONTMATTER_JSON", filePath, `Value for ${match[1]} must be complete JSON`);
         }
       }
-      assert(identity.schema_version === 1 || identity.schema_version === 2, "SCHEMA_VERSION", filePath, "Unsupported project schema");
-      assert(ID.test(identity.id), "INVALID_ID", filePath, "Invalid project ID");
-      assert(nonEmpty(identity.name), "INVALID_NAME", filePath, "Project name is required");
-      return { ...identity, root };
+      assert(identity2.schema_version === 1 || identity2.schema_version === 2, "SCHEMA_VERSION", filePath, "Unsupported project schema");
+      assert(ID.test(identity2.id), "INVALID_ID", filePath, "Invalid project ID");
+      assert(nonEmpty(identity2.name), "INVALID_NAME", filePath, "Project name is required");
+      return { ...identity2, root };
     }
     function loadProjectIdentity3(folder, options = {}) {
       const root = resolveProjectRoot(folder);
       const logicalRoot = options.logicalRoot ?? root;
-      if (!path2.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const projectPath = path2.join(root, "PROJECT.md");
+      if (!path3.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const projectPath = path3.join(root, "PROJECT.md");
       const project = parseProjectIdentity(readSafe(root, "PROJECT.md", true), projectPath, logicalRoot);
       return { root, project };
     }
     function loadProject(folder, options = {}) {
       const root = resolveProjectRoot(folder);
       const logicalRoot = options.logicalRoot ?? root;
-      if (!path2.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const project = parseProject(readSafe(root, "PROJECT.md", true), path2.join(root, "PROJECT.md"), logicalRoot);
+      if (!path3.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const project = parseProject(readSafe(root, "PROJECT.md", true), path3.join(root, "PROJECT.md"), logicalRoot);
       checkOptionalDirectories(root);
       const texts = Object.fromEntries(REQUIRED.filter((name) => name !== "PROJECT.md").map((name) => [name, readSafe(root, name, true)]));
       for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
-      const taskRecords = parseCollection(texts["TASKS.md"], path2.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
-      const tasks = taskRecords.map((record) => normalizeTask(record, project, path2.join(root, "TASKS.md"), taskRecords.schema_version));
+      const taskRecords = parseCollection(texts["TASKS.md"], path3.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
+      const tasks = taskRecords.map((record) => normalizeTask(record, project, path3.join(root, "TASKS.md"), taskRecords.schema_version));
       const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
       function module3(name, kind, schemaVersions = [1]) {
         const text = texts[name];
         if (text === null) return { configured: false, items: [] };
-        const records = parseCollection(text, path2.join(root, name), { schemaVersions });
-        const items = records.map((record) => normalizeSimple(record, kind, project, path2.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
+        const records = parseCollection(text, path3.join(root, name), { schemaVersions });
+        const items = records.map((record) => normalizeSimple(record, kind, project, path3.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
         return { configured: true, items };
       }
       const state = {
@@ -1444,7 +1444,7 @@ var require_project_state = __commonJS({
         lessons: module3("LESSONS.md", "lessons"),
         closure: module3("CLOSURE.md", "closure")
       };
-      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path2.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
+      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path3.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
       validateGraph(state, options);
       const whenConfigured = (entry) => entry.configured ? entry.items : void 0;
       state.source_sha256 = sha256({
@@ -1462,34 +1462,34 @@ var require_project_state = __commonJS({
         lessons: whenConfigured(state.lessons),
         closure: whenConfigured(state.closure)
       });
-      const statusParsed = parseFrontmatter(texts["STATUS.md"], path2.join(root, "STATUS.md"));
-      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path2.join(root, "STATUS.md"), "STATUS frontmatter", project);
-      assert(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path2.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
+      const statusParsed = parseFrontmatter(texts["STATUS.md"], path3.join(root, "STATUS.md"));
+      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path3.join(root, "STATUS.md"), "STATUS frontmatter", project);
+      assert(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path3.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
       state.status_stale = statusParsed.data.source_sha256 !== state.source_sha256;
       validateAttempts(state, options);
       validateReverificationBindings(state, options);
       return state;
     }
     function loadProjectIndex(indexPath) {
-      if (fs3.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
-      const indexRoot = fs3.realpathSync(path2.dirname(indexPath));
-      const text = fs3.readFileSync(indexPath, "utf8");
+      if (fs4.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
+      const indexRoot = fs4.realpathSync(path3.dirname(indexPath));
+      const text = fs4.readFileSync(indexPath, "utf8");
       const records = parseCollection(text, indexPath);
       const seenPaths = /* @__PURE__ */ new Set();
       const projects = [];
       for (const record of records) {
         exactKeys(record.raw, ["path"], indexPath, `index ${record.id}`);
-        assert(nonEmpty(record.raw.path) && !path2.isAbsolute(record.raw.path), "INDEX_PATH", indexPath, `Index path for ${record.id} must be relative`);
+        assert(nonEmpty(record.raw.path) && !path3.isAbsolute(record.raw.path), "INDEX_PATH", indexPath, `Index path for ${record.id} must be relative`);
         const pieces = record.raw.path.split(/[\\/]/);
         assert(!pieces.includes("..") && !pieces.includes("") && !pieces.includes("."), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes or is empty`);
         let cursor = indexRoot;
         for (const piece of pieces) {
-          cursor = path2.join(cursor, piece);
-          const stat = fs3.lstatSync(cursor);
+          cursor = path3.join(cursor, piece);
+          const stat = fs4.lstatSync(cursor);
           assert(!stat.isSymbolicLink(), "INDEX_SYMLINK", indexPath, `Index path for ${record.id} contains a symlink`);
         }
-        const real = fs3.realpathSync(cursor);
-        assert(real.startsWith(`${indexRoot}${path2.sep}`), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes index root`);
+        const real = fs4.realpathSync(cursor);
+        assert(real.startsWith(`${indexRoot}${path3.sep}`), "INDEX_PATH", indexPath, `Index path for ${record.id} escapes index root`);
         const pathKey = real.toLowerCase();
         assert(!seenPaths.has(pathKey), "INDEX_DUPLICATE", indexPath, `Index path for ${record.id} is duplicated`);
         seenPaths.add(pathKey);
@@ -1502,39 +1502,39 @@ var require_project_state = __commonJS({
     function loadProjectsRootWith(folder, identityOnly) {
       let rootStat;
       try {
-        rootStat = fs3.lstatSync(folder);
+        rootStat = fs4.lstatSync(folder);
       } catch (error) {
         if (error.code === "ENOENT") fail("path", "PROJECTS_ROOT_MISSING", folder, `Projects root does not exist: ${folder}`);
         throw error;
       }
       if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) fail("path", "PROJECTS_ROOT_INVALID", folder, "Projects root must be a real directory");
-      const root = fs3.realpathSync(folder);
+      const root = fs4.realpathSync(folder);
       const projects = [];
-      for (const name of fs3.readdirSync(root).sort()) {
+      for (const name of fs4.readdirSync(root).sort()) {
         if (name === ".git") continue;
-        const target = path2.join(root, name);
-        const stat = fs3.lstatSync(target);
-        const projectFile = path2.join(target, "PROJECT.md");
+        const target = path3.join(root, name);
+        const stat = fs4.lstatSync(target);
+        const projectFile = path3.join(target, "PROJECT.md");
         let hasProjectFile = false;
         if (stat.isDirectory()) {
           try {
-            fs3.lstatSync(projectFile);
+            fs4.lstatSync(projectFile);
             hasProjectFile = true;
           } catch (error) {
             if (error.code !== "ENOENT") throw error;
           }
         }
         if (PROJECT_WORK_NAME.test(name) && stat.isDirectory() && !hasProjectFile) {
-          const marker = path2.join(target, PROJECT_WORK_MARKER);
+          const marker = path3.join(target, PROJECT_WORK_MARKER);
           let markerStat;
           try {
-            markerStat = fs3.lstatSync(marker);
+            markerStat = fs4.lstatSync(marker);
           } catch (error) {
             if (error.code !== "ENOENT") throw error;
-            if (fs3.readdirSync(target).length === 0) continue;
+            if (fs4.readdirSync(target).length === 0) continue;
             fail("path", "PROJECT_CATALOG_INVALID", target, "Markerless project work area must be empty");
           }
-          if (markerStat.isSymbolicLink() || !markerStat.isFile() || fs3.readFileSync(marker, "utf8") !== PROJECT_WORK_MARKER_TEXT) {
+          if (markerStat.isSymbolicLink() || !markerStat.isFile() || fs4.readFileSync(marker, "utf8") !== PROJECT_WORK_MARKER_TEXT) {
             fail("path", "PROJECT_CATALOG_INVALID", target, "Reserved project work area marker is unsafe");
           }
           continue;
@@ -1663,7 +1663,7 @@ var require_project_state = __commonJS({
     function validateData(state) {
       const warnings = [...state.warnings];
       if (state.status_stale) warnings.push({ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" });
-      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs3.existsSync(path2.join(state.root, "handoffs")), reports: fs3.existsSync(path2.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
+      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs4.existsSync(path3.join(state.root, "handoffs")), reports: fs4.existsSync(path3.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
     }
     function reportData(state) {
       const status = statusData(state);
@@ -1691,7 +1691,7 @@ var require_project_state = __commonJS({
       if (taskDisposition(task) !== "active") return { editable: false, reason: "Reactivate deferred work before changing its specification; cancelled work is terminal." };
       if (!["planned", "ready"].includes(task.status)) return { editable: false, reason: "Evidence-backed work must be changed through project update." };
       if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: "This task has active execution evidence and must be changed through project update." };
-      if (fs3.existsSync(path2.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
+      if (fs4.existsSync(path3.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
       if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: "This task is governed by re-verification state and must be changed through project update." };
       return { editable: true, reason: null };
     }
@@ -1841,7 +1841,7 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
     }
     function regenerateStatus(folder, generatedAt = (/* @__PURE__ */ new Date()).toISOString(), options = {}) {
       const state = loadProject(folder, options);
-      fs3.writeFileSync(path2.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
+      fs4.writeFileSync(path3.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
       return loadProject(state.root, options);
     }
     module2.exports = {
@@ -17066,11 +17066,11 @@ var require_mime_types = __commonJS({
       }
       return exts[0];
     }
-    function lookup(path2) {
-      if (!path2 || typeof path2 !== "string") {
+    function lookup(path3) {
+      if (!path3 || typeof path3 !== "string") {
         return false;
       }
-      var extension2 = extname("x." + path2).toLowerCase().slice(1);
+      var extension2 = extname("x." + path3).toLowerCase().slice(1);
       if (!extension2) {
         return false;
       }
@@ -20737,13 +20737,13 @@ var require_view = __commonJS({
   "node_modules/express/lib/view.js"(exports2, module2) {
     "use strict";
     var debug = require_src()("express:view");
-    var path2 = require("node:path");
-    var fs3 = require("node:fs");
-    var dirname = path2.dirname;
-    var basename = path2.basename;
-    var extname = path2.extname;
-    var join = path2.join;
-    var resolve = path2.resolve;
+    var path3 = require("node:path");
+    var fs4 = require("node:fs");
+    var dirname = path3.dirname;
+    var basename = path3.basename;
+    var extname = path3.extname;
+    var join = path3.join;
+    var resolve = path3.resolve;
     module2.exports = View;
     function View(name, options) {
       var opts = options || {};
@@ -20772,17 +20772,17 @@ var require_view = __commonJS({
       this.path = this.lookup(fileName);
     }
     View.prototype.lookup = function lookup(name) {
-      var path3;
+      var path4;
       var roots = [].concat(this.root);
       debug('lookup "%s"', name);
-      for (var i = 0; i < roots.length && !path3; i++) {
+      for (var i = 0; i < roots.length && !path4; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
         var dir = dirname(loc);
         var file = basename(loc);
-        path3 = this.resolve(dir, file);
+        path4 = this.resolve(dir, file);
       }
-      return path3;
+      return path4;
     };
     View.prototype.render = function render(options, callback) {
       var sync = true;
@@ -20804,21 +20804,21 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path3 = join(dir, file);
-      var stat = tryStat(path3);
+      var path4 = join(dir, file);
+      var stat = tryStat(path4);
       if (stat && stat.isFile()) {
-        return path3;
+        return path4;
       }
-      path3 = join(dir, basename(file, ext), "index" + ext);
-      stat = tryStat(path3);
+      path4 = join(dir, basename(file, ext), "index" + ext);
+      stat = tryStat(path4);
       if (stat && stat.isFile()) {
-        return path3;
+        return path4;
       }
     };
-    function tryStat(path3) {
-      debug('stat "%s"', path3);
+    function tryStat(path4) {
+      debug('stat "%s"', path4);
       try {
-        return fs3.statSync(path3);
+        return fs4.statSync(path4);
       } catch (e) {
         return void 0;
       }
@@ -22058,15 +22058,15 @@ var require_dist3 = __commonJS({
       let index = 0;
       function consumeUntil(end) {
         const output = [];
-        let path2 = "";
+        let path3 = "";
         function writePath() {
-          if (!path2)
+          if (!path3)
             return;
           output.push({
             type: "text",
-            value: encodePath(path2)
+            value: encodePath(path3)
           });
-          path2 = "";
+          path3 = "";
         }
         while (index < chars.length) {
           const value = chars[index++];
@@ -22078,7 +22078,7 @@ var require_dist3 = __commonJS({
             if (index === chars.length) {
               throw new PathError(`Unexpected end after \\ at index ${index}`, str);
             }
-            path2 += chars[index++];
+            path3 += chars[index++];
             continue;
           }
           if (value === ":" || value === "*") {
@@ -22122,7 +22122,7 @@ var require_dist3 = __commonJS({
           if (value === "}" || value === "(" || value === ")" || value === "[" || value === "]" || value === "+" || value === "?" || value === "!") {
             throw new PathError(`Unexpected ${value} at index ${index - 1}`, str);
           }
-          path2 += value;
+          path3 += value;
         }
         if (end) {
           throw new PathError(`Unexpected end at index ${index}, expected ${end}`, str);
@@ -22132,17 +22132,17 @@ var require_dist3 = __commonJS({
       }
       return new TokenData(consumeUntil(""), str);
     }
-    function compile(path2, options = {}) {
+    function compile(path3, options = {}) {
       const { encode = encodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const data = typeof path2 === "object" ? path2 : parse(path2, options);
+      const data = typeof path3 === "object" ? path3 : parse(path3, options);
       const fn = tokensToFunction(data.tokens, delimiter, encode);
-      return function path3(params = {}) {
+      return function path4(params = {}) {
         const missing = [];
-        const path4 = fn(params, missing);
+        const path5 = fn(params, missing);
         if (missing.length) {
           throw new TypeError(`Missing parameters: ${missing.join(", ")}`);
         }
-        return path4;
+        return path5;
       };
     }
     function tokensToFunction(tokens, delimiter, encode) {
@@ -22204,9 +22204,9 @@ var require_dist3 = __commonJS({
         return encodeValue(value);
       };
     }
-    function match(path2, options = {}) {
+    function match(path3, options = {}) {
       const { decode = decodeURIComponent, delimiter = DEFAULT_DELIMITER } = options;
-      const { regexp, keys } = pathToRegexp(path2, options);
+      const { regexp, keys } = pathToRegexp(path3, options);
       const decoders = keys.map((key) => {
         if (decode === false)
           return NOOP_VALUE;
@@ -22218,7 +22218,7 @@ var require_dist3 = __commonJS({
         const m = regexp.exec(input);
         if (!m)
           return false;
-        const path3 = m[0];
+        const path4 = m[0];
         const params = /* @__PURE__ */ Object.create(null);
         for (let i = 1; i < m.length; i++) {
           if (m[i] === void 0)
@@ -22227,21 +22227,21 @@ var require_dist3 = __commonJS({
           const decoder = decoders[i - 1];
           params[key.name] = decoder(m[i]);
         }
-        return { path: path3, params };
+        return { path: path4, params };
       };
     }
-    function pathToRegexp(path2, options = {}) {
+    function pathToRegexp(path3, options = {}) {
       const { delimiter = DEFAULT_DELIMITER, end = true, sensitive = false, trailing = true } = options;
       const keys = [];
       let source = "";
       let combinations = 0;
-      function process2(path3) {
-        if (Array.isArray(path3)) {
-          for (const p of path3)
+      function process2(path4) {
+        if (Array.isArray(path4)) {
+          for (const p of path4)
             process2(p);
           return;
         }
-        const data = typeof path3 === "object" ? path3 : parse(path3, options);
+        const data = typeof path4 === "object" ? path4 : parse(path4, options);
         flatten(data.tokens, 0, [], (tokens) => {
           if (combinations >= 256) {
             throw new PathError("Too many path combinations", data.originalPath);
@@ -22252,7 +22252,7 @@ var require_dist3 = __commonJS({
           combinations++;
         });
       }
-      process2(path2);
+      process2(path3);
       let pattern = `^(?:${source})`;
       if (trailing)
         pattern += "(?:" + escape2(delimiter) + "$)?";
@@ -22392,18 +22392,18 @@ var require_layer = __commonJS({
     var TRAILING_SLASH_REGEXP = /\/+$/;
     var MATCHING_GROUP_REGEXP = /\((?:\?<(.*?)>)?(?!\?)/g;
     module2.exports = Layer;
-    function Layer(path2, options, fn) {
+    function Layer(path3, options, fn) {
       if (!(this instanceof Layer)) {
-        return new Layer(path2, options, fn);
+        return new Layer(path3, options, fn);
       }
-      debug("new %o", path2);
+      debug("new %o", path3);
       const opts = options || {};
       this.handle = fn;
       this.keys = [];
       this.name = fn.name || "<anonymous>";
       this.params = void 0;
       this.path = void 0;
-      this.slash = path2 === "/" && opts.end === false;
+      this.slash = path3 === "/" && opts.end === false;
       function matcher(_path) {
         if (_path instanceof RegExp) {
           const keys = [];
@@ -22442,7 +22442,7 @@ var require_layer = __commonJS({
           decode: decodeParam
         });
       }
-      this.matchers = Array.isArray(path2) ? path2.map(matcher) : [matcher(path2)];
+      this.matchers = Array.isArray(path3) ? path3.map(matcher) : [matcher(path3)];
     }
     Layer.prototype.handleError = function handleError(error, req, res, next) {
       const fn = this.handle;
@@ -22482,9 +22482,9 @@ var require_layer = __commonJS({
         next(err);
       }
     };
-    Layer.prototype.match = function match(path2) {
+    Layer.prototype.match = function match(path3) {
       let match2;
-      if (path2 != null) {
+      if (path3 != null) {
         if (this.slash) {
           this.params = {};
           this.path = "";
@@ -22492,7 +22492,7 @@ var require_layer = __commonJS({
         }
         let i = 0;
         while (!match2 && i < this.matchers.length) {
-          match2 = this.matchers[i](path2);
+          match2 = this.matchers[i](path3);
           i++;
         }
       }
@@ -22520,13 +22520,13 @@ var require_layer = __commonJS({
         throw err;
       }
     }
-    function loosen(path2) {
-      if (path2 instanceof RegExp || path2 === "/") {
-        return path2;
+    function loosen(path3) {
+      if (path3 instanceof RegExp || path3 === "/") {
+        return path3;
       }
-      return Array.isArray(path2) ? path2.map(function(p) {
+      return Array.isArray(path3) ? path3.map(function(p) {
         return loosen(p);
-      }) : String(path2).replace(TRAILING_SLASH_REGEXP, "");
+      }) : String(path3).replace(TRAILING_SLASH_REGEXP, "");
     }
   }
 });
@@ -22542,9 +22542,9 @@ var require_route = __commonJS({
     var flatten = Array.prototype.flat;
     var methods = METHODS.map((method) => method.toLowerCase());
     module2.exports = Route;
-    function Route(path2) {
-      debug("new %o", path2);
-      this.path = path2;
+    function Route(path3) {
+      debug("new %o", path3);
+      this.path = path3;
       this.stack = [];
       this.methods = /* @__PURE__ */ Object.create(null);
     }
@@ -22752,8 +22752,8 @@ var require_router = __commonJS({
         if (++sync > 100) {
           return setImmediate(next, err);
         }
-        const path2 = getPathname(req);
-        if (path2 == null) {
+        const path3 = getPathname(req);
+        if (path3 == null) {
           return done(layerError);
         }
         let layer;
@@ -22761,7 +22761,7 @@ var require_router = __commonJS({
         let route;
         while (match !== true && idx < stack.length) {
           layer = stack[idx++];
-          match = matchLayer(layer, path2);
+          match = matchLayer(layer, path3);
           route = layer.route;
           if (typeof match !== "boolean") {
             layerError = layerError || match;
@@ -22799,18 +22799,18 @@ var require_router = __commonJS({
           } else if (route) {
             layer.handleRequest(req, res, next);
           } else {
-            trimPrefix(layer, layerError, layerPath, path2);
+            trimPrefix(layer, layerError, layerPath, path3);
           }
           sync = 0;
         });
       }
-      function trimPrefix(layer, layerError, layerPath, path2) {
+      function trimPrefix(layer, layerError, layerPath, path3) {
         if (layerPath.length !== 0) {
-          if (layerPath !== path2.substring(0, layerPath.length)) {
+          if (layerPath !== path3.substring(0, layerPath.length)) {
             next(layerError);
             return;
           }
-          const c = path2[layerPath.length];
+          const c = path3[layerPath.length];
           if (c && c !== "/") {
             next(layerError);
             return;
@@ -22834,7 +22834,7 @@ var require_router = __commonJS({
     };
     Router.prototype.use = function use(handler) {
       let offset = 0;
-      let path2 = "/";
+      let path3 = "/";
       if (typeof handler !== "function") {
         let arg = handler;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -22842,7 +22842,7 @@ var require_router = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path2 = handler;
+          path3 = handler;
         }
       }
       const callbacks = flatten.call(slice.call(arguments, offset), Infinity);
@@ -22854,8 +22854,8 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("argument handler must be a function");
         }
-        debug("use %o %s", path2, fn.name || "<anonymous>");
-        const layer = new Layer(path2, {
+        debug("use %o %s", path3, fn.name || "<anonymous>");
+        const layer = new Layer(path3, {
           sensitive: this.caseSensitive,
           strict: false,
           end: false
@@ -22865,9 +22865,9 @@ var require_router = __commonJS({
       }
       return this;
     };
-    Router.prototype.route = function route(path2) {
-      const route2 = new Route(path2);
-      const layer = new Layer(path2, {
+    Router.prototype.route = function route(path3) {
+      const route2 = new Route(path3);
+      const layer = new Layer(path3, {
         sensitive: this.caseSensitive,
         strict: this.strict,
         end: true
@@ -22880,8 +22880,8 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      Router.prototype[method] = function(path2) {
-        const route = this.route(path2);
+      Router.prototype[method] = function(path3) {
+        const route = this.route(path3);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
@@ -22910,9 +22910,9 @@ var require_router = __commonJS({
       const fqdnIndex = url.substring(0, pathLength).indexOf("://");
       return fqdnIndex !== -1 ? url.substring(0, url.indexOf("/", 3 + fqdnIndex)) : void 0;
     }
-    function matchLayer(layer, path2) {
+    function matchLayer(layer, path3) {
       try {
-        return layer.match(path2);
+        return layer.match(path3);
       } catch (err) {
         return err;
       }
@@ -23140,7 +23140,7 @@ var require_application = __commonJS({
     };
     app.use = function use(fn) {
       var offset = 0;
-      var path2 = "/";
+      var path3 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -23148,7 +23148,7 @@ var require_application = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path2 = fn;
+          path3 = fn;
         }
       }
       var fns = flatten.call(slice.call(arguments, offset), Infinity);
@@ -23158,12 +23158,12 @@ var require_application = __commonJS({
       var router = this.router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router.use(path2, fn2);
+          return router.use(path3, fn2);
         }
-        debug(".use app under %s", path2);
-        fn2.mountpath = path2;
+        debug(".use app under %s", path3);
+        fn2.mountpath = path3;
         fn2.parent = this;
-        router.use(path2, function mounted_app(req, res, next) {
+        router.use(path3, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             Object.setPrototypeOf(req, orig.request);
@@ -23175,8 +23175,8 @@ var require_application = __commonJS({
       }, this);
       return this;
     };
-    app.route = function route(path2) {
-      return this.router.route(path2);
+    app.route = function route(path3) {
+      return this.router.route(path3);
     };
     app.engine = function engine(ext, fn) {
       if (typeof fn !== "function") {
@@ -23219,7 +23219,7 @@ var require_application = __commonJS({
       }
       return this;
     };
-    app.path = function path2() {
+    app.path = function path3() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
     app.enabled = function enabled(setting) {
@@ -23235,17 +23235,17 @@ var require_application = __commonJS({
       return this.set(setting, false);
     };
     methods.forEach(function(method) {
-      app[method] = function(path2) {
+      app[method] = function(path3) {
         if (method === "get" && arguments.length === 1) {
-          return this.set(path2);
+          return this.set(path3);
         }
-        var route = this.route(path2);
+        var route = this.route(path3);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
     });
-    app.all = function all(path2) {
-      var route = this.route(path2);
+    app.all = function all(path3) {
+      var route = this.route(path3);
       var args = slice.call(arguments, 1);
       for (var i = 0; i < methods.length; i++) {
         route[methods[i]].apply(route, args);
@@ -24167,7 +24167,7 @@ var require_request = __commonJS({
       var subdomains2 = !isIP(hostname) ? hostname.split(".").reverse() : [hostname];
       return subdomains2.slice(offset);
     });
-    defineGetter(req, "path", function path2() {
+    defineGetter(req, "path", function path3() {
       return parse(this).pathname;
     });
     defineGetter(req, "host", function host() {
@@ -24378,8 +24378,8 @@ var require_content_disposition = __commonJS({
       this.type = type;
       this.parameters = parameters;
     }
-    function basename(path2) {
-      const normalized = path2.replaceAll("\\", "/");
+    function basename(path3) {
+      const normalized = path3.replaceAll("\\", "/");
       let end = normalized.length;
       while (end > 0 && normalized[end - 1] === "/") {
         end--;
@@ -24620,32 +24620,32 @@ var require_send = __commonJS({
     var escapeHtml = require_escape_html();
     var etag = require_etag();
     var fresh = require_fresh();
-    var fs3 = require("fs");
+    var fs4 = require("fs");
     var mime = require_mime_types();
     var ms = require_ms();
     var onFinished = require_on_finished();
     var parseRange = require_range_parser();
-    var path2 = require("path");
+    var path3 = require("path");
     var statuses = require_statuses();
     var Stream = require("stream");
     var util = require("util");
-    var extname = path2.extname;
-    var join = path2.join;
-    var normalize = path2.normalize;
-    var resolve = path2.resolve;
-    var sep = path2.sep;
+    var extname = path3.extname;
+    var join = path3.join;
+    var normalize = path3.normalize;
+    var resolve = path3.resolve;
+    var sep = path3.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
     var MAX_MAXAGE = 60 * 60 * 24 * 365 * 1e3;
     var UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
     module2.exports = send;
-    function send(req, path3, options) {
-      return new SendStream(req, path3, options);
+    function send(req, path4, options) {
+      return new SendStream(req, path4, options);
     }
-    function SendStream(req, path3, options) {
+    function SendStream(req, path4, options) {
       Stream.call(this);
       var opts = options || {};
       this.options = opts;
-      this.path = path3;
+      this.path = path4;
       this.req = req;
       this._acceptRanges = opts.acceptRanges !== void 0 ? Boolean(opts.acceptRanges) : true;
       this._cacheControl = opts.cacheControl !== void 0 ? Boolean(opts.cacheControl) : true;
@@ -24759,10 +24759,10 @@ var require_send = __commonJS({
       var lastModified = this.res.getHeader("Last-Modified");
       return parseHttpDate(lastModified) <= parseHttpDate(ifRange);
     };
-    SendStream.prototype.redirect = function redirect(path3) {
+    SendStream.prototype.redirect = function redirect(path4) {
       var res = this.res;
       if (hasListeners(this, "directory")) {
-        this.emit("directory", res, path3);
+        this.emit("directory", res, path4);
         return;
       }
       if (this.hasTrailingSlash()) {
@@ -24782,38 +24782,38 @@ var require_send = __commonJS({
     SendStream.prototype.pipe = function pipe(res) {
       var root = this._root;
       this.res = res;
-      var path3 = decode(this.path);
-      if (path3 === -1) {
+      var path4 = decode(this.path);
+      if (path4 === -1) {
         this.error(400);
         return res;
       }
-      if (~path3.indexOf("\0")) {
+      if (~path4.indexOf("\0")) {
         this.error(400);
         return res;
       }
       var parts;
       if (root !== null) {
-        if (path3) {
-          path3 = normalize("." + sep + path3);
+        if (path4) {
+          path4 = normalize("." + sep + path4);
         }
-        if (UP_PATH_REGEXP.test(path3)) {
-          debug('malicious path "%s"', path3);
+        if (UP_PATH_REGEXP.test(path4)) {
+          debug('malicious path "%s"', path4);
           this.error(403);
           return res;
         }
-        parts = path3.split(sep);
-        path3 = normalize(join(root, path3));
+        parts = path4.split(sep);
+        path4 = normalize(join(root, path4));
       } else {
-        if (UP_PATH_REGEXP.test(path3)) {
-          debug('malicious path "%s"', path3);
+        if (UP_PATH_REGEXP.test(path4)) {
+          debug('malicious path "%s"', path4);
           this.error(403);
           return res;
         }
-        parts = normalize(path3).split(sep);
-        path3 = resolve(path3);
+        parts = normalize(path4).split(sep);
+        path4 = resolve(path4);
       }
       if (containsDotFile(parts)) {
-        debug('%s dotfile "%s"', this._dotfiles, path3);
+        debug('%s dotfile "%s"', this._dotfiles, path4);
         switch (this._dotfiles) {
           case "allow":
             break;
@@ -24827,13 +24827,13 @@ var require_send = __commonJS({
         }
       }
       if (this._index.length && this.hasTrailingSlash()) {
-        this.sendIndex(path3);
+        this.sendIndex(path4);
         return res;
       }
-      this.sendFile(path3);
+      this.sendFile(path4);
       return res;
     };
-    SendStream.prototype.send = function send2(path3, stat) {
+    SendStream.prototype.send = function send2(path4, stat) {
       var len = stat.size;
       var options = this.options;
       var opts = {};
@@ -24845,9 +24845,9 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug('pipe "%s"', path3);
-      this.setHeader(path3, stat);
-      this.type(path3);
+      debug('pipe "%s"', path4);
+      this.setHeader(path4, stat);
+      this.type(path4);
       if (this.isConditionalGET()) {
         if (this.isPreconditionFailure()) {
           this.error(412);
@@ -24896,30 +24896,30 @@ var require_send = __commonJS({
         res.end();
         return;
       }
-      this.stream(path3, opts);
+      this.stream(path4, opts);
     };
-    SendStream.prototype.sendFile = function sendFile(path3) {
+    SendStream.prototype.sendFile = function sendFile(path4) {
       var i = 0;
       var self = this;
-      debug('stat "%s"', path3);
-      fs3.stat(path3, function onstat(err, stat) {
-        var pathEndsWithSep = path3[path3.length - 1] === sep;
-        if (err && err.code === "ENOENT" && !extname(path3) && !pathEndsWithSep) {
+      debug('stat "%s"', path4);
+      fs4.stat(path4, function onstat(err, stat) {
+        var pathEndsWithSep = path4[path4.length - 1] === sep;
+        if (err && err.code === "ENOENT" && !extname(path4) && !pathEndsWithSep) {
           return next(err);
         }
         if (err) return self.onStatError(err);
-        if (stat.isDirectory()) return self.redirect(path3);
+        if (stat.isDirectory()) return self.redirect(path4);
         if (pathEndsWithSep) return self.error(404);
-        self.emit("file", path3, stat);
-        self.send(path3, stat);
+        self.emit("file", path4, stat);
+        self.send(path4, stat);
       });
       function next(err) {
         if (self._extensions.length <= i) {
           return err ? self.onStatError(err) : self.error(404);
         }
-        var p = path3 + "." + self._extensions[i++];
+        var p = path4 + "." + self._extensions[i++];
         debug('stat "%s"', p);
-        fs3.stat(p, function(err2, stat) {
+        fs4.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self.emit("file", p, stat);
@@ -24927,7 +24927,7 @@ var require_send = __commonJS({
         });
       }
     };
-    SendStream.prototype.sendIndex = function sendIndex(path3) {
+    SendStream.prototype.sendIndex = function sendIndex(path4) {
       var i = -1;
       var self = this;
       function next(err) {
@@ -24935,9 +24935,9 @@ var require_send = __commonJS({
           if (err) return self.onStatError(err);
           return self.error(404);
         }
-        var p = join(path3, self._index[i]);
+        var p = join(path4, self._index[i]);
         debug('stat "%s"', p);
-        fs3.stat(p, function(err2, stat) {
+        fs4.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self.emit("file", p, stat);
@@ -24946,10 +24946,10 @@ var require_send = __commonJS({
       }
       next();
     };
-    SendStream.prototype.stream = function stream(path3, options) {
+    SendStream.prototype.stream = function stream(path4, options) {
       var self = this;
       var res = this.res;
-      var stream2 = fs3.createReadStream(path3, options);
+      var stream2 = fs4.createReadStream(path4, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -24964,17 +24964,17 @@ var require_send = __commonJS({
         self.emit("end");
       });
     };
-    SendStream.prototype.type = function type(path3) {
+    SendStream.prototype.type = function type(path4) {
       var res = this.res;
       if (res.getHeader("Content-Type")) return;
-      var ext = extname(path3);
+      var ext = extname(path4);
       var type2 = mime.contentType(ext) || "application/octet-stream";
       debug("content-type %s", type2);
       res.setHeader("Content-Type", type2);
     };
-    SendStream.prototype.setHeader = function setHeader(path3, stat) {
+    SendStream.prototype.setHeader = function setHeader(path4, stat) {
       var res = this.res;
-      this.emit("headers", res, path3, stat);
+      this.emit("headers", res, path4, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
         debug("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
@@ -25032,9 +25032,9 @@ var require_send = __commonJS({
       }
       return err instanceof Error ? createError(status, err, { expose: false }) : createError(status, err);
     }
-    function decode(path3) {
+    function decode(path4) {
       try {
-        return decodeURIComponent(path3);
+        return decodeURIComponent(path4);
       } catch (err) {
         return -1;
       }
@@ -25178,7 +25178,7 @@ var require_response = __commonJS({
     var http2 = require("node:http");
     var onFinished = require_on_finished();
     var mime = require_mime_types();
-    var path2 = require("node:path");
+    var path3 = require("node:path");
     var pathIsAbsolute = require("node:path").isAbsolute;
     var statuses = require_statuses();
     var sign = require_cookie_signature().sign;
@@ -25187,8 +25187,8 @@ var require_response = __commonJS({
     var setCharset = require_utils3().setCharset;
     var cookie = require_cookie();
     var send = require_send();
-    var extname = path2.extname;
-    var resolve = path2.resolve;
+    var extname = path3.extname;
+    var resolve = path3.resolve;
     var vary = require_vary();
     var { Buffer: Buffer2 } = require("node:buffer");
     var res = Object.create(http2.ServerResponse.prototype);
@@ -25334,26 +25334,26 @@ var require_response = __commonJS({
       this.type("txt");
       return this.send(body);
     };
-    res.sendFile = function sendFile(path3, options, callback) {
+    res.sendFile = function sendFile(path4, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
       var next = req.next;
       var opts = options || {};
-      if (!path3) {
+      if (!path4) {
         throw new TypeError("path argument is required to res.sendFile");
       }
-      if (typeof path3 !== "string") {
+      if (typeof path4 !== "string") {
         throw new TypeError("path must be a string to res.sendFile");
       }
       if (typeof options === "function") {
         done = options;
         opts = {};
       }
-      if (!opts.root && !pathIsAbsolute(path3)) {
+      if (!opts.root && !pathIsAbsolute(path4)) {
         throw new TypeError("path must be absolute or specify root to res.sendFile");
       }
-      var pathname = encodeURI(path3);
+      var pathname = encodeURI(path4);
       opts.etag = this.app.enabled("etag");
       var file = send(req, pathname, opts);
       sendfile(res2, file, opts, function(err) {
@@ -25364,7 +25364,7 @@ var require_response = __commonJS({
         }
       });
     };
-    res.download = function download(path3, filename, options, callback) {
+    res.download = function download(path4, filename, options, callback) {
       var done = callback;
       var name = filename;
       var opts = options || null;
@@ -25381,7 +25381,7 @@ var require_response = __commonJS({
         opts = filename;
       }
       var headers = {
-        "Content-Disposition": contentDisposition(name || path3)
+        "Content-Disposition": contentDisposition(name || path4)
       };
       if (opts && opts.headers) {
         var keys = Object.keys(opts.headers);
@@ -25394,7 +25394,7 @@ var require_response = __commonJS({
       }
       opts = Object.create(opts);
       opts.headers = headers;
-      var fullPath = !opts.root ? resolve(path3) : path3;
+      var fullPath = !opts.root ? resolve(path4) : path4;
       return this.sendFile(fullPath, opts, done);
     };
     res.contentType = res.type = function contentType(type) {
@@ -25677,11 +25677,11 @@ var require_serve_static = __commonJS({
         }
         var forwardError = !fallthrough;
         var originalUrl = parseUrl.original(req);
-        var path2 = parseUrl(req).pathname;
-        if (path2 === "/" && originalUrl.pathname.substr(-1) !== "/") {
-          path2 = "";
+        var path3 = parseUrl(req).pathname;
+        if (path3 === "/" && originalUrl.pathname.substr(-1) !== "/") {
+          path3 = "";
         }
-        var stream = send(req, path2, opts);
+        var stream = send(req, path3, opts);
         stream.on("directory", onDirectory);
         if (setHeaders) {
           stream.on("headers", setHeaders);
@@ -25792,8 +25792,8 @@ var require_express2 = __commonJS({
 var require_mutations = __commonJS({
   "skills/project-manager/scripts/lib/mutations.js"(exports2, module2) {
     "use strict";
-    var fs3 = require("node:fs");
-    var path2 = require("node:path");
+    var fs4 = require("node:fs");
+    var path3 = require("node:path");
     var crypto3 = require("node:crypto");
     var { canonicalJson } = require_contracts();
     var { PROJECT_WORK_PREFIX, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
@@ -25815,7 +25815,7 @@ var require_mutations = __commonJS({
     };
     function lstatIfExists(target) {
       try {
-        return fs3.lstatSync(target);
+        return fs4.lstatSync(target);
       } catch (error) {
         if (error.code === "ENOENT") return null;
         throw error;
@@ -25833,17 +25833,17 @@ var require_mutations = __commonJS({
       assertProjectDirectoryRoot(root);
       const records = [];
       function walk(folder) {
-        for (const name of fs3.readdirSync(folder).sort()) {
-          const full = path2.join(folder, name);
-          const relative = path2.relative(root, full).split(path2.sep).join("/");
-          const stat = fs3.lstatSync(full);
+        for (const name of fs4.readdirSync(folder).sort()) {
+          const full = path3.join(folder, name);
+          const relative = path3.relative(root, full).split(path3.sep).join("/");
+          const stat = fs4.lstatSync(full);
           if (stat.isDirectory()) {
             records.push({ path: relative, type: "directory" });
             walk(full);
           } else if (stat.isFile()) {
-            records.push({ path: relative, type: "file", digest: crypto3.createHash("sha256").update(fs3.readFileSync(full)).digest("hex") });
+            records.push({ path: relative, type: "file", digest: crypto3.createHash("sha256").update(fs4.readFileSync(full)).digest("hex") });
           } else if (stat.isSymbolicLink()) {
-            records.push({ path: relative, type: "symlink", target: fs3.readlinkSync(full) });
+            records.push({ path: relative, type: "symlink", target: fs4.readlinkSync(full) });
           } else {
             const kind = stat.isFIFO() ? "fifo" : stat.isSocket() ? "socket" : stat.isCharacterDevice() ? "character-device" : stat.isBlockDevice() ? "block-device" : "unknown";
             throw new UnsupportedProjectEntryError(relative, kind);
@@ -25855,69 +25855,69 @@ var require_mutations = __commonJS({
       return crypto3.createHash("sha256").update(canonicalJson(records)).digest("hex");
     }
     function isEmptyDirectory(target) {
-      return fs3.existsSync(target) && fs3.lstatSync(target).isDirectory() && fs3.readdirSync(target).length === 0;
+      return fs4.existsSync(target) && fs4.lstatSync(target).isDirectory() && fs4.readdirSync(target).length === 0;
     }
     function createProjectWork(parent, prefix, excludedTarget = null) {
       for (let attempt = 0; attempt < 128; attempt += 1) {
-        const area = path2.join(parent, `${PROJECT_WORK_PREFIX}${crypto3.randomBytes(12).toString("hex")}`);
+        const area = path3.join(parent, `${PROJECT_WORK_PREFIX}${crypto3.randomBytes(12).toString("hex")}`);
         try {
-          fs3.mkdirSync(area, { mode: 448 });
+          fs4.mkdirSync(area, { mode: 448 });
         } catch (error) {
           if (error.code === "EEXIST") continue;
           throw error;
         }
         try {
-          if (excludedTarget && fs3.existsSync(excludedTarget) && fs3.realpathSync(excludedTarget) === fs3.realpathSync(area)) {
-            fs3.rmdirSync(area);
+          if (excludedTarget && fs4.existsSync(excludedTarget) && fs4.realpathSync(excludedTarget) === fs4.realpathSync(area)) {
+            fs4.rmdirSync(area);
             continue;
           }
-          fs3.writeFileSync(path2.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
-          return fs3.mkdtempSync(path2.join(area, prefix));
+          fs4.writeFileSync(path3.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
+          return fs4.mkdtempSync(path3.join(area, prefix));
         } catch (error) {
-          fs3.rmSync(area, { recursive: true, force: true });
+          fs4.rmSync(area, { recursive: true, force: true });
           throw error;
         }
       }
       throw Object.assign(new Error(`Could not allocate an isolated project work area under ${parent}`), { code: "WORK_AREA_EXHAUSTED" });
     }
     function cleanupProjectWork(work) {
-      const area = path2.dirname(work);
-      if (fs3.existsSync(work)) fs3.rmSync(work, { recursive: true, force: true });
-      const marker = path2.join(area, PROJECT_WORK_MARKER);
-      if (fs3.existsSync(marker)) fs3.unlinkSync(marker);
+      const area = path3.dirname(work);
+      if (fs4.existsSync(work)) fs4.rmSync(work, { recursive: true, force: true });
+      const marker = path3.join(area, PROJECT_WORK_MARKER);
+      if (fs4.existsSync(marker)) fs4.unlinkSync(marker);
       try {
-        fs3.rmdirSync(area);
+        fs4.rmdirSync(area);
       } catch (error) {
         if (!["ENOENT", "ENOTEMPTY"].includes(error.code)) throw error;
       }
     }
     function immutableInventory(root) {
       const inventory = /* @__PURE__ */ new Map();
-      for (const relativeRoot of ["handoffs", path2.join("reports", "history")]) {
+      for (const relativeRoot of ["handoffs", path3.join("reports", "history")]) {
         let walk = function(folder) {
-          inventory.set(path2.relative(root, folder), "directory");
-          for (const entry of fs3.readdirSync(folder, { withFileTypes: true })) {
-            const full = path2.join(folder, entry.name);
-            const stat = fs3.lstatSync(full);
+          inventory.set(path3.relative(root, folder), "directory");
+          for (const entry of fs4.readdirSync(folder, { withFileTypes: true })) {
+            const full = path3.join(folder, entry.name);
+            const stat = fs4.lstatSync(full);
             if (stat.isSymbolicLink()) throw new Error("Immutable history cannot contain symlinks");
             if (stat.isDirectory()) walk(full);
-            else if (stat.isFile()) inventory.set(path2.relative(root, full), crypto3.createHash("sha256").update(fs3.readFileSync(full)).digest("hex"));
+            else if (stat.isFile()) inventory.set(path3.relative(root, full), crypto3.createHash("sha256").update(fs4.readFileSync(full)).digest("hex"));
             else throw new Error("Immutable history must contain only files and directories");
           }
         };
-        const start = path2.join(root, relativeRoot);
-        if (!fs3.existsSync(start)) continue;
+        const start = path3.join(root, relativeRoot);
+        if (!fs4.existsSync(start)) continue;
         walk(start);
       }
       return inventory;
     }
     function manifestSources(candidate, relative) {
-      const text = fs3.readFileSync(path2.join(candidate, relative), "utf8");
+      const text = fs4.readFileSync(path3.join(candidate, relative), "utf8");
       const match = /## Payload\n+```json\n([^\n]+)\n```/.exec(text);
       if (!match) throw new Error(`New manifest lacks canonical payload: ${relative}`);
       const payload = JSON.parse(match[1]);
       if (!Array.isArray(payload.sources)) throw new Error(`New manifest sources are invalid: ${relative}`);
-      return payload.sources.map((source) => path2.normalize(source.path));
+      return payload.sources.map((source) => path3.normalize(source.path));
     }
     function assertImmutablePreserved(before, candidate, beforeState, afterState) {
       const after = immutableInventory(candidate);
@@ -25930,18 +25930,18 @@ var require_mutations = __commonJS({
       }
       for (const relative of after.keys()) {
         if (before.has(relative)) continue;
-        if (relative.startsWith(`reports${path2.sep}history${path2.sep}`)) {
+        if (relative.startsWith(`reports${path3.sep}history${path3.sep}`)) {
           if (after.get(relative) === "directory" || relative.endsWith(".md")) continue;
           throw new Error(`Saved report additions must be Markdown: ${relative}`);
         }
-        const pieces = relative.split(path2.sep);
+        const pieces = relative.split(path3.sep);
         if (pieces[0] !== "handoffs") continue;
         if (pieces.length < 3) {
-          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path2.join("handoffs", task.id, task.active_contract).startsWith(relative));
+          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path3.join("handoffs", task.id, task.active_contract).startsWith(relative));
           if (isValidatedAncestor) continue;
           throw new Error(`Immutable handoff directory is not tied to validated active state: ${relative}`);
         }
-        const contractRoot = pieces.slice(0, 3).join(path2.sep);
+        const contractRoot = pieces.slice(0, 3).join(path3.sep);
         const taskId = pieces[1];
         const contractId = pieces[2];
         const beforeTask = beforeState?.tasks?.find((task) => task.id === taskId);
@@ -25950,8 +25950,8 @@ var require_mutations = __commonJS({
         const newValidatedAttempt = !before.has(contractRoot) && afterTask?.active_contract === contractId;
         if (!existingLiveAttempt && !newValidatedAttempt) throw new Error(`Cannot add to an inactive or terminal immutable attempt: ${relative}`);
         if (after.get(relative) === "directory") {
-          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path2.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
-        } else if (allowed.has(relative) || newValidatedAttempt && relative === path2.join(contractRoot, "TASK-CONTRACT.md")) continue;
+          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path3.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
+        } else if (allowed.has(relative) || newValidatedAttempt && relative === path3.join(contractRoot, "TASK-CONTRACT.md")) continue;
         throw new Error(`Immutable attempt addition is not derived from validated active state: ${relative}`);
       }
     }
@@ -25967,10 +25967,10 @@ var require_mutations = __commonJS({
       }
     }
     function atomicProjectMutation(target, mutateCandidate, validateCandidate, options = {}) {
-      if (!path2.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
-      const parent = path2.dirname(target);
-      const name = path2.basename(target);
-      if (!fs3.existsSync(parent) || !fs3.lstatSync(parent).isDirectory()) throw new Error("Project parent directory must exist");
+      if (!path3.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
+      const parent = path3.dirname(target);
+      const name = path3.basename(target);
+      if (!fs4.existsSync(parent) || !fs4.lstatSync(parent).isDirectory()) throw new Error("Project parent directory must exist");
       const targetStat = lstatIfExists(target);
       const exists = targetStat !== null;
       if (exists && !targetStat.isDirectory()) throw new UnsupportedProjectEntryError(".", targetStat.isSymbolicLink() ? "symlink-root" : "non-directory-root");
@@ -25985,17 +25985,17 @@ var require_mutations = __commonJS({
       }
       const beforeState = exists && !initializing ? validateCandidate(target, { logicalRoot: target }) : null;
       const work = createProjectWork(parent, `${name}.transaction-`, target);
-      const candidate = path2.join(work, name);
-      const backup = path2.join(work, `${name}.backup`);
+      const candidate = path3.join(work, name);
+      const backup = path3.join(work, `${name}.backup`);
       let targetMoved = false;
       let candidateMoved = false;
       let committed = false;
       try {
         if (exists && !initializing) {
-          fs3.cpSync(target, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+          fs4.cpSync(target, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
           assertProjectDirectoryRoot(candidate);
           if (expectedRevision !== null && mutationRevision(candidate) !== expectedRevision) throw new MutationConflictError("Candidate copy does not match the selected project revision", mutationRevision(target));
-        } else fs3.mkdirSync(candidate);
+        } else fs4.mkdirSync(candidate);
         const context = { logicalRoot: target };
         mutateCandidate(candidate, context);
         const validation = validateCandidate(candidate, context);
@@ -26007,17 +26007,17 @@ var require_mutations = __commonJS({
           if (currentRevision !== expectedRevision) throw new MutationConflictError("Project changed while the mutation was being prepared", currentRevision);
         }
         if (exists) {
-          fs3.renameSync(target, backup);
+          fs4.renameSync(target, backup);
           targetMoved = true;
         }
-        fs3.renameSync(candidate, target);
+        fs4.renameSync(candidate, target);
         candidateMoved = true;
         if (options.injectFailureAfterReplace) throw new Error("Injected failure after replacement");
         options.validateLive?.(target, { logicalRoot: target });
         committed = true;
         if (targetMoved) {
           try {
-            fs3.rmSync(backup, { recursive: true, force: true });
+            fs4.rmSync(backup, { recursive: true, force: true });
           } catch {
           }
         }
@@ -26030,18 +26030,18 @@ var require_mutations = __commonJS({
         if (committed) return target;
         let restored = false;
         try {
-          if (candidateMoved && fs3.existsSync(target)) fs3.rmSync(target, { recursive: true, force: true });
+          if (candidateMoved && fs4.existsSync(target)) fs4.rmSync(target, { recursive: true, force: true });
           if (options.injectRollbackFailure && targetMoved) throw new Error("Injected rollback failure");
-          if (targetMoved && fs3.existsSync(backup)) fs3.renameSync(backup, target);
-          else if (options.init === true && exists && !fs3.existsSync(target)) fs3.mkdirSync(target);
+          if (targetMoved && fs4.existsSync(backup)) fs4.renameSync(backup, target);
+          else if (options.init === true && exists && !fs4.existsSync(target)) fs4.mkdirSync(target);
           restored = true;
         } catch (restoreError) {
-          const recoveryPath = fs3.existsSync(backup) ? backup : work;
+          const recoveryPath = fs4.existsSync(backup) ? backup : work;
           const failure = new Error(`${error.message}; rollback failed: ${restoreError.message}; recovery preserved at ${recoveryPath}`);
           failure.recoveryPath = recoveryPath;
           throw failure;
         }
-        if (restored && fs3.existsSync(work)) cleanupProjectWork(work);
+        if (restored && fs4.existsSync(work)) cleanupProjectWork(work);
         throw error;
       }
     }
@@ -26053,8 +26053,8 @@ var require_mutations = __commonJS({
 var require_task_editor = __commonJS({
   "skills/project-manager/scripts/lib/task-editor.js"(exports2, module2) {
     "use strict";
-    var fs3 = require("node:fs");
-    var path2 = require("node:path");
+    var fs4 = require("node:fs");
+    var path3 = require("node:path");
     var { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require_project_state();
     var { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require_mutations();
     var PLANNING_FIELDS = [
@@ -26211,10 +26211,10 @@ var require_task_editor = __commonJS({
       return task;
     }
     function applyCandidateEdit(candidate, logicalRoot, taskId, request, projectOptions = {}) {
-      const tasksPath = path2.join(candidate, "TASKS.md");
+      const tasksPath = path3.join(candidate, "TASKS.md");
       const observedAt = (/* @__PURE__ */ new Date()).toISOString();
       const date = observedAt.slice(0, 10);
-      fs3.writeFileSync(tasksPath, transformTaskDocument(fs3.readFileSync(tasksPath, "utf8"), taskId, request.edit, date, observedAt));
+      fs4.writeFileSync(tasksPath, transformTaskDocument(fs4.readFileSync(tasksPath, "utf8"), taskId, request.edit, date, observedAt));
       regenerateStatus(candidate, observedAt, { ...projectOptions, logicalRoot });
       return loadProject(candidate, { ...projectOptions, logicalRoot });
     }
@@ -26223,12 +26223,12 @@ var require_task_editor = __commonJS({
       const snapshot = loadRevisionedProject2(root, 3, projectOptions);
       validateEnvelope(snapshot, taskId, request);
       const canonicalRoot = snapshot.state.root;
-      const parent = path2.dirname(canonicalRoot);
-      const name = path2.basename(canonicalRoot);
+      const parent = path3.dirname(canonicalRoot);
+      const name = path3.basename(canonicalRoot);
       const work = createProjectWork(parent, `${name}.studio-check-`, canonicalRoot);
-      const candidate = path2.join(work, name);
+      const candidate = path3.join(work, name);
       try {
-        fs3.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
+        fs4.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
         if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError2("MUTATION_CONFLICT", "Candidate copy did not match the loaded project", { currentRevision: mutationRevision(canonicalRoot) });
         const state = applyCandidateEdit(candidate, canonicalRoot, taskId, request, projectOptions);
         const task = state.tasks.find((item) => item.id === taskId);
@@ -26277,14 +26277,18 @@ var require_task_editor = __commonJS({
 // src/project-manager-studio/server/cli.ts
 var cli_exports = {};
 __export(cli_exports, {
+  PROJECT_CHANGE_DEBOUNCE_MS: () => PROJECT_CHANGE_DEBOUNCE_MS,
+  PROJECT_WATCH_RETRY_MS: () => PROJECT_WATCH_RETRY_MS,
   ProjectCatalog: () => ProjectCatalog,
   createServer: () => createServer,
-  main: () => main
+  isRelevantProjectPath: () => isRelevantProjectPath,
+  main: () => main,
+  watchProjectChanges: () => watchProjectChanges
 });
 module.exports = __toCommonJS(cli_exports);
 var import_node_http = __toESM(require("node:http"));
-var import_node_fs2 = __toESM(require("node:fs"));
-var import_node_path = __toESM(require("node:path"));
+var import_node_fs3 = __toESM(require("node:fs"));
+var import_node_path2 = __toESM(require("node:path"));
 var import_node_child_process = require("node:child_process");
 
 // src/project-manager-studio/server/project-catalog.ts
@@ -26317,10 +26321,14 @@ var ProjectCatalog = class {
     for (const entry of this.entries) this.validateEntry(entry);
     return { schema_version: 1, initial_project_key: this.initialKey, projects: this.entries.map(({ key, id, name }) => ({ key, id, name })) };
   }
-  resolve(key) {
+  issued(key) {
     if (typeof key !== "string" || key === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "A server-issued project key is required");
     const entry = this.entries.find((candidate) => candidate.key === key);
     if (!entry) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Unknown Studio project key");
+    return entry;
+  }
+  resolve(key) {
+    const entry = this.issued(key);
     this.validateEntry(entry);
     return entry;
   }
@@ -26353,19 +26361,235 @@ var ProjectCatalog = class {
       stale(`Project path cannot be resolved: ${entry.name}`);
     }
     if (real !== entry.root) stale(`Project path changed: ${entry.name}`);
-    let identity;
+    let identity2;
     try {
-      identity = loadProjectIdentity(entry.root);
+      identity2 = loadProjectIdentity(entry.root);
     } catch {
       stale(`Project identity cannot be read: ${entry.name}`);
     }
-    if (identity.project.id !== entry.id) stale(`Project ID changed for ${entry.name}`);
+    if (identity2.project.id !== entry.id) stale(`Project ID changed for ${entry.name}`);
   }
 };
 
 // src/project-manager-studio/server/server.ts
 var import_node_crypto2 = __toESM(require("node:crypto"));
 var import_express = __toESM(require_express2());
+
+// src/project-manager-studio/server/project-watcher.ts
+var import_node_fs2 = __toESM(require("node:fs"));
+var import_node_path = __toESM(require("node:path"));
+var PROJECT_CHANGE_DEBOUNCE_MS = 100;
+var PROJECT_WATCH_RETRY_MS = 50;
+var PROJECT_WATCH_RETRY_LIMIT = 10;
+var STATE_FILES = /* @__PURE__ */ new Set([
+  "PROJECT.md",
+  "TASKS.md",
+  "STATUS.md",
+  "MILESTONES.md",
+  "RISKS.md",
+  "DECISIONS.md",
+  "SOURCES.md",
+  "TRACEABILITY.md",
+  "CHANGES.md",
+  "ASSUMPTIONS.md",
+  "ISSUES.md",
+  "STAKEHOLDERS.md",
+  "LESSONS.md",
+  "CLOSURE.md"
+]);
+function filenameText(filename) {
+  return filename === null ? null : filename.toString();
+}
+function isRelevantProjectPath(filename) {
+  const text = filenameText(filename);
+  if (text === null) return true;
+  const normalized = import_node_path.default.normalize(text);
+  if (import_node_path.default.isAbsolute(normalized) || normalized === ".." || normalized.startsWith(`..${import_node_path.default.sep}`)) return false;
+  const pieces = normalized.split(import_node_path.default.sep);
+  return pieces.length === 1 && STATE_FILES.has(pieces[0]) || pieces[0] === "handoffs";
+}
+function identity(stat) {
+  return { dev: BigInt(stat.dev), ino: BigInt(stat.ino) };
+}
+function sameIdentity(left, right) {
+  return left !== null && left.dev === right.dev && left.ino === right.ino;
+}
+function watchProjectChanges(options) {
+  const watchFn = options.watchFn ?? ((target, watchOptions, listener) => import_node_fs2.default.watch(target, watchOptions, listener));
+  const lstatFn = options.lstatFn ?? import_node_fs2.default.lstatSync;
+  const realpathFn = options.realpathFn ?? import_node_fs2.default.realpathSync;
+  const setTimer = options.setTimeoutFn ?? setTimeout;
+  const clearTimer = options.clearTimeoutFn ?? clearTimeout;
+  const retryLimit = options.retryLimit ?? PROJECT_WATCH_RETRY_LIMIT;
+  const expectedRoot = import_node_path.default.resolve(options.root);
+  const parent = import_node_path.default.dirname(expectedRoot);
+  const basename = import_node_path.default.basename(expectedRoot);
+  let parentWatcher = null;
+  let rootWatcher = null;
+  let attachedIdentity = null;
+  let retryTimer = null;
+  let changeTimer = null;
+  let generation = 0;
+  let stopped = false;
+  const closeWatcher = (watcher) => {
+    try {
+      watcher?.close();
+    } catch {
+    }
+  };
+  const cancelRetry = () => {
+    if (retryTimer !== null) {
+      clearTimer(retryTimer);
+      retryTimer = null;
+    }
+  };
+  const cancelChange = () => {
+    if (changeTimer !== null) {
+      clearTimer(changeTimer);
+      changeTimer = null;
+    }
+  };
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    generation += 1;
+    cancelRetry();
+    cancelChange();
+    closeWatcher(rootWatcher);
+    closeWatcher(parentWatcher);
+    rootWatcher = null;
+    parentWatcher = null;
+    attachedIdentity = null;
+  }
+  function fatal(error) {
+    if (!stopped) {
+      stop();
+      options.onFatal?.(error);
+    }
+  }
+  function notify() {
+    if (stopped) return;
+    cancelChange();
+    changeTimer = setTimer(() => {
+      changeTimer = null;
+      if (!stopped) options.onChange();
+    }, PROJECT_CHANGE_DEBOUNCE_MS);
+  }
+  function resolvedIdentity() {
+    const root = import_node_path.default.resolve(options.resolveRoot());
+    if (root !== expectedRoot) throw new Error("Resolved project root changed");
+    const stat = lstatFn(root);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("Resolved project root is not a real directory");
+    return { root, identity: identity(stat) };
+  }
+  function resolvedParentIdentity() {
+    const stat = lstatFn(parent);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("Project parent is not a real directory");
+    if (realpathFn(parent) !== parent) throw new Error("Project parent path changed");
+    return identity(stat);
+  }
+  function attachRoot(token, attempt) {
+    if (stopped || token !== generation) return;
+    let resolved;
+    try {
+      resolved = resolvedIdentity();
+    } catch {
+      if (attempt < retryLimit) retryTimer = setTimer(() => {
+        retryTimer = null;
+        attachRoot(token, attempt + 1);
+      }, PROJECT_WATCH_RETRY_MS);
+      return;
+    }
+    let next;
+    try {
+      next = watchFn(resolved.root, { recursive: true }, (_event, filename) => {
+        if (token === generation && next === rootWatcher && isRelevantProjectPath(filename)) notify();
+      });
+    } catch (error) {
+      if (attempt < retryLimit) {
+        retryTimer = setTimer(() => {
+          retryTimer = null;
+          attachRoot(token, attempt + 1);
+        }, PROJECT_WATCH_RETRY_MS);
+      } else fatal(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    next.on("error", (error) => {
+      if (token === generation && next === rootWatcher) replaceRoot(error);
+    });
+    let confirmed;
+    try {
+      confirmed = resolvedIdentity();
+    } catch {
+      closeWatcher(next);
+      if (attempt < retryLimit) retryTimer = setTimer(() => {
+        retryTimer = null;
+        attachRoot(token, attempt + 1);
+      }, PROJECT_WATCH_RETRY_MS);
+      return;
+    }
+    if (!sameIdentity(resolved.identity, confirmed.identity)) {
+      closeWatcher(next);
+      if (attempt < retryLimit) retryTimer = setTimer(() => {
+        retryTimer = null;
+        attachRoot(token, attempt + 1);
+      }, PROJECT_WATCH_RETRY_MS);
+      return;
+    }
+    if (stopped || token !== generation) {
+      closeWatcher(next);
+      return;
+    }
+    const previous = rootWatcher;
+    rootWatcher = next;
+    attachedIdentity = resolved.identity;
+    closeWatcher(previous);
+  }
+  function replaceRoot(_cause) {
+    if (stopped) return;
+    generation += 1;
+    const token = generation;
+    cancelRetry();
+    closeWatcher(rootWatcher);
+    rootWatcher = null;
+    attachedIdentity = null;
+    notify();
+    attachRoot(token, 0);
+  }
+  function parentBindingChanged() {
+    if (attachedIdentity === null) {
+      try {
+        resolvedIdentity();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    try {
+      const resolved = resolvedIdentity();
+      return !sameIdentity(attachedIdentity, resolved.identity);
+    } catch {
+      return true;
+    }
+  }
+  const initialParent = resolvedParentIdentity();
+  try {
+    parentWatcher = watchFn(parent, {}, (_event, filename) => {
+      const text = filenameText(filename);
+      if (text === basename || text === null && parentBindingChanged()) replaceRoot();
+    });
+    parentWatcher.on("error", (error) => fatal(error));
+    const confirmedParent = resolvedParentIdentity();
+    if (!sameIdentity(initialParent, confirmedParent)) throw new Error("Project parent changed during watcher attachment");
+  } catch (error) {
+    stop();
+    throw error;
+  }
+  attachRoot(generation, 0);
+  return stop;
+}
+
+// src/project-manager-studio/server/server.ts
 var { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require_task_editor();
 var SESSION_COOKIE = "pm_studio_session";
 var HEARTBEAT_HEADER = "x-project-manager-studio";
@@ -26430,6 +26654,54 @@ function createServer(options) {
     try {
       res.json({ ok: true, data: loadProject(req.query.project) });
     } catch (error) {
+      const result = apiError(error);
+      res.status(result.status).json(result.body);
+    }
+  });
+  api.get("/events", (req, res) => {
+    let stop = () => {
+    };
+    let ready = false;
+    let queued = false;
+    let closed = false;
+    const sendChange = () => {
+      if (!ready) {
+        queued = true;
+        return;
+      }
+      res.write(`event: project-change
+data: ${JSON.stringify({ projectKey: req.query.project })}
+
+`);
+    };
+    const close = () => {
+      if (!closed) {
+        closed = true;
+        stop();
+      }
+    };
+    try {
+      const entry = options.catalog.issued(req.query.project);
+      stop = (options.watchProject ?? watchProjectChanges)({
+        root: entry.root,
+        resolveRoot: () => options.catalog.resolve(entry.key).root,
+        onChange: sendChange,
+        onFatal: () => {
+          if (!res.writableEnded) res.end();
+        }
+      });
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+      ready = true;
+      res.write(": connected\n\n");
+      if (queued) sendChange();
+      req.once("close", close);
+      res.once("close", close);
+    } catch (error) {
+      close();
       const result = apiError(error);
       res.status(result.status).json(result.body);
     }
@@ -26553,8 +26825,8 @@ function createStudioWatchdog({
 
 // src/project-manager-studio/server/cli.ts
 var { loadProjectIdentity: loadProjectIdentity2, loadProjectCatalogRoot } = require_project_state();
-var SKILL_DIR = import_node_path.default.resolve(__dirname, "..");
-var CLIENT_DIST_DIR = import_node_path.default.join(SKILL_DIR, "studio", "dist");
+var SKILL_DIR = import_node_path2.default.resolve(__dirname, "..");
+var CLIENT_DIST_DIR = import_node_path2.default.join(SKILL_DIR, "studio", "dist");
 var USAGE = "Usage: project-manager-studio.js [--project <folder>] [--projects-root <folder>] [--port <port>] [--no-open]";
 function valueAfter(argv, index, flag) {
   const value = argv[index + 1];
@@ -26579,25 +26851,25 @@ function parseArgs(argv) {
 }
 function buildCatalog(args) {
   if (args.project && !args.projectsRoot) {
-    const identity = loadProjectIdentity2(import_node_path.default.resolve(args.project));
-    const seed = { id: identity.project.id, name: identity.project.name, root: identity.root };
+    const identity2 = loadProjectIdentity2(import_node_path2.default.resolve(args.project));
+    const seed = { id: identity2.project.id, name: identity2.project.name, root: identity2.root };
     return new ProjectCatalog([seed], seed.root);
   }
-  const requestedRoot = import_node_path.default.resolve(args.projectsRoot ?? ".projects");
+  const requestedRoot = import_node_path2.default.resolve(args.projectsRoot ?? ".projects");
   const discovered = loadProjectCatalogRoot(requestedRoot);
   let initialRoot = discovered.projects[0].root;
   if (args.project) {
-    const requestedProject = import_node_path.default.resolve(args.project);
+    const requestedProject = import_node_path2.default.resolve(args.project);
     let stat;
     try {
-      stat = import_node_fs2.default.lstatSync(requestedProject);
+      stat = import_node_fs3.default.lstatSync(requestedProject);
     } catch {
       throw new Error("Explicit project must be an existing direct child of --projects-root");
     }
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("Explicit project must be a real direct child of --projects-root");
-    const real = import_node_fs2.default.realpathSync(requestedProject);
+    const real = import_node_fs3.default.realpathSync(requestedProject);
     const selected = discovered.projects.find((project) => project.root === real);
-    if (!selected || import_node_path.default.dirname(real) !== discovered.root) throw new Error("Explicit project must be a direct child of --projects-root");
+    if (!selected || import_node_path2.default.dirname(real) !== discovered.root) throw new Error("Explicit project must be a direct child of --projects-root");
     initialRoot = selected.root;
   }
   return new ProjectCatalog(discovered.projects, initialRoot);
@@ -26650,9 +26922,13 @@ if (require.main === module) main().then(({ url }) => console.log(url)).catch((e
 });
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  PROJECT_CHANGE_DEBOUNCE_MS,
+  PROJECT_WATCH_RETRY_MS,
   ProjectCatalog,
   createServer,
-  main
+  isRelevantProjectPath,
+  main,
+  watchProjectChanges
 });
 /*! Bundled license information:
 

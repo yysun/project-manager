@@ -1,5 +1,5 @@
-// Packaged Studio entry point: project discovery, loopback server, browser
-// launch, browser-renewed idle lease, and one-shot graceful shutdown.
+// Packaged Studio entry point and exports: project discovery, loopback server,
+// SSE watchers, browser launch/lease, and one-shot graceful shutdown.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { createHeartbeatLease, createShutdownController, createStudioWatchdog } 
 
 export { createServer } from './server.js';
 export { ProjectCatalog } from './project-catalog.js';
+export { PROJECT_CHANGE_DEBOUNCE_MS, PROJECT_WATCH_RETRY_MS, isRelevantProjectPath, watchProjectChanges } from './project-watcher.js';
 
 const { loadProjectIdentity, loadProjectCatalogRoot } = require('../../../skills/project-manager/scripts/lib/project-state.js');
 const SKILL_DIR = path.resolve(__dirname, '..');

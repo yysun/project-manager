@@ -34,7 +34,7 @@ function makeProject(records = null, id = 'STUDIO', targetRoot = null) {
   fs.writeFileSync(path.join(root, 'TASKS.md'), collection(tasks));
   fs.writeFileSync(path.join(root, 'STATUS.md'), `${frontmatter({ schema_version: 1, project_id: id, generated_at: '2026-08-08T00:00:00Z', source_sha256: '0'.repeat(64) })}\n`);
   regenerateStatus(root, '2026-08-08T00:00:00Z');
-  return root;
+  return fs.realpathSync(root);
 }
 function startStudioArgs(args, options = {}) { return new Promise((resolve, reject) => {
   const child = spawn(process.execPath, [builtServerPath, ...args], { cwd: options.cwd, stdio: ['ignore', 'pipe', 'pipe'] });

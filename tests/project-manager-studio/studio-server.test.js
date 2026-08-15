@@ -1,5 +1,5 @@
-/* Built Studio server: token and heartbeat security, project selection,
-   mutation isolation, catalog containment, CLI modes, and clean shutdown. */
+/* Built Studio server: token, heartbeat, and SSE security; project selection,
+   mutation isolation; catalog containment; CLI modes; and clean shutdown. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -53,6 +53,80 @@ test('heartbeat requires session and Studio header, renews once, and leaves proj
     response = await fetch(`${origin}/api/heartbeat`, { method: 'POST', headers: { Cookie: cookie, 'X-Project-Manager-Studio': 'wrong' } }); assert.equal(response.status, 403); assert.equal(renewals, 0);
     response = await fetch(`${origin}/api/heartbeat`, { method: 'POST', headers: { Cookie: cookie, 'X-Project-Manager-Studio': 'heartbeat' } }); assert.equal(response.status, 204); assert.equal(await response.text(), ''); assert.equal(renewals, 1); assert.equal(mutationRevision(root), before);
   } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }); }
+});
+
+test('SSE stream requires session and issued key, sends scoped events, and closes watcher once', async () => {
+  const root = fs.realpathSync(makeProject()); const { createServer, ProjectCatalog } = require(builtServerPath); let starts = 0; let stops = 0; let watcherOptions;
+  const catalogInstance = new ProjectCatalog([{ id: 'STUDIO', name: 'Studio Delivery', root }], root);
+  const watchProject = (options) => { starts += 1; watcherOptions = options; let stopped = false; return () => { if (!stopped) { stopped = true; stops += 1; } }; };
+  const { app, sessionToken } = createServer({ catalog: catalogInstance, clientDistDir: path.resolve(__dirname, '../../skills/project-manager/studio/dist'), onHeartbeat: () => {}, watchProject });
+  const server = http.createServer(app); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve)); const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    let response = await fetch(`${origin}/api/events?project=missing`); assert.equal(response.status, 401); assert.equal(starts, 0);
+    response = await fetch(`${origin}/?token=${sessionToken}`, { redirect: 'manual' }); const cookie = response.headers.get('set-cookie').split(';')[0];
+    for (const project of ['', '../outside', 'not-issued']) {
+      response = await fetch(`${origin}/api/events${project ? `?project=${encodeURIComponent(project)}` : ''}`, { headers: { Cookie: cookie } });
+      assert.equal(response.status, 400); assert.equal(starts, 0);
+    }
+    const key = catalogInstance.initialKey; const controller = new AbortController();
+    response = await fetch(`${origin}/api/events?project=${key}`, { headers: { Cookie: cookie }, signal: controller.signal });
+    assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /^text\/event-stream/); assert.equal(starts, 1); assert.equal(watcherOptions.root, root);
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let text = decoder.decode((await reader.read()).value);
+    watcherOptions.onChange(); text += decoder.decode((await reader.read()).value);
+    assert.match(text, /event: project-change/); assert.match(text, new RegExp(`data: \\{"projectKey":"${key}"\\}`)); assert.doesNotMatch(text, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    controller.abort(); try { await reader.cancel(); } catch {} await new Promise((resolve) => setTimeout(resolve, 50)); assert.equal(stops, 1);
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }); }
+});
+
+test('production SSE watcher reports external edits, atomic root replacement, and later new-root edits', async () => {
+  const root = fs.realpathSync(makeProject()); const handle = await startStudio(root); const controller = new AbortController();
+  try {
+    const { cookie } = await handshake(handle); const key = (await catalog(handle, cookie)).initial_project_key;
+    const response = await fetch(`${handle.origin}/api/events?project=${key}`, { headers: { Cookie: cookie }, signal: controller.signal }); assert.equal(response.status, 200);
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffered = '';
+    async function nextChange() {
+      const expires = setTimeout(() => controller.abort(), 3000);
+      try {
+        for (;;) {
+          const boundary = buffered.indexOf('\n\n');
+          if (boundary >= 0) {
+            const block = buffered.slice(0, boundary); buffered = buffered.slice(boundary + 2);
+            if (block.includes('event: project-change')) return block;
+            continue;
+          }
+          const chunk = await reader.read(); if (chunk.done) throw new Error('SSE stream ended before project change'); buffered += decoder.decode(chunk.value, { stream: true });
+        }
+      } finally { clearTimeout(expires); }
+    }
+    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nExternal edit.\n'); assert.match(await nextChange(), new RegExp(key));
+    const replacement = fs.realpathSync(makeProject()); fs.renameSync(root, `${root}-old`); fs.renameSync(replacement, root); assert.match(await nextChange(), new RegExp(key));
+    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nNew root edit.\n'); assert.match(await nextChange(), new RegExp(key));
+    assert.equal((await getProject(handle, cookie, key)).project.id, 'STUDIO'); controller.abort(); try { await reader.cancel(); } catch {}
+  } finally { controller.abort(); await stopStudio(handle); }
+});
+
+test('production project stream ignores sibling project changes', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-sse-isolation-')); const projectsRoot = path.join(workspace, '.projects'); fs.mkdirSync(projectsRoot);
+  const alpha = placeProject(projectsRoot, 'alpha', 'ALPHA'); const beta = placeProject(projectsRoot, 'beta', 'BETA'); const handle = await startStudioArgs(['--projects-root', projectsRoot, '--project', alpha, '--no-open', '--port', '0']); const controller = new AbortController();
+  try {
+    const { cookie } = await handshake(handle); const options = await catalog(handle, cookie); const alphaKey = options.projects.find((item) => item.id === 'ALPHA').key;
+    const response = await fetch(`${handle.origin}/api/events?project=${alphaKey}`, { headers: { Cookie: cookie }, signal: controller.signal }); const reader = response.body.getReader();
+    await reader.read(); const pending = reader.read(); fs.appendFileSync(path.join(beta, 'TASKS.md'), '\nBeta-only edit.\n');
+    assert.equal(await Promise.race([pending.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 250))]), false);
+    fs.appendFileSync(path.join(alpha, 'TASKS.md'), '\nAlpha edit.\n'); const event = await pending; assert.match(new TextDecoder().decode(event.value), /event: project-change/);
+    controller.abort(); try { await reader.cancel(); } catch {}
+  } finally { controller.abort(); await stopStudio(handle); }
+});
+
+test('issued project stream stays live through an initial missing-root gap and recovers on restoration', async () => {
+  const root = fs.realpathSync(makeProject()); const handle = await startStudio(root); const controller = new AbortController(); const backup = `${root}-initial-gap`;
+  try {
+    const { cookie } = await handshake(handle); const key = (await catalog(handle, cookie)).initial_project_key; fs.renameSync(root, backup);
+    const response = await fetch(`${handle.origin}/api/events?project=${key}`, { headers: { Cookie: cookie }, signal: controller.signal }); assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /^text\/event-stream/);
+    const reader = response.body.getReader(); await reader.read(); fs.renameSync(backup, root);
+    const expires = setTimeout(() => controller.abort(), 3000); const event = await reader.read(); clearTimeout(expires); assert.match(new TextDecoder().decode(event.value), /event: project-change/);
+    assert.equal((await getProject(handle, cookie, key)).project.id, 'STUDIO'); controller.abort(); try { await reader.cancel(); } catch {}
+  } finally { if (fs.existsSync(backup) && !fs.existsSync(root)) fs.renameSync(backup, root); controller.abort(); await stopStudio(handle); }
 });
 
 test('binds loopback, uses distinct 256-bit tokens, secures API, and serves client', async () => {

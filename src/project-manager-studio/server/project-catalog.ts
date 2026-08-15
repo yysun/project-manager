@@ -1,5 +1,5 @@
-// Server-owned Studio project catalog: opaque selection keys bind requests to
-// canonical direct-child paths and stable project IDs without accepting paths.
+// Server-owned Studio project catalog: opaque keys expose issued bindings for
+// SSE recovery while validated resolution guards every project read or write.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { KanbanData, ProjectCatalogData } from '../shared/api.js';
@@ -34,10 +34,15 @@ export class ProjectCatalog {
     return { schema_version: 1, initial_project_key: this.initialKey, projects: this.entries.map(({ key, id, name }) => ({ key, id, name })) };
   }
 
-  resolve(key: unknown): CatalogEntry {
+  issued(key: unknown): CatalogEntry {
     if (typeof key !== 'string' || key === '') throw new ProjectCatalogError('PROJECT_SELECTION_REQUIRED', 'A server-issued project key is required');
     const entry = this.entries.find((candidate) => candidate.key === key);
     if (!entry) throw new ProjectCatalogError('PROJECT_SELECTION_UNKNOWN', 'Unknown Studio project key');
+    return entry;
+  }
+
+  resolve(key: unknown): CatalogEntry {
+    const entry = this.issued(key);
     this.validateEntry(entry);
     return entry;
   }

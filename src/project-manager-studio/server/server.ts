@@ -1,11 +1,12 @@
 // Local Studio HTTP boundary: token handshake, opaque-key project reads,
-// deterministic checks, serialized atomic saves, authenticated lease renewal,
-// and static assets. It exposes no shell, executor, evidence, or arbitrary-path
-// selection API.
+// deterministic checks, serialized atomic saves, authenticated SSE refresh,
+// lease renewal, and static assets. It exposes no shell, executor, evidence,
+// or arbitrary-path selection API.
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { KanbanData, TaskEditRequest } from '../shared/api.js';
 import { ProjectCatalog, ProjectCatalogError } from './project-catalog.js';
+import { watchProjectChanges, type ProjectWatcherOptions } from './project-watcher.js';
 
 const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
 const SESSION_COOKIE = 'pm_studio_session';
@@ -42,7 +43,9 @@ function editRequest(body: unknown): { projectKey: string; edit: Omit<TaskEditRe
   return { projectKey: value.projectKey, edit: { mutationRevision: value.mutationRevision, taskRevision: value.taskRevision, edit: value.edit } as Omit<TaskEditRequest, 'projectKey'> };
 }
 
-export function createServer(options: { catalog: ProjectCatalog; clientDistDir: string; onHeartbeat: () => void; sessionToken?: string }) {
+type WatchProject = (options: ProjectWatcherOptions) => () => void;
+
+export function createServer(options: { catalog: ProjectCatalog; clientDistDir: string; onHeartbeat: () => void; sessionToken?: string; watchProject?: WatchProject }) {
   const sessionToken = options.sessionToken ?? crypto.randomBytes(32).toString('hex');
   const app = express();
   app.disable('x-powered-by');
@@ -75,6 +78,35 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
   api.get('/project', (req, res) => {
     try { res.json({ ok: true, data: loadProject(req.query.project) }); }
     catch (error) { const result = apiError(error); res.status(result.status).json(result.body); }
+  });
+
+  api.get('/events', (req, res) => {
+    let stop = () => {};
+    let ready = false; let queued = false; let closed = false;
+    const sendChange = () => {
+      if (!ready) { queued = true; return; }
+      res.write(`event: project-change\ndata: ${JSON.stringify({ projectKey: req.query.project })}\n\n`);
+    };
+    const close = () => { if (!closed) { closed = true; stop(); } };
+    try {
+      const entry = options.catalog.issued(req.query.project);
+      stop = (options.watchProject ?? watchProjectChanges)({
+        root: entry.root,
+        resolveRoot: () => options.catalog.resolve(entry.key).root,
+        onChange: sendChange,
+        onFatal: () => { if (!res.writableEnded) res.end(); },
+      });
+      res.status(200);
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders(); ready = true;
+      res.write(': connected\n\n');
+      if (queued) sendChange();
+      req.once('close', close); res.once('close', close);
+    } catch (error) {
+      close(); const result = apiError(error); res.status(result.status).json(result.body);
+    }
   });
 
   api.post('/heartbeat', (req, res) => {

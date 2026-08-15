@@ -78,6 +78,10 @@ Timeline shows schedules, dependencies, blockers, and date conflicts.
 
 ![Project Manager Studio Timeline view](docs/images/project-manager-studio-timeline.jpg)
 
+Studio watches the selected project's durable state and refreshes automatically when the CLI, an
+agent, or another editor changes it. Automatic refresh waits while a task form or schedule draft is
+open so local edits are not discarded; the Refresh button remains available as a manual recovery.
+
 ## Install
 
 In your AI agent app, ask:
