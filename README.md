@@ -82,6 +82,53 @@ Studio watches the selected project's durable state and refreshes automatically 
 agent, or another editor changes it. Automatic refresh waits while a task form or schedule draft is
 open so local edits are not discarded; the Refresh button remains available as a manual recovery.
 
+## MCP App
+
+Studio is a browser window. The MCP App puts the same project facts inside the conversation, so the
+status you are talking about sits next to the sentence that changed it.
+
+It ships two views. An inline card shows task counts, blocked work, verified success criteria, owner
+gaps, and the target date. A fullscreen board shows every lane with task detail disclosed in place.
+
+The MCP App is **read-only**. You change projects by talking to the agent, and by the skill and CLI
+scripts as before; the app never writes. It runs as a stdio CLI over MCP, reading the same validated
+project state Studio reads.
+
+Hosts that do not render MCP Apps still get the tools — they receive the compact text summary
+instead of a view.
+
+### Install as an Agent Plugin
+
+`npm run build` produces `dist/agent-plugin/`, an [Agent Plugins 1.0](https://agent-plugins.org/)
+package carrying both the skill and the MCP server. Point a conformant client at that directory.
+
+### Install in Claude Desktop
+
+Claude Desktop does not read Agent Plugins packages, so add the server to
+`claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`):
+
+```json
+{
+  "mcpServers": {
+    "project-manager": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/skills/project-manager/scripts/project-manager-mcp.js",
+        "--projects-root",
+        "/absolute/path/to/your/.projects"
+      ]
+    }
+  }
+}
+```
+
+### Pointing the server at your projects
+
+A host launches the server with a working directory you do not control, so tell it where projects
+live. Use `--projects-root <folder>`, or `--project <folder>` for a single project, or set
+`PROJECT_MANAGER_PROJECTS_ROOT`. With none of these it looks for `.projects` relative to the working
+directory and, failing that, reports the exact path it tried.
+
 ## Install
 
 In your AI agent app, ask:

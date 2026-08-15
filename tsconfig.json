@@ -9,5 +9,11 @@
     "skipLibCheck": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["src/project-manager-studio/**/*.ts", "src/project-manager-studio/**/*.tsx", "vite.project-manager.config.mts"]
+  "include": [
+    "src/project-manager-studio/**/*.ts",
+    "src/project-manager-studio/**/*.tsx",
+    "src/mcp-app/**/*.ts",
+    "src/mcp-app/**/*.tsx",
+    "vite.project-manager.config.mts"
+  ]
 }

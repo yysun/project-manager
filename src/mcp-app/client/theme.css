@@ -1,0 +1,115 @@
+/* MCP App theme: every structural color, font, and radius resolves from a host
+   token first and a local fallback second, so views stay native inside a host
+   that supplies tokens and remain legible in one that supplies none. Fallbacks
+   follow the viewer's colour scheme because the host owns theme selection. */
+
+:root {
+  --pm-bg: var(--color-background-primary, #ffffff);
+  --pm-bg-soft: var(--color-background-secondary, #f5f4ed);
+  --pm-text: var(--color-text-primary, #141413);
+  --pm-text-soft: var(--color-text-secondary, #3d3d3a);
+  --pm-text-faint: var(--color-text-tertiary, #73726c);
+  --pm-border: var(--color-border-tertiary, rgba(31, 30, 29, 0.15));
+  --pm-border-strong: var(--color-border-secondary, rgba(31, 30, 29, 0.3));
+  --pm-danger: var(--color-text-danger, #7f2c28);
+  --pm-danger-bg: var(--color-background-danger, #f7ecec);
+  --pm-success: var(--color-text-success, #265b19);
+  --pm-warning: var(--color-text-warning, #5a4815);
+  --pm-warning-bg: var(--color-background-warning, #f6eedf);
+  --pm-info: var(--color-text-info, #3266ad);
+  --pm-inverse-bg: var(--color-background-inverse, #141413);
+  --pm-inverse-text: var(--color-text-inverse, #ffffff);
+
+  --pm-font: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --pm-font-mono: var(--font-mono, ui-monospace, monospace);
+  --pm-size-xs: var(--font-text-xs-size, 12px);
+  --pm-size-sm: var(--font-text-sm-size, 14px);
+  --pm-size-md: var(--font-text-md-size, 16px);
+  --pm-size-lg: var(--font-heading-lg-size, 20px);
+  --pm-size-xl: var(--font-heading-xl-size, 24px);
+  --pm-weight-medium: var(--font-weight-medium, 500);
+  --pm-weight-semibold: var(--font-weight-semibold, 600);
+
+  --pm-radius-sm: var(--border-radius-sm, 6px);
+  --pm-radius-md: var(--border-radius-md, 8px);
+  --pm-radius-lg: var(--border-radius-lg, 10px);
+  --pm-radius-full: var(--border-radius-full, 9999px);
+  --pm-hairline: var(--border-width-regular, 0.5px);
+
+  --pm-gap: 12px;
+}
+
+/* Only the fallbacks flip; a host that supplies tokens keeps supplying them. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pm-bg: var(--color-background-primary, #30302e);
+    --pm-bg-soft: var(--color-background-secondary, #262624);
+    --pm-text: var(--color-text-primary, #faf9f5);
+    --pm-text-soft: var(--color-text-secondary, #c2c0b6);
+    --pm-text-faint: var(--color-text-tertiary, #9c9a92);
+    --pm-border: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
+    --pm-border-strong: var(--color-border-secondary, rgba(222, 220, 209, 0.3));
+    --pm-danger: var(--color-text-danger, #ee8884);
+    --pm-danger-bg: var(--color-background-danger, #602a28);
+    --pm-success: var(--color-text-success, #7ab948);
+    --pm-warning: var(--color-text-warning, #d1a041);
+    --pm-warning-bg: var(--color-background-warning, #483a0f);
+    --pm-info: var(--color-text-info, #80aadd);
+    --pm-inverse-bg: var(--color-background-inverse, #faf9f5);
+    --pm-inverse-text: var(--color-text-inverse, #141413);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--pm-bg);
+  color: var(--pm-text);
+  font-family: var(--pm-font);
+  font-size: var(--pm-size-sm);
+  line-height: var(--font-text-sm-line-height, 1.4);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--pm-radius-md);
+  border: var(--pm-hairline) solid var(--pm-border-strong);
+  background: transparent;
+  color: var(--pm-text);
+  padding: 8px 12px;
+  min-height: 44px;
+}
+
+button.pm-primary {
+  background: var(--pm-inverse-bg);
+  color: var(--pm-inverse-text);
+  border-color: transparent;
+  font-weight: var(--pm-weight-semibold);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--color-ring-primary, currentColor);
+  outline-offset: 2px;
+}
+
+.pm-skeleton {
+  background: var(--pm-bg-soft);
+  border-radius: var(--pm-radius-sm);
+  animation: pm-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-skeleton { animation: none; }
+}
+
+.pm-error {
+  background: var(--pm-danger-bg);
+  color: var(--pm-danger);
+  border-radius: var(--pm-radius-md);
+  padding: 12px;
+}

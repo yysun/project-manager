@@ -1,0 +1,135 @@
+/* Board layout. Lanes stack on narrow viewports and become columns as width
+   allows, with no fixed breakpoints: apps always fill the host container.
+   Task detail is a native inline disclosure rather than a dialog or popover,
+   which hosts clip and which fullscreen guidance rules out. */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pm-gap);
+  padding: 4px;
+  /* Safe-area insets are applied inline from host context. */
+}
+
+.board-head { display: flex; flex-direction: column; gap: 4px; }
+
+.board-eyebrow {
+  font-size: var(--pm-size-xs);
+  color: var(--pm-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.board-title {
+  margin: 0;
+  font-size: var(--pm-size-xl);
+  line-height: var(--font-heading-xl-line-height, 1.25);
+  font-weight: var(--pm-weight-semibold);
+}
+
+.board-objective { margin: 0; color: var(--pm-text-soft); max-width: 72ch; }
+
+.warnings {
+  background: var(--pm-warning-bg);
+  color: var(--pm-warning);
+  border-radius: var(--pm-radius-md);
+  padding: 8px 12px;
+  font-size: var(--pm-size-sm);
+}
+
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--pm-gap);
+  align-items: start;
+}
+
+.lane {
+  background: var(--pm-bg-soft);
+  border-radius: var(--pm-radius-lg);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.lane-title {
+  margin: 0;
+  font-size: var(--pm-size-sm);
+  font-weight: var(--pm-weight-semibold);
+}
+
+.lane-count {
+  font-size: var(--pm-size-xs);
+  color: var(--pm-text-faint);
+  background: var(--pm-bg);
+  border-radius: var(--pm-radius-full);
+  padding: 2px 8px;
+}
+
+.lane-empty { font-size: var(--pm-size-xs); color: var(--pm-text-faint); padding: 8px 2px; }
+
+.task {
+  background: var(--pm-bg);
+  border: var(--pm-hairline) solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+  overflow: hidden;
+}
+
+.task > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.task > summary::-webkit-details-marker { display: none; }
+.task > summary:focus-visible { outline: 2px solid var(--color-ring-primary, currentColor); outline-offset: -2px; }
+
+.task-top { display: flex; align-items: center; gap: 8px; }
+
+.task-id {
+  font-family: var(--pm-font-mono);
+  font-size: var(--pm-size-xs);
+  color: var(--pm-text-faint);
+}
+
+.task-title { font-weight: var(--pm-weight-medium); overflow-wrap: anywhere; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.chip {
+  font-size: var(--pm-size-xs);
+  border-radius: var(--pm-radius-full);
+  padding: 2px 8px;
+  background: var(--pm-bg-soft);
+  color: var(--pm-text-soft);
+}
+
+.chip--critical { background: var(--pm-danger-bg); color: var(--pm-danger); }
+.chip--blocked { background: var(--pm-warning-bg); color: var(--pm-warning); }
+.chip--next { background: var(--pm-inverse-bg); color: var(--pm-inverse-text); }
+
+.task-detail {
+  border-top: var(--pm-hairline) solid var(--pm-border);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--pm-size-xs);
+}
+
+.detail-row { display: flex; flex-direction: column; gap: 2px; }
+.detail-label { color: var(--pm-text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.detail-value { color: var(--pm-text); overflow-wrap: anywhere; }
+.detail-list { margin: 0; padding-left: 16px; }
+.detail-issue { color: var(--pm-danger); }
+
+.skeleton-head { height: 28px; width: 40%; }
+.skeleton-lane { height: 160px; }

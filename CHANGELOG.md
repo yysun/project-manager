@@ -10,6 +10,24 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [Unreleased]
+
+### Added
+
+- Read-only MCP App: a stdio MCP server exposing validated project facts as tools, with an inline
+  status card and a fullscreen board rendered inside supporting hosts. Model-facing tools return a
+  compact summary; the full project payload travels only over app-only tools, keeping task
+  collections out of model context.
+- Agent Plugins 1.0 package built to `dist/agent-plugin/`, carrying the installable skill and the
+  MCP server configuration in the standard's fixed root layout.
+- MCP App frontend under `src/mcp-app/client/`, independent of Studio's client and styled from host
+  theme tokens with light and dark fallbacks.
+
+### Notes
+
+- The MCP App never mutates project state; the agent, the skill, and the CLI scripts remain the only
+  write paths. Studio behavior and packaging are unchanged.
+
 ## [1.7.0] — 2026-08-15
 
 ### Added

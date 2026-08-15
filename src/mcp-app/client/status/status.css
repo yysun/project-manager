@@ -1,0 +1,94 @@
+/* Inline card layout. Height auto-fits content and nothing scrolls internally:
+   hosts cap inline height and pass vertical pan gestures to the conversation, so
+   an internal scroll container would trap content the user cannot reach. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pm-gap);
+  padding: 4px;
+}
+
+.heading { display: flex; flex-direction: column; gap: 2px; }
+
+.eyebrow {
+  font-size: var(--pm-size-xs);
+  color: var(--pm-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--pm-size-lg);
+  line-height: var(--font-heading-lg-line-height, 1.25);
+  font-weight: var(--pm-weight-semibold);
+}
+
+.objective {
+  margin: 0;
+  color: var(--pm-text-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Container queries rather than breakpoints: apps always fill the host's
+   container width, which has no fixed sizes to target. */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.metric {
+  background: var(--pm-bg-soft);
+  border-radius: var(--pm-radius-md);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metric-label { font-size: var(--pm-size-xs); color: var(--pm-text-faint); }
+
+.metric-value {
+  font-size: var(--pm-size-lg);
+  font-weight: var(--pm-weight-semibold);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.metric-value.is-small { font-size: var(--pm-size-md); }
+.metric--warn .metric-value { color: var(--pm-warning); }
+.metric--good .metric-value { color: var(--pm-success); }
+.metric-detail { font-size: var(--pm-size-xs); color: var(--pm-text-faint); }
+
+.next {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: var(--pm-hairline) solid var(--pm-border);
+  padding-top: var(--pm-gap);
+}
+
+.next-label { font-size: var(--pm-size-xs); color: var(--pm-text-faint); }
+.next-item { display: flex; gap: 8px; align-items: baseline; }
+
+.next-id {
+  font-family: var(--pm-font-mono);
+  font-size: var(--pm-size-xs);
+  color: var(--pm-text-faint);
+  flex: none;
+}
+
+.next-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.actions { display: flex; gap: 8px; }
+.actions button { flex: 1; }
+
+.skeleton-title { height: 24px; width: 60%; }
+.skeleton-metric { height: 62px; }
