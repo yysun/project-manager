@@ -139,10 +139,11 @@ Claude Desktop does not read Agent Plugins packages, so add the server to
 
 ### Selecting a project
 
-No projects path is configured, because the agent selects the project the way it already does for
-every CLI script — `project status <folder>` takes a folder, and so does the MCP App. Ask for the
-status of a project by folder and the agent passes it through. A folder is accepted whether or not
-anything was configured at launch.
+No projects path is configured. When you provide a folder, the agent passes that folder to commands
+such as `project status <folder>` and to the MCP App. When you omit the folder, the agent searches
+only below the selected workspace root: one valid project is selected automatically, multiple valid
+projects require a choice, and no valid project requires an explicit folder. A folder is accepted
+whether or not anything was configured at launch.
 
 Configuration is optional and does two things when you use it. `--projects-root <folder>` (or
 `PROJECT_MANAGER_PROJECTS_ROOT`) lets projects be selected by ID or name instead of path, **and

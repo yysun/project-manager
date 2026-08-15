@@ -3,8 +3,9 @@
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
  * Invariants: temporary fixtures only; no repository mutation. Recent changes:
  * cover TASKS v3 dispositions, rigor policies, human and agent governed
- * execution, Studio projection, strict projects-root discovery, and atomic
- * workspace initialization with local cross-platform Studio launchers.
+ * execution, Studio projection, strict projects-root and single-project skill
+ * discovery contracts, and atomic workspace initialization with local
+ * cross-platform Studio launchers.
  */
 'use strict';
 
@@ -1353,6 +1354,21 @@ test('initialization instructions expose the deterministic workspace and standal
   }, loadProject, { init: true, validateLive: loadProject });
   assert.deepEqual(fs.readdirSync(target).sort(), ['PROJECT.md', 'STATUS.md', 'TASKS.md']);
   assert.deepEqual(fs.readdirSync(workspace), ['standalone-project']);
+});
+
+test('project-selection instructions auto-select one valid workspace project without weakening isolation', () => {
+  const skill = fs.readFileSync(path.join(SKILL_ROOT, 'SKILL.md'), 'utf8');
+  assert.match(skill, /exactly one valid project, select its real path and continue without asking/);
+  assert.match(skill, /If it yields more than one, present the valid candidates and ask the user to select one/);
+  assert.match(skill, /Do not search upward, inspect siblings outside that root, follow symlinked directories/);
+  assert.match(skill, /Prune a subtree only when its directory name exactly matches/);
+  assert.match(skill, /A similar name without that exact marker is not enough to hide a legitimate project or candidate error/);
+  assert.match(skill, /explicit selection or the single-valid-project rule must resolve it/);
+
+  const english = fs.readFileSync(path.join(SKILL_ROOT, 'README.md'), 'utf8');
+  const chinese = fs.readFileSync(path.join(SKILL_ROOT, 'README-cn.md'), 'utf8');
+  assert.match(english, /contains one valid project, Project\nManager uses it automatically/);
+  assert.match(chinese, /只有一个有效项目，Project Manager 会自动使用它/);
 });
 
 test('workspace initialization rolls back every exposure and preserves explicit recovery on rollback failure', () => {

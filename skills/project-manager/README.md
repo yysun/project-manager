@@ -133,7 +133,9 @@ cards and statuses.
 
 ## Resume an existing project
 
-Select the existing project in your AI agent app, then continue with the real situation:
+Continue with the real situation. If the selected workspace contains one valid project, Project
+Manager uses it automatically; if it contains several, select the intended project in your AI agent
+app or name its folder:
 
 > Continue managing the website launch. The security team approved the production design in SEC-1842,
 > but the monitoring owner is now away next week. Tell me what that changes.

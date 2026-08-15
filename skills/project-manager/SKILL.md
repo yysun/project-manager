@@ -11,7 +11,7 @@ description: Plan, coordinate, execute, track, review, and report folder-native 
 
 Manage the selected project through `plan → coordinate → execute → track → report`.
 
-Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. For a new project, require an explicitly selected workspace root or target project folder; workspace-default placement derives `<root>/.projects/<safe-project-slug>`. For an existing project, require the user or calling context to select the project folder explicitly. Studio and `execute-rpd` may resolve one exact name, ID, or folder from a validated projects root; ambiguity is not selection. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
+Treat a project as a first-class folder containing structured Markdown state. Never infer that a repository is the project. For a new project, require an explicitly selected workspace root or target project folder; workspace-default placement derives `<root>/.projects/<safe-project-slug>`. For an existing project, use an explicit project folder when the user or calling context supplies one. If no project is selected, discover valid project folders only below the calling context's selected workspace root: select the sole valid project directly without asking, ask for selection when more than one is valid, and ask for a folder when none is valid. Studio and `execute-rpd` may also resolve one exact name, ID, or folder from a validated projects root; ambiguity is not selection. Multiple project folders may live in one repository or workspace; read and write only the selected one. The default workspace container is `.projects`, never `projects`.
 
 Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblings for same-filesystem atomic work and crash recovery. They are internal recovery roots, not projects; valid explicitly selected projects are never rejected merely for a similar basename.
 
@@ -49,11 +49,12 @@ For source or scope changes, read [impact.md](references/impact.md). For exact s
 ## Load state safely
 
 1. Resolve an explicit folder with `realpath`. For an `execute-rpd` project name, run `project-resolve.js` against the calling context's validated `.projects` root and use its returned absolute root.
-2. Do not search upward for Git or inspect siblings.
-3. Reject symlinked or escaping known state paths.
-4. Resolve this skill's absolute directory and run `node <absolute-skill-dir>/scripts/project-validate.js <folder> --json` before relying on state.
-5. Treat `PROJECT.md` and `TASKS.md` as truth. Treat `STATUS.md` as a derived cache.
-6. Add optional modules only when they answer a real operating need.
+2. When no project folder or selector was supplied, resolve the calling context's selected workspace root with `realpath` and search only its descendants for directories containing `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Do not search upward, inspect siblings outside that root, follow symlinked directories, or treat the workspace or repository itself as a project unless it contains those three files. Prune a subtree only when its directory name exactly matches `.project-manager-work-<24-lowercase-hex>` and it contains a real regular `.rpd-project-manager-work-v1` file whose exact contents are `RPD Project Manager work area v1\n`; this proves it is an internal recovery root. A similar name without that exact marker is not enough to hide a legitimate project or candidate error.
+3. Reject symlinked or escaping known state paths. Validate every discovered candidate with `node <absolute-skill-dir>/scripts/project-validate.js <candidate> --json`. A candidate is valid only when that command succeeds.
+4. If discovery yields exactly one valid project, select its real path and continue without asking. If it yields more than one, present the valid candidates and ask the user to select one. If it yields none, ask for the project folder and report any candidate validation failures that explain why discovery found no valid project.
+5. After selection, read and write only that project. Resolve this skill's absolute directory and run `node <absolute-skill-dir>/scripts/project-validate.js <folder> --json` before relying on state.
+6. Treat `PROJECT.md` and `TASKS.md` as truth. Treat `STATUS.md` as a derived cache.
+7. Add optional modules only when they answer a real operating need.
 
 The minimal project folder contains only:
 
@@ -263,7 +264,8 @@ The command prints a tokenized loopback URL. Report it to the user. Use `--no-op
 verification; `--port` accepts an explicit local port. Catalog discovery is non-recursive, rejects
 symlinked or invalid project children and duplicate project IDs, and never falls back to `projects`.
 Marker-bound `.project-manager-work-<24-hex>` recovery roots are excluded from discovery; similarly
-named valid projects remain selectable. Never substitute the current repository for an explicit project folder.
+named valid projects remain selectable. Never substitute the current repository for a project merely
+because it is the current directory; explicit selection or the single-valid-project rule must resolve it.
 
 ## Mutate atomically
 
