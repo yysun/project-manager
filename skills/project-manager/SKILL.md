@@ -5,7 +5,7 @@ description: Plan, coordinate, execute, track, review, and report folder-native 
 
 # Project Manager
 
-**Version:** `1.5.2`
+**Version:** `1.6.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 
@@ -84,6 +84,10 @@ omission a recorded decision, which is what PMI tailoring actually requires.
 
 - Make the outcome and project success criteria explicit before expanding structure.
 - Keep a small task compact: title, outcome, and acceptance criteria are usually enough; defaults supply the rest.
+- Decompose work assigned to `rpd` into cohesive, end-to-end software stories that one RPD flow can
+  take from requirement through verified commit. State observable behavior and boundaries; do not
+  create separate project tasks for RPD stages, files, implementation layers, tests, reviews, docs,
+  or commits. RPD's AP owns that internal decomposition. Read [plan.md](references/plan.md).
 - Treat “add this task” as `project update`; do not add another route.
 - Use stable project-owned IDs. External tracker IDs are display-only mappings.
 - Resolve dependencies within the selected project only.

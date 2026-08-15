@@ -15,7 +15,7 @@ Only `outcome` and `acceptance` are required. The engine supplies generic defaul
 Providers:
 
 - `human`: approval evidence by default; root must be null.
-- `rpd`: software executor; use an existing absolute root with `scope:"absolute"`, or a safe project-relative root with `scope:"project"`; implementation, command, and review evidence default.
+- `rpd`: end-to-end software-story executor; use an existing absolute root with `scope:"absolute"`, or a safe project-relative root with `scope:"project"`; implementation, command, and review evidence default. One task must be a cohesive behavior or contract change suitable for one complete RPD flow, not an RPD stage, file, layer, or implementation-plan step.
 - `agent`: artifact and review evidence; root may be null, absolute-scoped, or project-scoped.
 - `external`: artifact-or-approval evidence; root may be null, absolute-scoped, or project-scoped.
 
@@ -71,6 +71,17 @@ Judge:
 - whether dependencies and blockers are necessary, complete, and non-circular in intent;
 - whether constraints protect real boundaries without prescribing accidental implementation detail;
 - whether executor evidence requirements can prove the acceptance items.
+
+For an `rpd` task, also judge:
+
+- whether it defines one end-to-end software story whose acceptance criteria can become RPD REQ
+  criteria and be decided by VR;
+- whether RPD can plan, implement, test, review, verify, document, and commit it without depending on
+  unfinished sibling implementation fragments;
+- whether it wrongly turns RPD stages, files, layers, tests, reviews, docs, or commits into separate
+  project tasks instead of leaving implementation decomposition to RPD's AP;
+- whether unrelated behavior, different executor roots, approval gates, or materially different risk
+  and rollback boundaries require the task to be split.
 
 Return three short sections: `Blocking defects`, `Recommendations`, and `Strong properties`. Use
 `None` when a section has no items. Do not rewrite or save the task unless explicitly authorized.
