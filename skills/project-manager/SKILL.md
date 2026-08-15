@@ -5,7 +5,7 @@ description: Plan, coordinate, execute, track, review, and report folder-native 
 
 # Project Manager
 
-**Version:** `1.6.0`
+**Version:** `1.7.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 
@@ -55,13 +55,19 @@ For source or scope changes, read [impact.md](references/impact.md). For exact s
 5. Treat `PROJECT.md` and `TASKS.md` as truth. Treat `STATUS.md` as a derived cache.
 6. Add optional modules only when they answer a real operating need.
 
-The minimal project contains only:
+The minimal project folder contains only:
 
 - `PROJECT.md`
 - `TASKS.md`
 - `STATUS.md`
 
 Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, `TRACEABILITY.md`, `CHANGES.md`, `ASSUMPTIONS.md`, `ISSUES.md`, `STAKEHOLDERS.md`, `LESSONS.md`, `CLOSURE.md`, `handoffs/`, and `reports/history/`.
+
+Workspace-root initialization also installs workspace support outside the project folder: ignored
+`.projects/.env.local` records this active skill's absolute path, and canonical `studio.sh` plus
+`studio.cmd` launch Studio from the workspace root. Always use `project-init-workspace.js` for that
+multi-path transaction; read [init.md](references/init.md). Standalone target-folder initialization
+retains the three-file-only contract and creates no workspace support.
 
 ## Tailor to PMI
 
@@ -244,6 +250,15 @@ node <absolute-skill-dir>/scripts/project-manager-studio.js --projects-root <fol
 node <absolute-skill-dir>/scripts/project-manager-studio.js --projects-root <folder> --project <direct-child-folder>
 ```
 
+After workspace-root initialization, operators can use the generated launcher instead. It reads the
+machine-local skill path from ignored `.projects/.env.local`, anchors discovery to the launcher's
+workspace, and forwards any Studio arguments:
+
+```bash
+./studio.sh
+studio.cmd
+```
+
 The command prints a tokenized loopback URL. Report it to the user. Use `--no-open` only for automated
 verification; `--port` accepts an explicit local port. Catalog discovery is non-recursive, rejects
 symlinked or invalid project children and duplicate project IDs, and never falls back to `projects`.
@@ -252,7 +267,9 @@ named valid projects remain selectable. Never substitute the current repository 
 
 ## Mutate atomically
 
-Deterministic scripts are read-only. For skill-led changes:
+Most deterministic scripts are read-only. `project-init-workspace.js` is the dedicated mutating
+exception for workspace-root initialization; do not reproduce its multi-path transaction manually.
+For other skill-led changes:
 
 1. Validate live state.
 2. Build the full change in a same-filesystem candidate copy.

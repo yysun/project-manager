@@ -3,7 +3,8 @@
  * project facts, optional modules, provider handoffs, and hostile invalid inputs.
  * Invariants: temporary fixtures only; no repository mutation. Recent changes:
  * cover TASKS v3 dispositions, rigor policies, human and agent governed
- * execution, Studio projection, and strict projects-root discovery.
+ * execution, Studio projection, strict projects-root discovery, and atomic
+ * workspace initialization with local cross-platform Studio launchers.
  */
 'use strict';
 
@@ -24,8 +25,10 @@ const { atomicProjectMutation, createProjectWork, cleanupProjectWork } = require
 const { completeHumanTask, loadStableProject } = require('../scripts/lib/human-completion');
 const { startAgentTask, ingestAgentManifest } = require('../scripts/lib/agent-execution');
 const { parseTaskRecords, renderRecord } = require('../scripts/lib/task-editor');
+const { MAX_PAYLOAD_BYTES, initializeWorkspaceProject } = require('../scripts/lib/workspace-init');
 
 const SCRIPT_ROOT = path.join(__dirname, '..', 'scripts');
+const SKILL_ROOT = path.join(__dirname, '..');
 
 function frontmatter(data) {
   return `---\n${Object.entries(data).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n`;
@@ -74,6 +77,35 @@ function treeHash(root) {
     }
   }
   walk(root); return sha256(rows);
+}
+
+function treeState(root) {
+  if (!fs.existsSync(root)) return null;
+  const rows = [];
+  function walk(folder, relative = '') {
+    const stat = fs.lstatSync(folder);
+    rows.push({ path: relative || '.', type: stat.isDirectory() ? 'directory' : stat.isSymbolicLink() ? 'symlink' : 'file', mode: stat.mode & 0o777 });
+    if (!stat.isDirectory()) return;
+    for (const name of fs.readdirSync(folder).sort()) {
+      const full = path.join(folder, name); const rel = path.join(relative, name); const child = fs.lstatSync(full);
+      if (child.isDirectory()) walk(full, rel);
+      else rows.push({ path: rel, type: child.isSymbolicLink() ? 'symlink' : 'file', mode: child.mode & 0o777, value: child.isSymbolicLink() ? fs.readlinkSync(full) : fs.readFileSync(full).toString('base64') });
+    }
+  }
+  walk(root); return rows;
+}
+
+function initPayload(id = 'WORKSPACE-DEMO') {
+  return { project_md: projectText(id, { status: 'planning', created: '2026-08-15', updated: '2026-08-15' }), tasks_md: collection([]) };
+}
+
+function fakeSkill(base) {
+  const root = path.join(base, 'installed skill with spaces');
+  fs.mkdirSync(path.join(root, 'assets'), { recursive: true }); fs.mkdirSync(path.join(root, 'scripts'));
+  for (const name of ['studio.sh', 'studio.cmd']) fs.copyFileSync(path.join(SKILL_ROOT, 'assets', name), path.join(root, 'assets', name));
+  fs.chmodSync(path.join(root, 'assets', 'studio.sh'), 0o755);
+  fs.writeFileSync(path.join(root, 'scripts', 'project-manager-studio.js'), `/** Test fixture: record launcher cwd and arguments, then return the requested status. */\n'use strict';\nrequire('node:fs').writeFileSync(process.env.PM_LAUNCH_RECORD, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2) }));\nprocess.exitCode = Number(process.env.PM_LAUNCH_EXIT ?? 0);\n`);
+  return fs.realpathSync(root);
 }
 
 function run(script, args, input = undefined) {
@@ -1231,6 +1263,256 @@ test('impossible calendar dates, timestamps, and duplicate CLI flags are rejecte
   const valid = createProject(base, 'FLAGS', []);
   assert.equal(run('project-status.js', [valid, '--json', '--json']).status, 2);
   assert.equal(run('project-status.js', ['--help', '--help']).status, 2);
+});
+
+test('workspace initialization writes current project state and portable launch support', () => {
+  const base = temp(); const workspacePath = path.join(base, 'workspace with spaces'); fs.mkdirSync(workspacePath);
+  const workspace = fs.realpathSync(workspacePath); const skillRoot = fakeSkill(base);
+  const first = initializeWorkspaceProject(workspace, 'first-project', initPayload('FIRST-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:00:00Z' });
+  assert.equal(first.project.root, path.join(workspace, '.projects', 'first-project'));
+  assert.equal(loadProject(first.project.root).status_stale, false);
+  assert.deepEqual(fs.readdirSync(first.project.root).sort(), ['PROJECT.md', 'STATUS.md', 'TASKS.md']);
+  assert.equal(fs.readFileSync(path.join(workspace, '.projects', '.env.local'), 'utf8'), `PROJECT_MANAGER_SKILL_PATH=${skillRoot}\n`);
+  assert.equal(fs.readFileSync(path.join(workspace, '.projects', '.gitignore'), 'utf8'), '/.env.local\n');
+  assert.equal(fs.statSync(path.join(workspace, 'studio.sh')).mode & 0o777, 0o755);
+  assert.equal(fs.readFileSync(path.join(workspace, 'studio.sh')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'))), true);
+  assert.equal(fs.readFileSync(path.join(workspace, 'studio.cmd')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.cmd'))), true);
+
+  const envFile = path.join(workspace, '.projects', '.env.local'); const ignoreFile = path.join(workspace, '.projects', '.gitignore');
+  fs.writeFileSync(envFile, `OTHER_SETTING=keep=this value\nPROJECT_MANAGER_SKILL_PATH=/stale/path\n`);
+  fs.writeFileSync(ignoreFile, `reports/\n/.env.local\n`); fs.chmodSync(path.join(workspace, 'studio.sh'), 0o644);
+  initializeWorkspaceProject(workspace, 'second-project', initPayload('SECOND-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:01:00Z' });
+  assert.equal(fs.readFileSync(envFile, 'utf8'), `OTHER_SETTING=keep=this value\nPROJECT_MANAGER_SKILL_PATH=${skillRoot}\n`);
+  assert.equal(fs.readFileSync(ignoreFile, 'utf8'), `reports/\n/.env.local\n`);
+  assert.equal(fs.statSync(path.join(workspace, 'studio.sh')).mode & 0o777, 0o755);
+  assert.deepEqual(fs.readdirSync(path.join(workspace, '.projects')).filter((name) => !name.startsWith('.')).sort(), ['first-project', 'second-project']);
+});
+
+test('POSIX Studio launcher uses only local config and preserves cwd, arguments, and exit status', () => {
+  const base = temp(); const workspacePath = path.join(base, 'launch workspace with spaces'); fs.mkdirSync(workspacePath);
+  const workspace = fs.realpathSync(workspacePath); const skillRoot = fakeSkill(base);
+  initializeWorkspaceProject(workspace, 'launch-project', initPayload('LAUNCH-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:00:00Z' });
+  const launcher = path.join(workspace, 'studio.sh'); const record = path.join(base, 'launch.json');
+  const launched = spawnSync(launcher, ['--no-open', '--port', '43123', 'argument with spaces'], {
+    cwd: path.dirname(workspace), encoding: 'utf8', env: { ...process.env, PROJECT_MANAGER_SKILL_PATH: '/inherited/wrong/path', PM_LAUNCH_RECORD: record, PM_LAUNCH_EXIT: '7' },
+  });
+  assert.equal(launched.status, 7); assert.equal(launched.stderr, '');
+  assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')), { cwd: workspace, argv: ['--no-open', '--port', '43123', 'argument with spaces'] });
+
+  const envFile = path.join(workspace, '.projects', '.env.local'); const valid = fs.readFileSync(envFile);
+  const invalid = [
+    null,
+    'OTHER=value\n',
+    'PROJECT_MANAGER_SKILL_PATH=\n',
+    'PROJECT_MANAGER_SKILL_PATH=relative/path\n',
+    `PROJECT_MANAGER_SKILL_PATH=${skillRoot}\nPROJECT_MANAGER_SKILL_PATH=${skillRoot}\n`,
+    'PROJECT_MANAGER_SKILL_PATH=/missing/directory\n',
+    `PROJECT_MANAGER_SKILL_PATH=${path.join(base, 'existing but not a skill')}\n`,
+  ];
+  fs.mkdirSync(path.join(base, 'existing but not a skill'));
+  for (const content of invalid) {
+    fs.rmSync(record, { force: true });
+    if (content === null) fs.rmSync(envFile); else fs.writeFileSync(envFile, content);
+    const result = spawnSync(launcher, [], { encoding: 'utf8', env: { ...process.env, PROJECT_MANAGER_SKILL_PATH: skillRoot, PM_LAUNCH_RECORD: record } });
+    assert.equal(result.status, 2, content ?? 'missing env'); assert.equal(fs.existsSync(record), false, content ?? 'missing env'); assert.match(result.stderr, /Project Manager Studio:/);
+  }
+  fs.writeFileSync(envFile, valid);
+});
+
+test('Windows Studio launcher encodes the local-config and process contract without delayed expansion', () => {
+  const text = fs.readFileSync(path.join(SKILL_ROOT, 'assets', 'studio.cmd'), 'utf8');
+  assert.match(text, /^@echo off\r?\n/); assert.match(text, /setlocal/); assert.match(text, /set "PROJECT_MANAGER_SKILL_PATH="/);
+  assert.match(text, /tokens=1,\* delims==/); assert.match(text, /PROJECT_MANAGER_SKILL_PATH_COUNT\+=1/);
+  assert.doesNotMatch(text, /EnableDelayedExpansion/i); assert.match(text, /cd \/d "%~dp0"/);
+  assert.match(text, /node "%PROJECT_MANAGER_STUDIO%" %\*/); assert.match(text, /exit \/b %PROJECT_MANAGER_STUDIO_EXIT%/);
+  assert.match(text, /PROJECT_MANAGER_SKILL_PATH:~0,2/); assert.match(text, /scripts\\project-manager-studio\.js/); assert.match(text, /PROJECT_MANAGER_STUDIO%\\NUL/);
+});
+
+test('initialization instructions expose the deterministic workspace and standalone contracts', () => {
+  const init = fs.readFileSync(path.join(SKILL_ROOT, 'references', 'init.md'), 'utf8');
+  for (const required of [
+    'scripts/project-init-workspace.js', '.projects/.env.local', '.projects/.gitignore', 'studio.sh', 'studio.cmd',
+    'PROJECT_MANAGER_SKILL_PATH', 'assets/studio.sh', 'assets/studio.cmd', 'mode `0755`', 'preserved recovery root',
+    'Standalone target-folder initialization', 'Create only the three project files',
+  ]) assert.match(init, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(init, /render authoritative `PROJECT\.md` and\n`TASKS\.md` in memory/);
+  assert.match(init, /pass exactly one JSON object/); assert.match(init, /generates `STATUS\.md` itself/);
+  assert.match(init, /preserves those lines/); assert.match(init, /rejects duplicate managed entries/);
+  assert.match(init, /Refuse a symlinked, escaping, special-file, or\nnon-empty project target/);
+  assert.match(init, /Treat `data\.committed: true` as committed work/); assert.match(init, /never rerun initialization/);
+  const skill = fs.readFileSync(path.join(SKILL_ROOT, 'SKILL.md'), 'utf8');
+  assert.match(skill, /project-init-workspace\.js/); assert.match(skill, /Standalone target-folder initialization/);
+  const english = fs.readFileSync(path.join(SKILL_ROOT, 'README.md'), 'utf8'); const chinese = fs.readFileSync(path.join(SKILL_ROOT, 'README-cn.md'), 'utf8');
+  for (const guide of [english, chinese]) for (const required of ['.projects/.env.local', '.projects/.gitignore', 'studio.sh', 'studio.cmd']) assert.equal(guide.includes(required), true);
+
+  const workspace = fs.realpathSync(temp()); const target = path.join(workspace, 'standalone-project'); const payload = initPayload('STANDALONE-PROJECT');
+  atomicProjectMutation(target, (candidate, context) => {
+    fs.writeFileSync(path.join(candidate, 'PROJECT.md'), payload.project_md); fs.writeFileSync(path.join(candidate, 'TASKS.md'), payload.tasks_md);
+    fs.writeFileSync(path.join(candidate, 'STATUS.md'), `${frontmatter({ schema_version: 1, project_id: 'STANDALONE-PROJECT', generated_at: '2026-08-15T12:00:00Z', source_sha256: '0'.repeat(64) })}\n`);
+    regenerateStatus(candidate, '2026-08-15T12:00:00Z', context);
+  }, loadProject, { init: true, validateLive: loadProject });
+  assert.deepEqual(fs.readdirSync(target).sort(), ['PROJECT.md', 'STATUS.md', 'TASKS.md']);
+  assert.deepEqual(fs.readdirSync(workspace), ['standalone-project']);
+});
+
+test('workspace initialization rolls back every exposure and preserves explicit recovery on rollback failure', () => {
+  const skillRoot = fs.realpathSync(SKILL_ROOT);
+  for (let exposure = 1; exposure <= 5; exposure += 1) {
+    const workspace = fs.realpathSync(temp()); const before = treeState(workspace);
+    assert.throws(() => initializeWorkspaceProject(workspace, 'rollback-project', initPayload('ROLLBACK-PROJECT'), {
+      skillRoot, generatedAt: '2026-08-15T12:00:00Z', injectFailureAfterExposure: exposure,
+    }), new RegExp(`Injected failure after exposure ${exposure}`));
+    assert.deepEqual(treeState(workspace), before, `exposure ${exposure}`);
+  }
+
+  const emptyWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(emptyWorkspace, '.projects')); fs.mkdirSync(path.join(emptyWorkspace, '.projects', 'empty-project'), { mode: 0o711 });
+  const emptyBefore = treeState(emptyWorkspace);
+  assert.throws(() => initializeWorkspaceProject(emptyWorkspace, 'empty-project', initPayload('EMPTY-PROJECT'), {
+    skillRoot, generatedAt: '2026-08-15T12:00:00Z', injectFailureAfterExposure: 5,
+  }), /Injected failure/);
+  assert.deepEqual(treeState(emptyWorkspace), emptyBefore);
+
+  const existingWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(existingWorkspace, '.projects')); fs.writeFileSync(path.join(existingWorkspace, '.projects', '.env.local'), 'OTHER=keep\nPROJECT_MANAGER_SKILL_PATH=/old/path\n', { mode: 0o640 });
+  fs.writeFileSync(path.join(existingWorkspace, '.projects', '.gitignore'), 'reports/\n', { mode: 0o640 }); const existingBefore = treeState(existingWorkspace);
+  assert.throws(() => initializeWorkspaceProject(existingWorkspace, 'existing-project', initPayload('EXISTING-PROJECT'), {
+    skillRoot, generatedAt: '2026-08-15T12:00:00Z', injectFailureAfterExposure: 2,
+  }), /Injected failure/);
+  assert.deepEqual(treeState(existingWorkspace), existingBefore);
+
+  const recoveryWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(recoveryWorkspace, '.projects')); fs.writeFileSync(path.join(recoveryWorkspace, '.projects', '.env.local'), 'OTHER=keep\n');
+  let recoveryError;
+  try {
+    initializeWorkspaceProject(recoveryWorkspace, 'recovery-project', initPayload('RECOVERY-PROJECT'), {
+      skillRoot, generatedAt: '2026-08-15T12:00:00Z', injectFailureAfterExposure: 1, injectRollbackFailure: true,
+    });
+  } catch (error) { recoveryError = error; }
+  assert.equal(recoveryError.code, 'ROLLBACK_FAILED'); assert.equal(fs.existsSync(recoveryError.recoveryPath), true); assert.match(recoveryError.message, /recovery preserved/);
+});
+
+test('workspace initialization refuses unsafe targets and preserves concurrent external changes', () => {
+  const skillRoot = fs.realpathSync(SKILL_ROOT);
+  const symlinkWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(symlinkWorkspace, '.projects')); const outside = path.join(temp(), 'outside'); fs.writeFileSync(outside, 'secret\n');
+  fs.symlinkSync(outside, path.join(symlinkWorkspace, '.projects', '.env.local'));
+  assert.throws(() => initializeWorkspaceProject(symlinkWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'SYMLINK_TARGET');
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'secret\n');
+
+  const specialWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(specialWorkspace, 'studio.sh'));
+  assert.throws(() => initializeWorkspaceProject(specialWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'UNSUPPORTED_TARGET');
+  const conflictWorkspace = fs.realpathSync(temp()); fs.writeFileSync(path.join(conflictWorkspace, 'studio.cmd'), 'operator launcher\n'); const conflictBefore = treeState(conflictWorkspace);
+  assert.throws(() => initializeWorkspaceProject(conflictWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'LAUNCHER_CONFLICT');
+  assert.deepEqual(treeState(conflictWorkspace), conflictBefore);
+
+  const duplicateWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(duplicateWorkspace, '.projects')); fs.writeFileSync(path.join(duplicateWorkspace, '.projects', '.env.local'), 'PROJECT_MANAGER_SKILL_PATH=/one\nPROJECT_MANAGER_SKILL_PATH=/two\n'); const duplicateBefore = treeState(duplicateWorkspace);
+  assert.throws(() => initializeWorkspaceProject(duplicateWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'DUPLICATE_ENV_KEY');
+  assert.deepEqual(treeState(duplicateWorkspace), duplicateBefore);
+
+  const linkedRootWorkspace = fs.realpathSync(temp()); const linkedOutside = fs.realpathSync(temp()); fs.symlinkSync(linkedOutside, path.join(linkedRootWorkspace, '.projects'));
+  assert.throws(() => initializeWorkspaceProject(linkedRootWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'SYMLINK_TARGET');
+
+  const concurrentWorkspace = fs.realpathSync(temp()); const externalLauncher = path.join(concurrentWorkspace, 'studio.sh');
+  assert.throws(() => initializeWorkspaceProject(concurrentWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
+    skillRoot, generatedAt: '2026-08-15T12:00:00Z',
+    beforeExposure(index) { if (index === 2) fs.writeFileSync(externalLauncher, 'external concurrent change\n'); },
+  }), (error) => error.code === 'TARGET_CHANGED');
+  assert.equal(fs.readFileSync(externalLauncher, 'utf8'), 'external concurrent change\n');
+  assert.equal(fs.existsSync(path.join(concurrentWorkspace, '.projects')), false);
+
+  const exposedWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(exposedWorkspace, '.projects')); const exposedEnv = path.join(exposedWorkspace, '.projects', '.env.local'); const originalEnv = 'OTHER=original\nPROJECT_MANAGER_SKILL_PATH=/old/path\n';
+  fs.writeFileSync(exposedEnv, originalEnv); let exposedError;
+  try {
+    initializeWorkspaceProject(exposedWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
+      skillRoot, generatedAt: '2026-08-15T12:00:00Z',
+      beforeExposure(index) { if (index === 1) { fs.writeFileSync(exposedEnv, 'EXTERNAL=must-survive\n'); throw new Error('Injected later failure'); } },
+    });
+  } catch (error) { exposedError = error; }
+  assert.equal(exposedError.code, 'ROLLBACK_FAILED'); assert.equal(fs.readFileSync(exposedEnv, 'utf8'), 'EXTERNAL=must-survive\n'); assert.equal(fs.existsSync(exposedError.recoveryPath), true);
+  const recoveryFiles = treeState(exposedError.recoveryPath).filter((entry) => entry.type === 'file');
+  assert.equal(recoveryFiles.some((entry) => entry.path.endsWith(path.join('backups', 'env')) && Buffer.from(entry.value, 'base64').toString() === originalEnv), true);
+
+  const backupWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(backupWorkspace, '.projects')); const backupEnv = path.join(backupWorkspace, '.projects', '.env.local'); fs.writeFileSync(backupEnv, originalEnv); let backupError;
+  try {
+    initializeWorkspaceProject(backupWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
+      skillRoot, generatedAt: '2026-08-15T12:00:00Z', afterTargetMove(index, target, backup) { if (index === 0) fs.writeFileSync(backup, 'EXTERNAL=changed-backup\n'); },
+    });
+  } catch (error) { backupError = error; }
+  assert.equal(backupError.code, 'ROLLBACK_FAILED'); assert.equal(fs.existsSync(backupEnv), false); assert.equal(fs.existsSync(backupError.recoveryPath), true);
+  assert.equal(treeState(backupError.recoveryPath).some((entry) => entry.type === 'file' && entry.path.endsWith(path.join('backups', 'env')) && Buffer.from(entry.value, 'base64').toString() === 'EXTERNAL=changed-backup\n'), true);
+
+  for (const occupiedKind of ['file', 'symlink']) {
+    const occupiedWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(occupiedWorkspace, '.projects')); const occupiedEnv = path.join(occupiedWorkspace, '.projects', '.env.local'); fs.writeFileSync(occupiedEnv, originalEnv); const outsideTarget = path.join(temp(), `outside-${occupiedKind}`); fs.writeFileSync(outsideTarget, 'outside remains\n'); let occupiedError;
+    try {
+      initializeWorkspaceProject(occupiedWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
+        skillRoot, generatedAt: '2026-08-15T12:00:00Z',
+        afterTargetMove(index, target) { if (index === 0) { if (occupiedKind === 'file') fs.writeFileSync(target, 'EXTERNAL=occupied-target\n'); else fs.symlinkSync(outsideTarget, target); } },
+      });
+    } catch (error) { occupiedError = error; }
+    assert.equal(occupiedError.code, 'ROLLBACK_FAILED', occupiedKind); assert.equal(fs.existsSync(occupiedError.recoveryPath), true, occupiedKind);
+    if (occupiedKind === 'file') assert.equal(fs.readFileSync(occupiedEnv, 'utf8'), 'EXTERNAL=occupied-target\n');
+    else { assert.equal(fs.lstatSync(occupiedEnv).isSymbolicLink(), true); assert.equal(fs.readlinkSync(occupiedEnv), outsideTarget); assert.equal(fs.readFileSync(outsideTarget, 'utf8'), 'outside remains\n'); }
+    const occupiedRecovery = treeState(occupiedError.recoveryPath).filter((entry) => entry.type === 'file');
+    assert.equal(occupiedRecovery.some((entry) => entry.path.endsWith(path.join('backups', 'env')) && Buffer.from(entry.value, 'base64').toString() === originalEnv), true, occupiedKind);
+  }
+
+  const parentWorkspace = fs.realpathSync(temp()); let parentError;
+  try {
+    initializeWorkspaceProject(parentWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
+      skillRoot, generatedAt: '2026-08-15T12:00:00Z',
+      beforeExposure(index) { if (index === 1) { fs.writeFileSync(path.join(parentWorkspace, '.projects', 'external.txt'), 'preserve me\n'); throw new Error('Injected parent change'); } },
+    });
+  } catch (error) { parentError = error; }
+  assert.equal(parentError.code, 'ROLLBACK_FAILED'); assert.equal(fs.readFileSync(path.join(parentWorkspace, '.projects', 'external.txt'), 'utf8'), 'preserve me\n'); assert.equal(fs.existsSync(parentError.recoveryPath), true);
+
+  const danglingParentWorkspace = fs.realpathSync(temp()); const missingParentTarget = path.join(temp(), 'missing-projects-target'); let danglingParentError;
+  try {
+    initializeWorkspaceProject(danglingParentWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
+      skillRoot, generatedAt: '2026-08-15T12:00:00Z',
+      beforeExposure(index) { if (index === 0) { fs.rmdirSync(path.join(danglingParentWorkspace, '.projects')); fs.symlinkSync(missingParentTarget, path.join(danglingParentWorkspace, '.projects')); } },
+    });
+  } catch (error) { danglingParentError = error; }
+  assert.equal(danglingParentError.code, 'ROLLBACK_FAILED'); assert.equal(fs.lstatSync(path.join(danglingParentWorkspace, '.projects')).isSymbolicLink(), true); assert.equal(fs.readlinkSync(path.join(danglingParentWorkspace, '.projects')), missingParentTarget); assert.equal(fs.existsSync(danglingParentError.recoveryPath), true);
+});
+
+test('workspace initialization reports committed cleanup failure with recoverable local backups', () => {
+  const workspace = fs.realpathSync(temp()); const skillRoot = fs.realpathSync(SKILL_ROOT); fs.mkdirSync(path.join(workspace, '.projects'));
+  const originalEnv = 'LOCAL_SECRET=preserve\nPROJECT_MANAGER_SKILL_PATH=/old/path\n'; fs.writeFileSync(path.join(workspace, '.projects', '.env.local'), originalEnv);
+  let cleanupError;
+  try {
+    initializeWorkspaceProject(workspace, 'cleanup-project', initPayload('CLEANUP-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:00:00Z', injectCleanupFailure: true });
+  } catch (error) { cleanupError = error; }
+  assert.equal(cleanupError.code, 'COMMITTED_CLEANUP_FAILED'); assert.equal(cleanupError.committed, true); assert.equal(loadProject(path.join(workspace, '.projects', 'cleanup-project')).status_stale, false);
+  assert.equal(fs.existsSync(cleanupError.recoveryPath), true); const recoveryFiles = treeState(cleanupError.recoveryPath).filter((entry) => entry.type === 'file');
+  assert.equal(recoveryFiles.some((entry) => entry.path.endsWith(path.join('backups', 'env')) && Buffer.from(entry.value, 'base64').toString() === originalEnv), true);
+});
+
+test('workspace initialization CLI enforces exact arguments, payload framing, and envelopes', () => {
+  const script = path.join(SCRIPT_ROOT, 'project-init-workspace.js'); const payload = JSON.stringify(initPayload('CLI-PROJECT'));
+  function cli(args, input = payload, env = process.env) { return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', input, env }); }
+  for (const result of [
+    cli([]), cli(['relative', 'safe-project', '--json']), cli([fs.realpathSync(temp()), 'Unsafe_Slug', '--json']),
+    cli([fs.realpathSync(temp()), 'safe-project', '--json', '--json']), cli([fs.realpathSync(temp()), 'safe-project', '--unknown']),
+    cli([fs.realpathSync(temp()), 'safe-project', '--json'], ''), cli([fs.realpathSync(temp()), 'safe-project', '--json'], '{'),
+    cli([fs.realpathSync(temp()), 'safe-project', '--json'], `${payload} trailing`),
+    cli([fs.realpathSync(temp()), 'safe-project', '--json'], JSON.stringify({ project_md: initPayload().project_md })),
+    cli([fs.realpathSync(temp()), 'safe-project', '--json'], JSON.stringify({ ...initPayload(), status_md: 'forged' })),
+    cli([fs.realpathSync(temp()), 'safe-project', '--json'], 'x'.repeat(MAX_PAYLOAD_BYTES + 1)),
+  ]) {
+    assert.equal(result.status, 2); const envelope = JSON.parse(result.stderr); assert.equal(envelope.ok, false); assert.equal(envelope.command, 'init-workspace'); assert.equal(Array.isArray(envelope.errors), true);
+  }
+  const workspace = fs.realpathSync(temp()); const success = cli([workspace, 'cli-project', '--json']);
+  assert.equal(success.status, 0); const envelope = JSON.parse(success.stdout); assert.equal(envelope.ok, true); assert.equal(envelope.command, 'init-workspace'); assert.equal(envelope.project.id, 'CLI-PROJECT');
+  assert.equal(loadProject(envelope.project.root).status_stale, false); assert.equal(fs.readFileSync(path.join(envelope.project.root, 'STATUS.md'), 'utf8').includes('PENDING'), false);
+  const conflictWorkspace = fs.realpathSync(temp()); fs.writeFileSync(path.join(conflictWorkspace, 'studio.sh'), 'operator-owned\n'); const conflict = cli([conflictWorkspace, 'cli-project', '--json']);
+  assert.equal(conflict.status, 1); assert.equal(JSON.parse(conflict.stderr).errors[0].code, 'LAUNCHER_CONFLICT');
+  assert.throws(() => initializeWorkspaceProject(fs.realpathSync(temp()), 'large-project', { project_md: 'x'.repeat(MAX_PAYLOAD_BYTES), tasks_md: 'y' }, { skillRoot: fs.realpathSync(SKILL_ROOT) }), (error) => error.code === 'PAYLOAD_TOO_LARGE');
+
+  const cleanupWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(cleanupWorkspace, '.projects')); fs.writeFileSync(path.join(cleanupWorkspace, '.projects', '.env.local'), 'LOCAL_SECRET=keep\nPROJECT_MANAGER_SKILL_PATH=/old/path\n');
+  const preloadRoot = path.join(temp(), 'preload fixture with spaces'); fs.mkdirSync(preloadRoot); const preload = path.join(preloadRoot, 'fail-cleanup.cjs');
+  fs.writeFileSync(preload, `/** Test fixture: fail only deletion of the committed env backup. */\n'use strict';\nconst fs = require('node:fs');\nconst original = fs.rmSync;\nfs.rmSync = function(target, options) { if (String(target).endsWith(require('node:path').join('backups', 'env'))) throw new Error('Injected process cleanup failure'); return original.call(this, target, options); };\n`);
+  const cleanup = cli([cleanupWorkspace, 'cleanup-project', '--json'], payload, { ...process.env, NODE_OPTIONS: `--require=${JSON.stringify(preload)}` });
+  assert.equal(cleanup.status, 1); const cleanupEnvelope = JSON.parse(cleanup.stderr); assert.equal(cleanupEnvelope.errors[0].code, 'COMMITTED_CLEANUP_FAILED');
+  assert.deepEqual(cleanupEnvelope.project, { id: 'CLI-PROJECT', root: path.join(cleanupWorkspace, '.projects', 'cleanup-project') });
+  assert.deepEqual(cleanupEnvelope.data, { committed: true, recovery_path: cleanupEnvelope.data.recovery_path }); assert.equal(fs.existsSync(cleanupEnvelope.data.recovery_path), true);
+  assert.equal(loadProject(cleanupEnvelope.project.root).status_stale, false);
 });
 
 test('atomic project mutation restores exact prior bytes after validation and replacement failures', () => {

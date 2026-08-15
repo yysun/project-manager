@@ -196,6 +196,14 @@ Refresh 仍可用于恢复。
 
 如果工作区包含 `.projects/`，也可以要求从其中选择项目。
 
+从已选择的工作区根目录初始化项目时，还会在该工作区创建 `studio.sh` 和 `studio.cmd`。在 POSIX
+系统运行 `./studio.sh`，在 Windows 运行 `studio.cmd`。两个启动器都会从
+`.projects/.env.local` 读取当前 Skill 的安装路径；`.projects/.gitignore` 会把这个本机配置排除
+在版本控制之外。启动器会打开该工作区的 `.projects` 项目目录并原样转发 Studio 参数，例如
+`./studio.sh --no-open --port 43123`。如果同名启动器已经包含无关内容，或者本机 Skill 路径缺失或
+无效，初始化或启动会明确失败，不会覆盖现有文件，也不会猜测其他安装位置。显式初始化独立项目
+文件夹时不会添加这些工作区文件。
+
 ### 看板
 
 看板把工作概括为 Planned、Ready、Active 和 Done，同时保留 Deferred 与 Cancelled 工作。

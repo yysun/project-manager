@@ -10,6 +10,21 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [1.7.0] — 2026-08-15
+
+### Added
+
+- Workspace-root initialization now writes the active installed skill path to ignored
+  `.projects/.env.local` and creates canonical `studio.sh` and `studio.cmd` launchers at the workspace
+  root.
+- `project-init-workspace.js` validates and installs the project plus launch support as one contained,
+  rollback-safe transaction, generating `STATUS.md` from authoritative project files.
+
+### Changed
+
+- Repeated workspace initialization preserves unrelated local configuration and existing projects,
+  while symlinked paths and operator-owned launcher conflicts fail before exposure.
+
 ## [1.6.0] — 2026-08-15
 
 ### Added
@@ -202,6 +217,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.7.0]: https://github.com/yysun/project-manager/releases/tag/v1.7.0
 [1.6.0]: https://github.com/yysun/project-manager/releases/tag/v1.6.0
 [1.5.2]: https://github.com/yysun/project-manager/releases/tag/v1.5.2
 [1.5.1]: https://github.com/yysun/project-manager/releases/tag/v1.5.1

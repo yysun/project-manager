@@ -5,7 +5,7 @@ selected workspace root. A project is the resulting project folder, not its repo
 workspace root is selected and the user does not name a project path, derive a safe slug and use
 `<workspace>/.projects/<safe-project-slug>`; never default to `<workspace>/projects`.
 
-Create only `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Derive a safe stable project ID, state an objective, write at least one measurable success criterion, and start with no tasks unless decomposition is already supported. Include `human` in adapters; add other providers only when requested and usable.
+Inside the initialized project folder, create only `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Derive a safe stable project ID, state an objective, write at least one measurable success criterion, and start with no tasks unless decomposition is already supported. Include `human` in adapters; add other providers only when requested and usable.
 
 Choose `minimal` for ordinary lightweight work, `standard` when delegated executors or regular reporting
 are expected, and `controlled` when even human work requires explicit pre-issued contracts and staged
@@ -19,7 +19,83 @@ apply rather than guessing, and record a real reason for each area tailored out 
 part that makes the omission a decision instead of an oversight. Never fabricate a rationale, and never
 add a tailoring block to a version 1 project.
 
-Accept a nonexistent target or an existing directory proven empty. Prepare and validate a same-filesystem candidate, then rename it into place atomically. Refuse a non-empty target. Never initialize sibling folders or add Git files.
+Accept a nonexistent target or an existing directory proven empty. Refuse a non-empty target.
+
+## Workspace-root initialization
+
+When a workspace root is selected, do not write the project or workspace support paths manually.
+Resolve the absolute directory containing this `SKILL.md`, render authoritative `PROJECT.md` and
+`TASKS.md` in memory, and pass exactly one JSON object to the built-in transaction:
+
+```bash
+node <absolute-skill-dir>/scripts/project-init-workspace.js <absolute-real-workspace-root> <safe-project-slug> --json
+```
+
+Standard input must contain exactly:
+
+```json
+{"project_md":"<complete PROJECT.md>","tasks_md":"<complete TASKS.md>"}
+```
+
+The command generates `STATUS.md` itself, validates the private candidate with its logical final root,
+and atomically establishes this workspace layout:
+
+```text
+<workspace>/
+├── .projects/
+│   ├── .env.local
+│   ├── .gitignore
+│   └── <safe-project-slug>/
+│       ├── PROJECT.md
+│       ├── TASKS.md
+│       └── STATUS.md
+├── studio.sh
+└── studio.cmd
+```
+
+`.projects/.env.local` contains exactly one managed entry:
+
+```dotenv
+PROJECT_MANAGER_SKILL_PATH=<absolute-skill-dir>
+```
+
+The file may contain unrelated local settings. Initialization preserves those lines, replaces or adds
+only the single managed entry, and rejects duplicate managed entries. `.projects/.gitignore` preserves
+unrelated rules and contains the exact `/.env.local` rule. Git is not required; the local ignore file
+only prevents accidental tracking when the workspace is inside a repository.
+
+The root launchers are exact copies of `assets/studio.sh` and `assets/studio.cmd`. They clear inherited
+`PROJECT_MANAGER_SKILL_PATH`, parse rather than execute `.projects/.env.local`, require exactly one
+non-empty absolute value and an existing configured `scripts/project-manager-studio.js`, change to the
+launcher workspace, forward every caller argument, and return Studio's exit status. The shell launcher
+is mode `0755`. Operators launch Studio with `./studio.sh` on POSIX or `studio.cmd` on Windows.
+
+Preflight the complete write set before exposure. Refuse a symlinked, escaping, special-file, or
+non-empty project target. Reuse only byte-identical launchers; repair mode drift on the canonical shell
+launcher, but refuse to overwrite different `studio.sh` or `studio.cmd` content. The built-in command
+revalidates each target before replacement, rolls its own changes back in reverse order on failure, and
+revalidates its installed candidate before removing anything during rollback. A changed exposed target
+is preserved with the original backup in the recovery root. Otherwise rollback restores prior bytes,
+modes, empty directories, and absent paths. If exact rollback is unsafe or itself fails, stop and report
+the preserved recovery root. Never claim that initialization succeeded in that state. Treat the command
+as an exclusive local workspace mutation; it does not promise protection from an uncooperative process
+that changes a pathname inside the unavoidable interval between a successful check and synchronous rename.
+If project installation commits but backup/work-root cleanup fails, the command reports
+`COMMITTED_CLEANUP_FAILED`, the committed project root, and the retained recovery path instead of
+silently leaving local configuration copies behind. Treat `data.committed: true` as committed work
+that requires recovery cleanup: report and preserve `data.recovery_path`, and never rerun initialization
+for that project.
+
+Repeated workspace initialization uses the same command and may add another direct-child project while
+preserving existing projects and unrelated local configuration.
+
+## Standalone target-folder initialization
+
+When the user explicitly selects a standalone target project folder rather than a workspace root,
+prepare and validate a same-filesystem candidate, regenerate `STATUS.md`, then rename it into place
+atomically under the ordinary mutation rules. Create only the three project files. Do not create
+`.projects/.env.local`, `.projects/.gitignore`, `studio.sh`, or `studio.cmd` beside a standalone target.
+Never initialize sibling project folders or add unrelated Git files.
 
 `PROJECT.md` uses JSON-valued frontmatter and Markdown sections:
 
