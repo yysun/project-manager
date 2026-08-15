@@ -7,6 +7,8 @@
   duplicate skill identities and generated package copies have undefined precedence.
 - After an edit that affects `skills/project-manager/` or the MCP App runtime, run
   `npm run build:plugin` and commit the generated root `bin/` and `ui/` directories.
+- `plugin.json` is the canonical release version. Change it only with
+  `npm run release:version -- <semver>` so the skill and MCP App runtime stay synchronized.
 - After any edit that could affect an installed plugin or standalone skill, sync the complete
   affected installable unit before considering the work complete: use the repository root for the
   plugin and `skills/project-manager/` for a skill-only installation. Sync after rebuilding so the

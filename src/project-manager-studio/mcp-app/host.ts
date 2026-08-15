@@ -5,10 +5,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { App } from '@modelcontextprotocol/ext-apps';
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react';
+import { PROJECT_MANAGER_VERSION } from '../../version.js';
 import type { KanbanData, ProjectCatalogData } from '../shared/api.js';
 import type { ProjectSummary } from '../../mcp-app/tools/project-reads.js';
 
-const APP_INFO = { name: 'Project Manager', version: '1.0.0' };
+const APP_INFO = { name: 'Project Manager', version: PROJECT_MANAGER_VERSION };
 // Inline and fullscreen only. Picture-in-picture would need change polling to
 // stay honest while pinned, which this read-only app deliberately does not do.
 const DISPLAY_MODES = ['inline', 'fullscreen'] as const;

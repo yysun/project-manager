@@ -116,6 +116,16 @@ project-manager/
 tests, and build tooling may coexist with the portable components; Agent Plugins clients discover
 only the fixed root manifest, `skills/`, and `mcp.json` locations.
 
+`plugin.json` is the canonical product release version. Bump it together with the standalone skill
+and MCP App runtime through one explicit command:
+
+```bash
+npm run release:version -- 1.8.1
+```
+
+The command does not publish, tag, edit the changelog, or sync an installed copy. After it succeeds,
+update `CHANGELOG.md`, run `npm test`, and sync the complete affected plugin or skill installation.
+
 ### Install in Claude Desktop
 
 Claude Desktop does not read Agent Plugins packages, so add the server to

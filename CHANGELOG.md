@@ -24,6 +24,9 @@ project written by an older release keeps loading unchanged; no release has requ
   a configured ID or name, and the server starts with no project arguments, so no absolute path has
   to be written into host configuration. A configured projects root remains available as opt-in
   confinement, and views receive only opaque project keys.
+- Explicit `npm run release:version -- <semver>` and `npm run version:check` commands keep the
+  Agent Plugin manifest, standalone skill header, MCP server, and embedded App on one release
+  version. Invalid, repeated, or already-drifted bumps fail without rewriting release files.
 
 ### Changed
 
@@ -31,6 +34,17 @@ project written by an older release keeps loading unchanged; no release has requ
   installation.
 - GitHub installation documentation now separates the complete root plugin from Codex's standalone
   `skills/project-manager/` installation, which intentionally excludes MCP tools and views.
+- `plugin.json` is now the canonical product release version. Plugin builds validate every
+  release-bearing file before replacing generated artifacts, while the private npm workspace keeps
+  its non-product `0.0.0` version.
+- The MCP server and embedded App now report the shared Project Manager release version instead of
+  separate hard-coded `1.0.0` values.
+
+### Fixed
+
+- The status card's **Open board** action now loads the actual lane-based board before requesting
+  fullscreen. Previously it only enlarged the status card. The action is also compact and
+  right-aligned instead of stretching across the card.
 
 ## [1.7.0] — 2026-08-15
 

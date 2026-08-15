@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
+import { PROJECT_MANAGER_VERSION } from '../version.js';
 import type { ProjectCatalog } from '../project-manager-studio/server/project-catalog.js';
 import { getProject, listProjects, projectSummary, resolveProjectKey, summaryText } from './tools/project-reads.js';
 
@@ -41,7 +42,7 @@ export function createServer(options: McpAppServerOptions): McpServer {
   const { catalog } = options;
   const confinement = options.confinement ?? null;
   const viewDir = options.viewDir ?? DEFAULT_VIEW_DIR;
-  const server = new McpServer({ name: 'Project Manager', version: '1.0.0' });
+  const server = new McpServer({ name: 'Project Manager', version: PROJECT_MANAGER_VERSION });
 
   // Each tool declares its view at registration, which is where the MCP Apps
   // extension defines the association; the result carries facts only.

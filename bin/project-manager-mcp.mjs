@@ -34208,6 +34208,9 @@ function N3(Z, $, J, X, V) {
   return Z.registerResource($, J, { mimeType: p, ...X }, V);
 }
 
+// src/version.ts
+var PROJECT_MANAGER_VERSION = "1.8.0";
+
 // src/mcp-app/tools/project-reads.ts
 import path2 from "node:path";
 var ProjectSelectionError = class extends Error {
@@ -34297,7 +34300,7 @@ function createServer(options) {
   const { catalog } = options;
   const confinement = options.confinement ?? null;
   const viewDir = options.viewDir ?? DEFAULT_VIEW_DIR;
-  const server = new McpServer({ name: "Project Manager", version: "1.0.0" });
+  const server = new McpServer({ name: "Project Manager", version: PROJECT_MANAGER_VERSION });
   const summaryTool = async ({ project }) => {
     try {
       const summary = projectSummary(catalog, resolveProjectKey(catalog, project, confinement));

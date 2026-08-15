@@ -7,6 +7,7 @@ import * as esbuild from 'esbuild';
 import { build as viteBuild } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
+import { assertVersionConsistency } from './versioning.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const skill = path.join(root, 'skills/project-manager');
@@ -26,6 +27,9 @@ await Promise.all([
   required(path.join(mcpApp, 'status.html')),
   required(path.join(mcpApp, 'board.html')),
 ]);
+
+// Fail before replacing generated artifacts when release-bearing files drift.
+await assertVersionConsistency(root);
 
 await fs.rm(path.join(root, 'bin'), { recursive: true, force: true });
 await fs.rm(path.join(root, 'ui'), { recursive: true, force: true });

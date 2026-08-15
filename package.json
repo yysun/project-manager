@@ -7,6 +7,8 @@
     "build:pm-client": "vite build --config vite.project-manager.config.mts",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:agent-plugin": "npm run build:plugin",
+    "version:check": "node scripts/check-version.mjs",
+    "release:version": "node scripts/release-version.mjs",
     "build": "npm run build:pm-server && npm run build:pm-client && npm run build:plugin",
     "pm-studio": "npm run build && node skills/project-manager/scripts/project-manager-studio.js",
     "pm-studio:start": "node skills/project-manager/scripts/project-manager-studio.js",

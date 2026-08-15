@@ -30,6 +30,14 @@ test('plugin.json declares the required fields and a conformant name', () => {
   assert.match(manifest.version, /^\d+\.\d+\.\d+/, 'semantic version recommended by the standard');
 });
 
+test('the private npm workspace exposes explicit release version commands', () => {
+  const pkgJson = read('package.json');
+  assert.equal(pkgJson.private, true);
+  assert.equal(pkgJson.version, '0.0.0', 'npm workspace version is not the product release version');
+  assert.equal(pkgJson.scripts['version:check'], 'node scripts/check-version.mjs');
+  assert.equal(pkgJson.scripts['release:version'], 'node scripts/release-version.mjs');
+});
+
 test('mcp.json declares one stdio server resolved through the plugin-root variable', () => {
   const manifest = read('mcp.json');
   assert.equal(manifest.$schema, 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json');
