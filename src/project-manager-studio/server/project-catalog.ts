@@ -1,5 +1,8 @@
 // Server-owned Studio project catalog: opaque keys expose issued bindings for
 // SSE recovery while validated resolution guards every project read or write.
+// Also serves request-time selection for callers that have no launch-time
+// catalog, via an opt-in empty construction and `register`; Studio's own call
+// sites use neither and keep their launch-time, non-empty behavior.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { KanbanData, ProjectCatalogData } from '../shared/api.js';
@@ -7,7 +10,14 @@ import type { KanbanData, ProjectCatalogData } from '../shared/api.js';
 const { loadProjectIdentity } = require('../../../skills/project-manager/scripts/lib/project-state.js');
 
 export interface ProjectSeed { id: string; name: string; root: string }
-interface CatalogEntry extends ProjectSeed { key: string }
+export interface CatalogEntry extends ProjectSeed { key: string }
+/** allowEmpty admits a catalog with no configured projects, for callers that
+ *  select projects at request time. Studio passes nothing and keeps rejecting one. */
+export interface ProjectCatalogOptions { allowEmpty?: boolean }
+
+function rejected(root: string, problem: string): never {
+  throw new ProjectCatalogError('PROJECT_SELECTION_UNKNOWN', `Project folder ${problem}: ${root}`);
+}
 
 export class ProjectCatalogError extends Error {
   code: string;
@@ -20,13 +30,40 @@ export class ProjectCatalog {
   private readonly entries: CatalogEntry[];
   readonly initialKey: string;
 
-  constructor(seeds: ProjectSeed[], initialRoot: string) {
-    if (seeds.length === 0) throw new ProjectCatalogError('PROJECTS_ROOT_EMPTY', 'Studio project catalog cannot be empty');
+  constructor(seeds: ProjectSeed[], initialRoot: string, options: ProjectCatalogOptions = {}) {
+    if (seeds.length === 0 && !options.allowEmpty) throw new ProjectCatalogError('PROJECTS_ROOT_EMPTY', 'Studio project catalog cannot be empty');
     this.entries = seeds.map((seed) => ({ ...seed, key: crypto.randomBytes(24).toString('hex') }));
-    const initial = this.entries.find((entry) => entry.root === initialRoot);
-    if (!initial) throw new ProjectCatalogError('PROJECT_SELECTION_UNKNOWN', 'Initial project is not in the Studio catalog');
-    this.initialKey = initial.key;
+    if (seeds.length === 0) {
+      // No configured project to start from; callers select one per request.
+      this.initialKey = '';
+    } else {
+      const initial = this.entries.find((entry) => entry.root === initialRoot);
+      if (!initial) throw new ProjectCatalogError('PROJECT_SELECTION_UNKNOWN', 'Initial project is not in the Studio catalog');
+      this.initialKey = initial.key;
+    }
     this.validateAll();
+  }
+
+  /**
+   * Register a project folder chosen at request time and return its keyed entry,
+   * reusing the existing entry when that real root is already known so a key held
+   * by a rendered view stays valid. Validation runs before anything is stored, and
+   * its errors name the rejected path — an ad-hoc folder has no catalog name yet.
+   */
+  register(root: unknown): CatalogEntry {
+    if (typeof root !== 'string' || root === '') throw new ProjectCatalogError('PROJECT_SELECTION_REQUIRED', 'A project folder is required');
+    let stat;
+    try { stat = fs.lstatSync(root); } catch { rejected(root, 'does not exist'); }
+    if (stat!.isSymbolicLink() || !stat!.isDirectory()) rejected(root, 'is not a real directory');
+    let real;
+    try { real = fs.realpathSync(root); } catch { rejected(root, 'cannot be resolved'); }
+    const existing = this.entries.find((entry) => entry.root === real);
+    if (existing) return existing;
+    let identity;
+    try { identity = loadProjectIdentity(real); } catch { rejected(root, 'is not a Project Manager project'); }
+    const entry: CatalogEntry = { key: crypto.randomBytes(24).toString('hex'), id: identity!.project.id, name: identity!.project.name, root: real! };
+    this.entries.push(entry);
+    return entry;
   }
 
   data(): ProjectCatalogData {

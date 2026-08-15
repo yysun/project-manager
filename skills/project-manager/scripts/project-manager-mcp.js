@@ -290,10 +290,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path3) {
-  if (!path3)
+function getElementAtPath(obj, path4) {
+  if (!path4)
     return obj;
-  return path3.reduce((acc, key) => acc?.[key], obj);
+  return path4.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -621,11 +621,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path3, issues) {
+function prefixIssues(path4, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path3);
+    iss.path.unshift(path4);
     return iss;
   });
 }
@@ -842,16 +842,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path3 = []) => {
+  const processError = (error52, path4 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path3, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path4, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
       } else {
-        const fullpath = [...path3, ...issue2.path];
+        const fullpath = [...path4, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -878,17 +878,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path3 = []) => {
+  const processError = (error52, path4 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path3, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path4, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
       } else {
-        const fullpath = [...path3, ...issue2.path];
+        const fullpath = [...path4, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -920,8 +920,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path3 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path3) {
+  const path4 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path4) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -14351,13 +14351,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path3 = ref.slice(1).split("/").filter(Boolean);
-  if (path3.length === 0) {
+  const path4 = ref.slice(1).split("/").filter(Boolean);
+  if (path4.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path3[0] === defsKey) {
-    const key = path3[1];
+  if (path4[0] === defsKey) {
+    const key = path4[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -15137,7 +15137,7 @@ var require_contracts = __commonJS({
     "use strict";
     var crypto2 = require("node:crypto");
     var fs4 = require("node:fs");
-    var path3 = require("node:path");
+    var path4 = require("node:path");
     var EVIDENCE_KINDS = /* @__PURE__ */ new Set(["file", "command", "review", "artifact", "approval", "note", "commit"]);
     var MANIFEST_STATUSES = /* @__PURE__ */ new Set(["implemented", "verification", "verified", "blocked"]);
     var STAGE_ORDER = { implemented: 0, verification: 1, verified: 2 };
@@ -15238,7 +15238,7 @@ var require_contracts = __commonJS({
     function contractExecutor(executor, projectRoot) {
       const scope = executor.scope ?? (executor.root === null ? null : "absolute");
       const declared = executor.root;
-      const resolved = declared === null ? null : scope === "project" ? path3.resolve(projectRoot, declared) : declared;
+      const resolved = declared === null ? null : scope === "project" ? path4.resolve(projectRoot, declared) : declared;
       return { provider: executor.provider, scope, declared_root: declared, root: resolved };
     }
     function buildTaskContract(project, task, sourceBindings, createdAt) {
@@ -15277,7 +15277,7 @@ var require_contracts = __commonJS({
       exactKeys(contract.payload.task, ["id", "spec_sha256", "title", "outcome", "constraints", "acceptance", "success_criteria", "milestone", "critical", "sources", "dependencies", "evidence_requirements", "executor"], "Task Contract task");
       for (const key of ["id", "title", "outcome"]) nonEmptyString(contract.payload.task[key], `Task Contract task.${key}`);
       if (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.project.id) || !/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.id)) throw new Error("Task Contract project/task ID is invalid");
-      if (!path3.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
+      if (!path4.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
       if (!options.allowHistoricalRoot && (!fs4.existsSync(contract.payload.project.root) || !fs4.lstatSync(contract.payload.project.root).isDirectory() || fs4.lstatSync(contract.payload.project.root).isSymbolicLink() || fs4.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error("Task Contract project.root must be an existing canonical real directory");
       if (!/^[a-f0-9]{64}$/.test(contract.payload.task.spec_sha256)) throw new Error("Task Contract spec hash is invalid");
       for (const key of ["constraints", "acceptance", "success_criteria", "sources", "dependencies"]) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ["success_criteria", "dependencies", "sources"].includes(key) && key !== "sources" });
@@ -15297,21 +15297,21 @@ var require_contracts = __commonJS({
       const declaredRoot = contract.payload.task.executor.declared_root;
       if (provider === "human" && (executorRoot !== null || scope !== null || declaredRoot !== null)) throw new Error("Human executor root must be null");
       if (!(["agent", "external"].includes(provider) && executorRoot === null && scope === null && declaredRoot === null) && provider !== "human" && !["absolute", "project"].includes(scope)) throw new Error("Executor scope must be absolute, project, or null for agent/external");
-      if (scope === "absolute" && (declaredRoot !== executorRoot || !path3.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
+      if (scope === "absolute" && (declaredRoot !== executorRoot || !path4.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
       if (scope === "project") {
-        if (typeof declaredRoot !== "string" || declaredRoot === "" || path3.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
-        if (executorRoot !== path3.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
+        if (typeof declaredRoot !== "string" || declaredRoot === "" || path4.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
+        if (executorRoot !== path4.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
         if (!options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
           let cursor = contract.payload.project.root;
           for (const piece of declaredRoot.split(/[\\/]/)) {
-            cursor = path3.join(cursor, piece);
+            cursor = path4.join(cursor, piece);
             if (!fs4.existsSync(cursor) || fs4.lstatSync(cursor).isSymbolicLink() || !fs4.lstatSync(cursor).isDirectory()) throw new Error("Project executor root prefixes must be existing real directories");
           }
-          if (!fs4.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path3.sep}`)) throw new Error("Project executor root escapes the project");
+          if (!fs4.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path4.sep}`)) throw new Error("Project executor root escapes the project");
         }
       }
-      if (provider === "rpd" && (typeof executorRoot !== "string" || !path3.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
-      if (["agent", "external"].includes(provider) && executorRoot !== null && !path3.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
+      if (provider === "rpd" && (typeof executorRoot !== "string" || !path4.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
+      if (["agent", "external"].includes(provider) && executorRoot !== null && !path4.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
       if (executorRoot !== null && !options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
         if (!fs4.existsSync(executorRoot) || fs4.lstatSync(executorRoot).isSymbolicLink() || !fs4.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
       }
@@ -15498,25 +15498,25 @@ ${canonicalJson(contract.payload)}
       if (fs4.lstatSync(root).isSymbolicLink() || !fs4.lstatSync(realRoot).isDirectory()) throw new Error("RPD executor root must be a real directory");
       let cursor = realRoot;
       for (const piece of [".docs", category]) {
-        cursor = path3.join(cursor, piece);
+        cursor = path4.join(cursor, piece);
         if (!fs4.existsSync(cursor)) {
           if (required2) throw new Error(`Missing RPD evidence directory ${piece}`);
           return null;
         }
         const stat = fs4.lstatSync(cursor);
-        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs4.realpathSync(cursor).startsWith(`${realRoot}${path3.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
+        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs4.realpathSync(cursor).startsWith(`${realRoot}${path4.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
       }
       const categoryRoot = cursor;
       const matches = [];
       function walk(folder) {
         if (!fs4.existsSync(folder)) return;
         for (const entry of fs4.readdirSync(folder, { withFileTypes: true })) {
-          const full = path3.join(folder, entry.name);
+          const full = path4.join(folder, entry.name);
           const stat = fs4.lstatSync(full);
           if (stat.isSymbolicLink()) throw new Error("RPD evidence cannot traverse symlinks");
           if (stat.isDirectory()) walk(full);
           else {
-            if (!stat.isFile() || !fs4.realpathSync(full).startsWith(`${realRoot}${path3.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
+            if (!stat.isFile() || !fs4.realpathSync(full).startsWith(`${realRoot}${path4.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
             if (entry.name === filename) matches.push(full);
           }
         }
@@ -15526,14 +15526,14 @@ ${canonicalJson(contract.payload)}
       return matches[0] ?? null;
     }
     function snapshotRpdEvidence({ executor_root, project_root, attempt_root, story, terminal }) {
-      if (!path3.isAbsolute(executor_root) || !path3.isAbsolute(project_root) || !path3.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
+      if (!path4.isAbsolute(executor_root) || !path4.isAbsolute(project_root) || !path4.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
       const realProject = fs4.realpathSync(project_root);
       if (fs4.lstatSync(project_root).isSymbolicLink() || realProject !== project_root) throw new Error("Project root must be canonical for RPD snapshot");
-      const attemptRelative = path3.relative(realProject, attempt_root);
-      if (attemptRelative === "" || attemptRelative.startsWith("..") || path3.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
+      const attemptRelative = path4.relative(realProject, attempt_root);
+      if (attemptRelative === "" || attemptRelative.startsWith("..") || path4.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
       let projectCursor = realProject;
-      for (const piece of attemptRelative.split(path3.sep)) {
-        projectCursor = path3.join(projectCursor, piece);
+      for (const piece of attemptRelative.split(path4.sep)) {
+        projectCursor = path4.join(projectCursor, piece);
         if (!fs4.existsSync(projectCursor)) break;
         const stat = fs4.lstatSync(projectCursor);
         if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("RPD snapshot path prefixes must be real project directories");
@@ -15548,21 +15548,21 @@ ${canonicalJson(contract.payload)}
       ];
       if (fs4.existsSync(attempt_root)) throw new Error("RPD evidence snapshot already exists");
       fs4.mkdirSync(attempt_root, { recursive: true });
-      if (!fs4.realpathSync(path3.dirname(attempt_root)).startsWith(`${realProject}${path3.sep}`) || fs4.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
+      if (!fs4.realpathSync(path4.dirname(attempt_root)).startsWith(`${realProject}${path4.sep}`) || fs4.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
       const sources = [];
       try {
         for (const [category, filename, role, required2] of artifacts) {
           const source = findExactArtifact(executor_root, category, filename, required2);
           if (!source) continue;
-          const relative = path3.join(category, filename);
-          const target = path3.join(attempt_root, relative);
-          fs4.mkdirSync(path3.dirname(target), { recursive: true });
+          const relative = path4.join(category, filename);
+          const target = path4.join(attempt_root, relative);
+          fs4.mkdirSync(path4.dirname(target), { recursive: true });
           fs4.copyFileSync(source, target, fs4.constants.COPYFILE_EXCL);
-          sources.push({ path: path3.relative(project_root, target).split(path3.sep).join("/"), sha256: sha256(fs4.readFileSync(target)), role });
+          sources.push({ path: path4.relative(project_root, target).split(path4.sep).join("/"), sha256: sha256(fs4.readFileSync(target)), role });
         }
-        const terminalPath = path3.join(attempt_root, "RPD-TERMINAL.md");
+        const terminalPath = path4.join(attempt_root, "RPD-TERMINAL.md");
         fs4.writeFileSync(terminalPath, terminal, { flag: "wx" });
-        sources.push({ path: path3.relative(project_root, terminalPath).split(path3.sep).join("/"), sha256: sha256(fs4.readFileSync(terminalPath)), role: "rpd-terminal" });
+        sources.push({ path: path4.relative(project_root, terminalPath).split(path4.sep).join("/"), sha256: sha256(fs4.readFileSync(terminalPath)), role: "rpd-terminal" });
         return sources.sort((a, b) => a.role.localeCompare(b.role));
       } catch (error51) {
         fs4.rmSync(attempt_root, { recursive: true, force: true });
@@ -15625,12 +15625,12 @@ var require_project_state = __commonJS({
   "skills/project-manager/scripts/lib/project-state.js"(exports2, module2) {
     "use strict";
     var fs4 = require("node:fs");
-    var path3 = require("node:path");
+    var path4 = require("node:path");
     var { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
     var { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
     var REQUIRED = ["PROJECT.md", "TASKS.md", "STATUS.md"];
     var OPTIONAL_FILES = ["MILESTONES.md", "RISKS.md", "DECISIONS.md", "SOURCES.md", "TRACEABILITY.md", "CHANGES.md", "ASSUMPTIONS.md", "ISSUES.md", "STAKEHOLDERS.md", "LESSONS.md", "CLOSURE.md"];
-    var OPTIONAL_DIRS = ["handoffs", path3.join("reports", "history")];
+    var OPTIONAL_DIRS = ["handoffs", path4.join("reports", "history")];
     var TASK_STATUSES = ["planned", "ready", "in_progress", "implemented", "verification", "verified", "done"];
     var TASK_DISPOSITIONS = ["active", "deferred", "cancelled"];
     var PROVIDERS = ["human", "rpd", "agent", "external"];
@@ -15698,12 +15698,12 @@ var require_project_state = __commonJS({
     function rpdCommand(state, task, executionWarning = null) {
       if (executionWarning) return `${taskClosed(task) ? "Execution history warning" : "Execution blocked"} for ${task.id}: ${executionWarning.cause_code ?? executionWarning.code}.`;
       if (task.executor.provider === "rpd" && task.active_contract !== null) {
-        const contractPath = path3.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
-        const contractDoc = readSafe(state.root, path3.relative(state.root, contractPath), true);
+        const contractPath = path4.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
+        const contractDoc = readSafe(state.root, path4.relative(state.root, contractPath), true);
         const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
         return `RPD ${parsedContract.envelope.story} using task contract ${JSON.stringify(contractPath)}.`;
       }
-      return `RPD ${JSON.stringify(task.title)} using project task ${JSON.stringify(path3.join(state.root, "TASKS.md"))}.`;
+      return `RPD ${JSON.stringify(task.title)} using project task ${JSON.stringify(path4.join(state.root, "TASKS.md"))}.`;
     }
     function namespacedId(value, prefix) {
       return ID.test(value) && value.startsWith(prefix);
@@ -15814,10 +15814,10 @@ var require_project_state = __commonJS({
       return { envelope: parsed.data, payload };
     }
     function readSafeBuffer(root, relative, required2 = false) {
-      const normalized = path3.normalize(relative);
-      if (path3.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path3.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
-      const target = path3.join(root, relative);
-      const parentRelative = path3.dirname(normalized);
+      const normalized = path4.normalize(relative);
+      if (path4.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path4.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
+      const target = path4.join(root, relative);
+      const parentRelative = path4.dirname(normalized);
       if (parentRelative !== ".") assertRealDirectoryChain(root, parentRelative);
       let stat;
       try {
@@ -15829,7 +15829,7 @@ var require_project_state = __commonJS({
       if (stat.isSymbolicLink()) fail("path", "SYMLINK", target, "Known project state paths cannot be symlinks");
       if (!stat.isFile()) fail("path", "NOT_FILE", target, "Expected a regular file");
       const real = fs4.realpathSync(target);
-      if (real !== root && !real.startsWith(`${root}${path3.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
+      if (real !== root && !real.startsWith(`${root}${path4.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
       return fs4.readFileSync(target);
     }
     function readSafe(root, relative, required2 = false) {
@@ -15838,8 +15838,8 @@ var require_project_state = __commonJS({
     }
     function assertRealDirectoryChain(root, relative) {
       let cursor = root;
-      for (const piece of relative.split(path3.sep)) {
-        cursor = path3.join(cursor, piece);
+      for (const piece of relative.split(path4.sep)) {
+        cursor = path4.join(cursor, piece);
         if (!fs4.existsSync(cursor)) return false;
         const stat = fs4.lstatSync(cursor);
         if (stat.isSymbolicLink() || !stat.isDirectory()) fail("path", "UNSAFE_DIRECTORY", cursor, "Known project directories must be real directories");
@@ -15896,8 +15896,8 @@ var require_project_state = __commonJS({
       assert2(PROVIDERS.includes(executor.provider) && project.adapters.includes(executor.provider), "TASK_EXECUTOR", filePath, `Task ${record2.id} provider is not enabled`, project);
       const nullRootAllowed = ["human", "agent", "external"].includes(executor.provider) && executor.root === null && executor.scope === null;
       assert2(nullRootAllowed || ["absolute", "project"].includes(executor.scope), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} executor scope is invalid`, project);
-      if (executor.scope === "absolute") assert2(path3.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} absolute executor root is invalid`, project);
-      if (executor.scope === "project") assert2(nonEmpty(executor.root) && !path3.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} project executor root must be a safe relative path`, project);
+      if (executor.scope === "absolute") assert2(path4.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} absolute executor root is invalid`, project);
+      if (executor.scope === "project") assert2(nonEmpty(executor.root) && !path4.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} project executor root must be a safe relative path`, project);
       assert2(executor.provider !== "rpd" || executor.root !== null, "TASK_EXECUTOR_ROOT", filePath, `RPD task ${record2.id} requires a root`, project);
       assert2(executor.provider !== "human" || executor.root === null, "TASK_EXECUTOR_ROOT", filePath, `Human task ${record2.id} root must be null`, project);
       const providerRequirements = JSON.parse(JSON.stringify(DEFAULT_EVIDENCE[executor.provider]));
@@ -15973,14 +15973,14 @@ var require_project_state = __commonJS({
     }
     function executorRootWarning(task, physicalProjectRoot) {
       if (task.status === "done" || task.executor.root === null) return null;
-      const executorRoot = task.executor.scope === "project" ? path3.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
+      const executorRoot = task.executor.scope === "project" ? path4.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
       let available = false;
       try {
         if (task.executor.scope === "project") {
           let cursor = physicalProjectRoot;
           available = true;
           for (const piece of task.executor.root.split(/[\\/]/)) {
-            cursor = path3.join(cursor, piece);
+            cursor = path4.join(cursor, piece);
             if (!fs4.existsSync(cursor)) {
               available = false;
               break;
@@ -15991,7 +15991,7 @@ var require_project_state = __commonJS({
               break;
             }
           }
-          if (available) available = fs4.realpathSync(executorRoot).startsWith(`${fs4.realpathSync(physicalProjectRoot)}${path3.sep}`);
+          if (available) available = fs4.realpathSync(executorRoot).startsWith(`${fs4.realpathSync(physicalProjectRoot)}${path4.sep}`);
         } else if (fs4.existsSync(executorRoot)) {
           const stat = fs4.lstatSync(executorRoot);
           available = !stat.isSymbolicLink() && stat.isDirectory();
@@ -16298,9 +16298,9 @@ var require_project_state = __commonJS({
       }
     }
     function validateAttempt(state, task) {
-      const attemptRoot = path3.join(state.root, "handoffs", task.id, task.active_contract);
-      const contractPath = path3.join(attemptRoot, "TASK-CONTRACT.md");
-      const contractDoc = readSafe(state.root, path3.relative(state.root, contractPath), true);
+      const attemptRoot = path4.join(state.root, "handoffs", task.id, task.active_contract);
+      const contractPath = path4.join(attemptRoot, "TASK-CONTRACT.md");
+      const contractDoc = readSafe(state.root, path4.relative(state.root, contractPath), true);
       const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
       const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
       const allowHistoricalRoot = task.status === "done";
@@ -16328,8 +16328,8 @@ var require_project_state = __commonJS({
         const digest = contract.contract_id.slice(3);
         const storyPrefix = `pm-${state.project.id.toLowerCase()}-${task.id.toLowerCase()}-`;
         assert2([12, 16, 32, 64].some((length) => derived.story === `${storyPrefix}${digest.slice(0, length)}`), "RPD_STORY", contractPath, "RPD story is not derived from this attempt", state.project);
-        const relativeContract = path3.relative(state.root, contractPath).split(path3.sep).join("/");
-        const issuanceContractPath = path3.join(contract.payload.project.root, relativeContract);
+        const relativeContract = path4.relative(state.root, contractPath).split(path4.sep).join("/");
+        const issuanceContractPath = path4.join(contract.payload.project.root, relativeContract);
         const expectedPrompt = renderRpdPrompt({ project_id: state.project.id, task_id: task.id, contract_id: contract.contract_id, story: derived.story, executor_root: contract.payload.task.executor.root, contract_absolute_path: issuanceContractPath, contract_relative_path: relativeContract, acceptance: task.acceptance, constraints: task.constraints, evidence_requirements: task.evidence_requirements });
         assert2(derived.executor_prompt === expectedPrompt && derived.executor_prompt_sha256 === sha256(expectedPrompt), "RPD_PROMPT", contractPath, "RPD executor prompt/hash is stale or tampered", state.project);
       }
@@ -16340,8 +16340,8 @@ var require_project_state = __commonJS({
       const previous = [];
       for (const [index, name] of entries.entries()) {
         assert2(name === `EVIDENCE-${String(index + 1).padStart(3, "0")}.md`, "MANIFEST_SEQUENCE", attemptRoot, "Manifest filenames must be gap-free", state.project);
-        const manifestPath = path3.join(attemptRoot, name);
-        const manifestDoc = readSafe(state.root, path3.relative(state.root, manifestPath), true);
+        const manifestPath = path4.join(attemptRoot, name);
+        const manifestDoc = readSafe(state.root, path4.relative(state.root, manifestPath), true);
         const parsed = parseAttempt(manifestDoc, manifestPath, "manifest");
         let result;
         try {
@@ -16366,7 +16366,7 @@ var require_project_state = __commonJS({
           assert2(canonicalJson(roles) === canonicalJson(allowedRoles.sort()) || canonicalJson(roles) === canonicalJson(allowedWithTest), "RPD_SOURCE_ROLE", manifestPath, "RPD source roles must be exact and unique", state.project);
           const byRole = new Map(parsed.payload.sources.map((source) => [source.role, source]));
           for (const role of ["rpd-req", "rpd-plan", "rpd-done", "rpd-terminal"]) assert2(byRole.has(role), "RPD_SOURCE_ROLE", manifestPath, `RPD verified evidence missing ${role}`, state.project);
-          assert2(path3.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path3.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path3.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
+          assert2(path4.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path4.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path4.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
           assert2(byRole.get("rpd-req").path === `${requiredPrefix}reqs/req-${derived.story}.md` && byRole.get("rpd-plan").path === `${requiredPrefix}plans/plan-${derived.story}.md` && byRole.get("rpd-done").path === `${requiredPrefix}done/${derived.story}.md` && byRole.get("rpd-terminal").path === `${requiredPrefix}RPD-TERMINAL.md` && (!byRole.has("rpd-test") || byRole.get("rpd-test").path === `${requiredPrefix}tests/test-${derived.story}.md`), "RPD_SOURCE_LAYOUT", manifestPath, "RPD source layout is invalid", state.project);
           const terminal = readSafe(state.root, byRole.get("rpd-terminal").path, true);
           try {
@@ -16439,15 +16439,15 @@ var require_project_state = __commonJS({
       }
     }
     function validateReverificationBinding(state, change, taskId, value) {
-      const attemptRoot = path3.join(state.root, "handoffs", taskId, value.contract_id);
-      const contractPath = path3.join(attemptRoot, "TASK-CONTRACT.md");
-      const parsedContract = parseAttempt(readSafe(state.root, path3.relative(state.root, contractPath), true), contractPath, "contract");
+      const attemptRoot = path4.join(state.root, "handoffs", taskId, value.contract_id);
+      const contractPath = path4.join(attemptRoot, "TASK-CONTRACT.md");
+      const parsedContract = parseAttempt(readSafe(state.root, path4.relative(state.root, contractPath), true), contractPath, "contract");
       assert2(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
       if (value.status === "complete") {
         const evidenceNames = fs4.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
         const matched = evidenceNames.some((name) => {
-          const manifestPath = path3.join(attemptRoot, name);
-          const parsed = parseAttempt(readSafe(state.root, path3.relative(state.root, manifestPath), true), manifestPath, "manifest");
+          const manifestPath = path4.join(attemptRoot, name);
+          const parsed = parseAttempt(readSafe(state.root, path4.relative(state.root, manifestPath), true), manifestPath, "manifest");
           return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === "verified" && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
         });
         assert2(matched, "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
@@ -16500,27 +16500,27 @@ var require_project_state = __commonJS({
     function loadProjectIdentity3(folder, options = {}) {
       const root = resolveProjectRoot(folder);
       const logicalRoot = options.logicalRoot ?? root;
-      if (!path3.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const projectPath = path3.join(root, "PROJECT.md");
+      if (!path4.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const projectPath = path4.join(root, "PROJECT.md");
       const project = parseProjectIdentity(readSafe(root, "PROJECT.md", true), projectPath, logicalRoot);
       return { root, project };
     }
     function loadProject(folder, options = {}) {
       const root = resolveProjectRoot(folder);
       const logicalRoot = options.logicalRoot ?? root;
-      if (!path3.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const project = parseProject(readSafe(root, "PROJECT.md", true), path3.join(root, "PROJECT.md"), logicalRoot);
+      if (!path4.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const project = parseProject(readSafe(root, "PROJECT.md", true), path4.join(root, "PROJECT.md"), logicalRoot);
       checkOptionalDirectories(root);
       const texts = Object.fromEntries(REQUIRED.filter((name) => name !== "PROJECT.md").map((name) => [name, readSafe(root, name, true)]));
       for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
-      const taskRecords = parseCollection(texts["TASKS.md"], path3.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
-      const tasks = taskRecords.map((record2) => normalizeTask(record2, project, path3.join(root, "TASKS.md"), taskRecords.schema_version));
+      const taskRecords = parseCollection(texts["TASKS.md"], path4.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
+      const tasks = taskRecords.map((record2) => normalizeTask(record2, project, path4.join(root, "TASKS.md"), taskRecords.schema_version));
       const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
       function module3(name, kind, schemaVersions = [1]) {
         const text = texts[name];
         if (text === null) return { configured: false, items: [] };
-        const records = parseCollection(text, path3.join(root, name), { schemaVersions });
-        const items = records.map((record2) => normalizeSimple(record2, kind, project, path3.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
+        const records = parseCollection(text, path4.join(root, name), { schemaVersions });
+        const items = records.map((record2) => normalizeSimple(record2, kind, project, path4.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
         return { configured: true, items };
       }
       const state = {
@@ -16540,7 +16540,7 @@ var require_project_state = __commonJS({
         lessons: module3("LESSONS.md", "lessons"),
         closure: module3("CLOSURE.md", "closure")
       };
-      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path3.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
+      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path4.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
       validateGraph(state, options);
       const whenConfigured = (entry) => entry.configured ? entry.items : void 0;
       state.source_sha256 = sha256({
@@ -16558,9 +16558,9 @@ var require_project_state = __commonJS({
         lessons: whenConfigured(state.lessons),
         closure: whenConfigured(state.closure)
       });
-      const statusParsed = parseFrontmatter(texts["STATUS.md"], path3.join(root, "STATUS.md"));
-      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path3.join(root, "STATUS.md"), "STATUS frontmatter", project);
-      assert2(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path3.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
+      const statusParsed = parseFrontmatter(texts["STATUS.md"], path4.join(root, "STATUS.md"));
+      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path4.join(root, "STATUS.md"), "STATUS frontmatter", project);
+      assert2(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path4.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
       state.status_stale = statusParsed.data.source_sha256 !== state.source_sha256;
       validateAttempts(state, options);
       validateReverificationBindings(state, options);
@@ -16568,24 +16568,24 @@ var require_project_state = __commonJS({
     }
     function loadProjectIndex(indexPath) {
       if (fs4.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
-      const indexRoot = fs4.realpathSync(path3.dirname(indexPath));
+      const indexRoot = fs4.realpathSync(path4.dirname(indexPath));
       const text = fs4.readFileSync(indexPath, "utf8");
       const records = parseCollection(text, indexPath);
       const seenPaths = /* @__PURE__ */ new Set();
       const projects = [];
       for (const record2 of records) {
         exactKeys(record2.raw, ["path"], indexPath, `index ${record2.id}`);
-        assert2(nonEmpty(record2.raw.path) && !path3.isAbsolute(record2.raw.path), "INDEX_PATH", indexPath, `Index path for ${record2.id} must be relative`);
+        assert2(nonEmpty(record2.raw.path) && !path4.isAbsolute(record2.raw.path), "INDEX_PATH", indexPath, `Index path for ${record2.id} must be relative`);
         const pieces = record2.raw.path.split(/[\\/]/);
         assert2(!pieces.includes("..") && !pieces.includes("") && !pieces.includes("."), "INDEX_PATH", indexPath, `Index path for ${record2.id} escapes or is empty`);
         let cursor = indexRoot;
         for (const piece of pieces) {
-          cursor = path3.join(cursor, piece);
+          cursor = path4.join(cursor, piece);
           const stat = fs4.lstatSync(cursor);
           assert2(!stat.isSymbolicLink(), "INDEX_SYMLINK", indexPath, `Index path for ${record2.id} contains a symlink`);
         }
         const real = fs4.realpathSync(cursor);
-        assert2(real.startsWith(`${indexRoot}${path3.sep}`), "INDEX_PATH", indexPath, `Index path for ${record2.id} escapes index root`);
+        assert2(real.startsWith(`${indexRoot}${path4.sep}`), "INDEX_PATH", indexPath, `Index path for ${record2.id} escapes index root`);
         const pathKey = real.toLowerCase();
         assert2(!seenPaths.has(pathKey), "INDEX_DUPLICATE", indexPath, `Index path for ${record2.id} is duplicated`);
         seenPaths.add(pathKey);
@@ -16608,9 +16608,9 @@ var require_project_state = __commonJS({
       const projects = [];
       for (const name of fs4.readdirSync(root).sort()) {
         if (name === ".git") continue;
-        const target = path3.join(root, name);
+        const target = path4.join(root, name);
         const stat = fs4.lstatSync(target);
-        const projectFile = path3.join(target, "PROJECT.md");
+        const projectFile = path4.join(target, "PROJECT.md");
         let hasProjectFile = false;
         if (stat.isDirectory()) {
           try {
@@ -16621,7 +16621,7 @@ var require_project_state = __commonJS({
           }
         }
         if (PROJECT_WORK_NAME.test(name) && stat.isDirectory() && !hasProjectFile) {
-          const marker = path3.join(target, PROJECT_WORK_MARKER);
+          const marker = path4.join(target, PROJECT_WORK_MARKER);
           let markerStat;
           try {
             markerStat = fs4.lstatSync(marker);
@@ -16759,7 +16759,7 @@ var require_project_state = __commonJS({
     function validateData(state) {
       const warnings = [...state.warnings];
       if (state.status_stale) warnings.push({ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" });
-      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs4.existsSync(path3.join(state.root, "handoffs")), reports: fs4.existsSync(path3.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
+      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs4.existsSync(path4.join(state.root, "handoffs")), reports: fs4.existsSync(path4.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
     }
     function reportData(state) {
       const status = statusData(state);
@@ -16787,7 +16787,7 @@ var require_project_state = __commonJS({
       if (taskDisposition(task) !== "active") return { editable: false, reason: "Reactivate deferred work before changing its specification; cancelled work is terminal." };
       if (!["planned", "ready"].includes(task.status)) return { editable: false, reason: "Evidence-backed work must be changed through project update." };
       if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: "This task has active execution evidence and must be changed through project update." };
-      if (fs4.existsSync(path3.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
+      if (fs4.existsSync(path4.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
       if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: "This task is governed by re-verification state and must be changed through project update." };
       return { editable: true, reason: null };
     }
@@ -16937,7 +16937,7 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
     }
     function regenerateStatus(folder, generatedAt = (/* @__PURE__ */ new Date()).toISOString(), options = {}) {
       const state = loadProject(folder, options);
-      fs4.writeFileSync(path3.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
+      fs4.writeFileSync(path4.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
       return loadProject(state.root, options);
     }
     module2.exports = {
@@ -20168,8 +20168,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path3) {
-      let input = path3;
+    function removeDotSegments(path4) {
+      let input = path4;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -20421,8 +20421,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path3, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
+        const [path4, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -23859,7 +23859,7 @@ var require_mutations = __commonJS({
   "skills/project-manager/scripts/lib/mutations.js"(exports2, module2) {
     "use strict";
     var fs4 = require("node:fs");
-    var path3 = require("node:path");
+    var path4 = require("node:path");
     var crypto2 = require("node:crypto");
     var { canonicalJson } = require_contracts();
     var { PROJECT_WORK_PREFIX, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
@@ -23900,8 +23900,8 @@ var require_mutations = __commonJS({
       const records = [];
       function walk(folder) {
         for (const name of fs4.readdirSync(folder).sort()) {
-          const full = path3.join(folder, name);
-          const relative = path3.relative(root, full).split(path3.sep).join("/");
+          const full = path4.join(folder, name);
+          const relative = path4.relative(root, full).split(path4.sep).join("/");
           const stat = fs4.lstatSync(full);
           if (stat.isDirectory()) {
             records.push({ path: relative, type: "directory" });
@@ -23925,7 +23925,7 @@ var require_mutations = __commonJS({
     }
     function createProjectWork(parent, prefix, excludedTarget = null) {
       for (let attempt = 0; attempt < 128; attempt += 1) {
-        const area = path3.join(parent, `${PROJECT_WORK_PREFIX}${crypto2.randomBytes(12).toString("hex")}`);
+        const area = path4.join(parent, `${PROJECT_WORK_PREFIX}${crypto2.randomBytes(12).toString("hex")}`);
         try {
           fs4.mkdirSync(area, { mode: 448 });
         } catch (error51) {
@@ -23937,8 +23937,8 @@ var require_mutations = __commonJS({
             fs4.rmdirSync(area);
             continue;
           }
-          fs4.writeFileSync(path3.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
-          return fs4.mkdtempSync(path3.join(area, prefix));
+          fs4.writeFileSync(path4.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
+          return fs4.mkdtempSync(path4.join(area, prefix));
         } catch (error51) {
           fs4.rmSync(area, { recursive: true, force: true });
           throw error51;
@@ -23947,9 +23947,9 @@ var require_mutations = __commonJS({
       throw Object.assign(new Error(`Could not allocate an isolated project work area under ${parent}`), { code: "WORK_AREA_EXHAUSTED" });
     }
     function cleanupProjectWork(work) {
-      const area = path3.dirname(work);
+      const area = path4.dirname(work);
       if (fs4.existsSync(work)) fs4.rmSync(work, { recursive: true, force: true });
-      const marker = path3.join(area, PROJECT_WORK_MARKER);
+      const marker = path4.join(area, PROJECT_WORK_MARKER);
       if (fs4.existsSync(marker)) fs4.unlinkSync(marker);
       try {
         fs4.rmdirSync(area);
@@ -23959,31 +23959,31 @@ var require_mutations = __commonJS({
     }
     function immutableInventory(root) {
       const inventory = /* @__PURE__ */ new Map();
-      for (const relativeRoot of ["handoffs", path3.join("reports", "history")]) {
+      for (const relativeRoot of ["handoffs", path4.join("reports", "history")]) {
         let walk = function(folder) {
-          inventory.set(path3.relative(root, folder), "directory");
+          inventory.set(path4.relative(root, folder), "directory");
           for (const entry of fs4.readdirSync(folder, { withFileTypes: true })) {
-            const full = path3.join(folder, entry.name);
+            const full = path4.join(folder, entry.name);
             const stat = fs4.lstatSync(full);
             if (stat.isSymbolicLink()) throw new Error("Immutable history cannot contain symlinks");
             if (stat.isDirectory()) walk(full);
-            else if (stat.isFile()) inventory.set(path3.relative(root, full), crypto2.createHash("sha256").update(fs4.readFileSync(full)).digest("hex"));
+            else if (stat.isFile()) inventory.set(path4.relative(root, full), crypto2.createHash("sha256").update(fs4.readFileSync(full)).digest("hex"));
             else throw new Error("Immutable history must contain only files and directories");
           }
         };
-        const start = path3.join(root, relativeRoot);
+        const start = path4.join(root, relativeRoot);
         if (!fs4.existsSync(start)) continue;
         walk(start);
       }
       return inventory;
     }
     function manifestSources(candidate, relative) {
-      const text = fs4.readFileSync(path3.join(candidate, relative), "utf8");
+      const text = fs4.readFileSync(path4.join(candidate, relative), "utf8");
       const match = /## Payload\n+```json\n([^\n]+)\n```/.exec(text);
       if (!match) throw new Error(`New manifest lacks canonical payload: ${relative}`);
       const payload = JSON.parse(match[1]);
       if (!Array.isArray(payload.sources)) throw new Error(`New manifest sources are invalid: ${relative}`);
-      return payload.sources.map((source) => path3.normalize(source.path));
+      return payload.sources.map((source) => path4.normalize(source.path));
     }
     function assertImmutablePreserved(before, candidate, beforeState, afterState) {
       const after = immutableInventory(candidate);
@@ -23996,18 +23996,18 @@ var require_mutations = __commonJS({
       }
       for (const relative of after.keys()) {
         if (before.has(relative)) continue;
-        if (relative.startsWith(`reports${path3.sep}history${path3.sep}`)) {
+        if (relative.startsWith(`reports${path4.sep}history${path4.sep}`)) {
           if (after.get(relative) === "directory" || relative.endsWith(".md")) continue;
           throw new Error(`Saved report additions must be Markdown: ${relative}`);
         }
-        const pieces = relative.split(path3.sep);
+        const pieces = relative.split(path4.sep);
         if (pieces[0] !== "handoffs") continue;
         if (pieces.length < 3) {
-          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path3.join("handoffs", task.id, task.active_contract).startsWith(relative));
+          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path4.join("handoffs", task.id, task.active_contract).startsWith(relative));
           if (isValidatedAncestor) continue;
           throw new Error(`Immutable handoff directory is not tied to validated active state: ${relative}`);
         }
-        const contractRoot = pieces.slice(0, 3).join(path3.sep);
+        const contractRoot = pieces.slice(0, 3).join(path4.sep);
         const taskId = pieces[1];
         const contractId = pieces[2];
         const beforeTask = beforeState?.tasks?.find((task) => task.id === taskId);
@@ -24016,8 +24016,8 @@ var require_mutations = __commonJS({
         const newValidatedAttempt = !before.has(contractRoot) && afterTask?.active_contract === contractId;
         if (!existingLiveAttempt && !newValidatedAttempt) throw new Error(`Cannot add to an inactive or terminal immutable attempt: ${relative}`);
         if (after.get(relative) === "directory") {
-          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path3.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
-        } else if (allowed.has(relative) || newValidatedAttempt && relative === path3.join(contractRoot, "TASK-CONTRACT.md")) continue;
+          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path4.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
+        } else if (allowed.has(relative) || newValidatedAttempt && relative === path4.join(contractRoot, "TASK-CONTRACT.md")) continue;
         throw new Error(`Immutable attempt addition is not derived from validated active state: ${relative}`);
       }
     }
@@ -24033,9 +24033,9 @@ var require_mutations = __commonJS({
       }
     }
     function atomicProjectMutation(target, mutateCandidate, validateCandidate, options = {}) {
-      if (!path3.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
-      const parent = path3.dirname(target);
-      const name = path3.basename(target);
+      if (!path4.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
+      const parent = path4.dirname(target);
+      const name = path4.basename(target);
       if (!fs4.existsSync(parent) || !fs4.lstatSync(parent).isDirectory()) throw new Error("Project parent directory must exist");
       const targetStat = lstatIfExists(target);
       const exists = targetStat !== null;
@@ -24051,8 +24051,8 @@ var require_mutations = __commonJS({
       }
       const beforeState = exists && !initializing ? validateCandidate(target, { logicalRoot: target }) : null;
       const work = createProjectWork(parent, `${name}.transaction-`, target);
-      const candidate = path3.join(work, name);
-      const backup = path3.join(work, `${name}.backup`);
+      const candidate = path4.join(work, name);
+      const backup = path4.join(work, `${name}.backup`);
       let targetMoved = false;
       let candidateMoved = false;
       let committed = false;
@@ -24120,7 +24120,7 @@ var require_task_editor = __commonJS({
   "skills/project-manager/scripts/lib/task-editor.js"(exports2, module2) {
     "use strict";
     var fs4 = require("node:fs");
-    var path3 = require("node:path");
+    var path4 = require("node:path");
     var { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require_project_state();
     var { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require_mutations();
     var PLANNING_FIELDS = [
@@ -24277,7 +24277,7 @@ var require_task_editor = __commonJS({
       return task;
     }
     function applyCandidateEdit(candidate, logicalRoot, taskId, request, projectOptions = {}) {
-      const tasksPath = path3.join(candidate, "TASKS.md");
+      const tasksPath = path4.join(candidate, "TASKS.md");
       const observedAt = (/* @__PURE__ */ new Date()).toISOString();
       const date5 = observedAt.slice(0, 10);
       fs4.writeFileSync(tasksPath, transformTaskDocument(fs4.readFileSync(tasksPath, "utf8"), taskId, request.edit, date5, observedAt));
@@ -24289,10 +24289,10 @@ var require_task_editor = __commonJS({
       const snapshot = loadRevisionedProject2(root, 3, projectOptions);
       validateEnvelope(snapshot, taskId, request);
       const canonicalRoot = snapshot.state.root;
-      const parent = path3.dirname(canonicalRoot);
-      const name = path3.basename(canonicalRoot);
+      const parent = path4.dirname(canonicalRoot);
+      const name = path4.basename(canonicalRoot);
       const work = createProjectWork(parent, `${name}.studio-check-`, canonicalRoot);
-      const candidate = path3.join(work, name);
+      const candidate = path4.join(work, name);
       try {
         fs4.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
         if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError("MUTATION_CONFLICT", "Candidate copy did not match the loaded project", { currentRevision: mutationRevision(canonicalRoot) });
@@ -24347,6 +24347,7 @@ __export(cli_exports, {
   createServer: () => createServer,
   main: () => main,
   parseArgs: () => parseArgs,
+  projectsRootRequested: () => projectsRootRequested,
   resolveProjectsRoot: () => resolveProjectsRoot
 });
 module.exports = __toCommonJS(cli_exports);
@@ -25998,6 +25999,9 @@ var import_node_path = __toESM(require("node:path"));
 var import_node_crypto = __toESM(require("node:crypto"));
 var import_node_fs = __toESM(require("node:fs"));
 var { loadProjectIdentity } = require_project_state();
+function rejected(root, problem) {
+  throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", `Project folder ${problem}: ${root}`);
+}
 var ProjectCatalogError = class extends Error {
   code;
   constructor(code, message) {
@@ -26012,13 +26016,50 @@ function stale(message) {
 var ProjectCatalog = class {
   entries;
   initialKey;
-  constructor(seeds, initialRoot) {
-    if (seeds.length === 0) throw new ProjectCatalogError("PROJECTS_ROOT_EMPTY", "Studio project catalog cannot be empty");
+  constructor(seeds, initialRoot, options = {}) {
+    if (seeds.length === 0 && !options.allowEmpty) throw new ProjectCatalogError("PROJECTS_ROOT_EMPTY", "Studio project catalog cannot be empty");
     this.entries = seeds.map((seed) => ({ ...seed, key: import_node_crypto.default.randomBytes(24).toString("hex") }));
-    const initial = this.entries.find((entry) => entry.root === initialRoot);
-    if (!initial) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Initial project is not in the Studio catalog");
-    this.initialKey = initial.key;
+    if (seeds.length === 0) {
+      this.initialKey = "";
+    } else {
+      const initial = this.entries.find((entry) => entry.root === initialRoot);
+      if (!initial) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Initial project is not in the Studio catalog");
+      this.initialKey = initial.key;
+    }
     this.validateAll();
+  }
+  /**
+   * Register a project folder chosen at request time and return its keyed entry,
+   * reusing the existing entry when that real root is already known so a key held
+   * by a rendered view stays valid. Validation runs before anything is stored, and
+   * its errors name the rejected path — an ad-hoc folder has no catalog name yet.
+   */
+  register(root) {
+    if (typeof root !== "string" || root === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "A project folder is required");
+    let stat;
+    try {
+      stat = import_node_fs.default.lstatSync(root);
+    } catch {
+      rejected(root, "does not exist");
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) rejected(root, "is not a real directory");
+    let real;
+    try {
+      real = import_node_fs.default.realpathSync(root);
+    } catch {
+      rejected(root, "cannot be resolved");
+    }
+    const existing = this.entries.find((entry2) => entry2.root === real);
+    if (existing) return existing;
+    let identity;
+    try {
+      identity = loadProjectIdentity(real);
+    } catch {
+      rejected(root, "is not a Project Manager project");
+    }
+    const entry = { key: import_node_crypto.default.randomBytes(24).toString("hex"), id: identity.project.id, name: identity.project.name, root: real };
+    this.entries.push(entry);
+    return entry;
   }
   data() {
     for (const entry of this.entries) this.validateEntry(entry);
@@ -26082,17 +26123,22 @@ function resolveProjectsRoot(selection, env = process.env) {
   const requested = selection.projectsRoot ?? env[PROJECTS_ROOT_ENV] ?? DEFAULT_PROJECTS_ROOT;
   return import_node_path.default.resolve(requested);
 }
+function projectsRootRequested(selection, env = process.env) {
+  return selection.projectsRoot !== void 0 || env[PROJECTS_ROOT_ENV] !== void 0;
+}
 function buildCatalog(selection, env = process.env) {
-  if (selection.project && !selection.projectsRoot && !env[PROJECTS_ROOT_ENV]) {
+  const requested = projectsRootRequested(selection, env);
+  if (selection.project && !requested) {
     const identity = loadProjectIdentity2(import_node_path.default.resolve(selection.project));
     const seed = { id: identity.project.id, name: identity.project.name, root: identity.root };
-    return new ProjectCatalog([seed], seed.root);
+    return { catalog: new ProjectCatalog([seed], seed.root), confinement: null };
   }
   const requestedRoot = resolveProjectsRoot(selection, env);
   let discovered;
   try {
     discovered = loadProjectCatalogRoot(requestedRoot);
   } catch (error51) {
+    if (!requested) return { catalog: new ProjectCatalog([], "", { allowEmpty: true }), confinement: null };
     throw new ProjectCatalogError(
       "PROJECTS_ROOT_UNAVAILABLE",
       `No Project Manager projects were found at ${requestedRoot}. Pass --projects-root, or set ${PROJECTS_ROOT_ENV}. (${error51 instanceof Error ? error51.message : String(error51)})`
@@ -26113,12 +26159,12 @@ function buildCatalog(selection, env = process.env) {
     if (!selected || import_node_path.default.dirname(real) !== discovered.root) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Explicit project must be a direct child of the projects root");
     initialRoot = selected.root;
   }
-  return new ProjectCatalog(discovered.projects, initialRoot);
+  return { catalog: new ProjectCatalog(discovered.projects, initialRoot), confinement: discovered.root };
 }
 
 // src/mcp-app/server/server.ts
 var import_promises = __toESM(require("node:fs/promises"));
-var import_node_path2 = __toESM(require("node:path"));
+var import_node_path3 = __toESM(require("node:path"));
 
 // node_modules/zod/v3/helpers/util.js
 var util;
@@ -26479,8 +26525,8 @@ function getErrorMap2() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path3, errorMaps, issueData } = params;
-  const fullPath = [...path3, ...issueData.path || []];
+  const { data, path: path4, errorMaps, issueData } = params;
+  const fullPath = [...path4, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -26595,11 +26641,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path3, key) {
+  constructor(parent, value, path4, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path3;
+    this._path = path4;
     this._key = key;
   }
   get path() {
@@ -30138,11 +30184,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path3) {
-  if (path3.length === 0) {
+function getDotPath(path4) {
+  if (path4.length === 0) {
     return "object root";
   }
-  return path3.reduce((acc, seg, index) => {
+  return path4.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -34165,6 +34211,14 @@ function N3(Z, $, J, X, V) {
 }
 
 // src/mcp-app/server/project-reads.ts
+var import_node_path2 = __toESM(require("node:path"));
+var ProjectSelectionError = class extends Error {
+  code = "PROJECT_SELECTION_UNKNOWN";
+  constructor(message) {
+    super(message);
+    this.name = "ProjectSelectionError";
+  }
+};
 var { loadRevisionedProject } = require_task_editor();
 var PROJECT_OPTIONS = { taskErrorsAsWarnings: true };
 var MAX_SUMMARY_NEXT = 3;
@@ -34175,13 +34229,29 @@ function getProject(catalog, projectKey) {
   const entry = catalog.resolve(projectKey);
   return catalog.decorate(entry.key, loadRevisionedProject(entry.root, 3, PROJECT_OPTIONS).data);
 }
-function resolveProjectKey(catalog, projectId) {
+function resolveProjectKey(catalog, selector, confinement = null) {
   const data = catalog.data();
-  if (projectId === void 0 || projectId === "") return data.initial_project_key;
-  const wanted = projectId.toLowerCase();
-  const match = data.projects.find((project) => project.id.toLowerCase() === wanted || project.name.toLowerCase() === wanted);
-  if (!match) throw new Error(`Unknown project: ${projectId}. Available: ${data.projects.map((project) => project.id).join(", ")}`);
-  return match.key;
+  if (selector === void 0 || selector === "") {
+    if (data.initial_project_key === "") {
+      throw new ProjectSelectionError("No project is configured. Pass the project folder to select one.");
+    }
+    return data.initial_project_key;
+  }
+  const wanted = selector.toLowerCase();
+  const matches = data.projects.filter((project) => project.id.toLowerCase() === wanted || project.name.toLowerCase() === wanted);
+  if (matches.length > 1) throw new ProjectSelectionError(`Project selector matches more than one project: ${selector}`);
+  if (matches.length === 1) return matches[0].key;
+  const root = import_node_path2.default.resolve(selector);
+  if (confinement !== null && root !== confinement && import_node_path2.default.dirname(root) !== confinement) {
+    throw new ProjectSelectionError(`Project folder is outside the configured projects root ${confinement}: ${root}`);
+  }
+  try {
+    return catalog.register(root).key;
+  } catch (error51) {
+    const available = data.projects.map((project) => project.id);
+    const detail = error51 instanceof Error ? error51.message : String(error51);
+    throw new ProjectSelectionError(available.length ? `${detail}. It also matches no configured project. Available: ${available.join(", ")}` : detail);
+  }
 }
 function projectSummary(catalog, projectKey) {
   const data = getProject(catalog, projectKey);
@@ -34216,7 +34286,8 @@ function summaryText(summary) {
 // src/mcp-app/server/server.ts
 var STATUS_URI = "ui://project-manager/status.html";
 var BOARD_URI = "ui://project-manager/board.html";
-var DEFAULT_VIEW_DIR = import_node_path2.default.resolve(__dirname, "..", "mcp-app");
+var DEFAULT_VIEW_DIR = import_node_path3.default.resolve(__dirname, "..", "mcp-app");
+var PROJECT_ARGUMENT = "Project folder path, or the ID or name of a configured project. Defaults to the configured project when one exists.";
 function json2(value) {
   return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
 }
@@ -34226,11 +34297,12 @@ function failure(error51) {
 }
 function createServer(options) {
   const { catalog } = options;
+  const confinement = options.confinement ?? null;
   const viewDir = options.viewDir ?? DEFAULT_VIEW_DIR;
   const server = new McpServer({ name: "Project Manager", version: "1.0.0" });
   const summaryTool = async ({ project }) => {
     try {
-      const summary = projectSummary(catalog, resolveProjectKey(catalog, project));
+      const summary = projectSummary(catalog, resolveProjectKey(catalog, project, confinement));
       return { content: [{ type: "text", text: summaryText(summary) }], structuredContent: summary };
     } catch (error51) {
       return failure(error51);
@@ -34238,14 +34310,14 @@ function createServer(options) {
   };
   K3(server, "pm_project_status", {
     title: "Project status",
-    description: "Show a compact status card for a Project Manager project: task counts, blocked work, verified success criteria, owner gaps, target date, and next tasks. Read-only.",
-    inputSchema: { project: external_exports.string().optional().describe("Project ID or name. Defaults to the first project.") },
+    description: "Show a compact status card for a Project Manager project: task counts, blocked work, verified success criteria, owner gaps, target date, and next tasks. Pass the project folder to select a project, the same way the project CLI scripts take a folder. Read-only.",
+    inputSchema: { project: external_exports.string().optional().describe(PROJECT_ARGUMENT) },
     _meta: { ui: { resourceUri: STATUS_URI } }
   }, summaryTool);
   K3(server, "pm_open_board", {
     title: "Open project board",
-    description: "Open the full Project Manager board showing every lane and task for a project. Read-only.",
-    inputSchema: { project: external_exports.string().optional().describe("Project ID or name. Defaults to the first project.") },
+    description: "Open the full Project Manager board showing every lane and task for a project. Pass the project folder to select a project, the same way the project CLI scripts take a folder. Read-only.",
+    inputSchema: { project: external_exports.string().optional().describe(PROJECT_ARGUMENT) },
     _meta: { ui: { resourceUri: BOARD_URI } }
   }, summaryTool);
   K3(server, "pm_list_projects", {
@@ -34277,7 +34349,7 @@ function createServer(options) {
     name,
     uri,
     { mimeType: p, description },
-    async () => ({ contents: [{ uri, mimeType: p, text: await import_promises.default.readFile(import_node_path2.default.join(viewDir, file2), "utf-8") }] })
+    async () => ({ contents: [{ uri, mimeType: p, text: await import_promises.default.readFile(import_node_path3.default.join(viewDir, file2), "utf-8") }] })
   );
   view("Project status card", STATUS_URI, "status.html", "Inline Project Manager status card");
   view("Project board", BOARD_URI, "board.html", "Fullscreen Project Manager board");
@@ -34306,7 +34378,8 @@ function parseArgs(argv) {
 }
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const server = createServer({ catalog: buildCatalog(args) });
+  const { catalog, confinement } = buildCatalog(args);
+  const server = createServer({ catalog, confinement });
   await server.connect(new StdioServerTransport());
   return { server };
 }
@@ -34323,5 +34396,6 @@ if (require.main === module) {
   createServer,
   main,
   parseArgs,
+  projectsRootRequested,
   resolveProjectsRoot
 });

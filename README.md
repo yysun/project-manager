@@ -112,22 +112,27 @@ Claude Desktop does not read Agent Plugins packages, so add the server to
   "mcpServers": {
     "project-manager": {
       "command": "node",
-      "args": [
-        "/absolute/path/to/skills/project-manager/scripts/project-manager-mcp.js",
-        "--projects-root",
-        "/absolute/path/to/your/.projects"
-      ]
+      "args": ["/absolute/path/to/skills/project-manager/scripts/project-manager-mcp.js"]
     }
   }
 }
 ```
 
-### Pointing the server at your projects
+### Selecting a project
 
-A host launches the server with a working directory you do not control, so tell it where projects
-live. Use `--projects-root <folder>`, or `--project <folder>` for a single project, or set
-`PROJECT_MANAGER_PROJECTS_ROOT`. With none of these it looks for `.projects` relative to the working
-directory and, failing that, reports the exact path it tried.
+No projects path is configured, because the agent selects the project the way it already does for
+every CLI script — `project status <folder>` takes a folder, and so does the MCP App. Ask for the
+status of a project by folder and the agent passes it through. A folder is accepted whether or not
+anything was configured at launch.
+
+Configuration is optional and does two things when you use it. `--projects-root <folder>` (or
+`PROJECT_MANAGER_PROJECTS_ROOT`) lets projects be selected by ID or name instead of path, **and
+confines selection to that root** — a project outside it is refused. `--project <folder>` pins a
+single project. Without either, the server starts with nothing configured and waits to be told.
+
+Worth knowing: with no projects root configured, the server can read any Project Manager project on
+the machine — the same reach the CLI scripts already give the agent. It only reads folders that
+parse as a project, never arbitrary files. Set a projects root if you want that confined.
 
 ## Install
 

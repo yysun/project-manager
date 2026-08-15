@@ -89,12 +89,14 @@ test('project keys that were never issued are rejected', async () => {
   } finally { await session.close(); }
 });
 
-test('an unknown project name is reported with the available projects', async () => {
+test('a selector matching no project and no folder names both possibilities', async () => {
   const session = await connect();
   try {
     const result = await session.client.callTool({ name: 'pm_project_status', arguments: { project: 'NOPE' } });
     assert.equal(result.isError, true);
-    assert.match(text(result), /Unknown project: NOPE/);
+    assert.match(text(result), /NOPE/, 'the error names the rejected selector');
+    assert.match(text(result), /matches no configured project/);
+    assert.match(text(result), /Available: STUDIO/);
   } finally { await session.close(); }
 });
 

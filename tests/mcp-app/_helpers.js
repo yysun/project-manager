@@ -8,15 +8,24 @@ const { makeProject } = require('../project-manager-studio/_helpers');
 const builtServerPath = path.resolve(__dirname, '../../skills/project-manager/scripts/project-manager-mcp.js');
 const viewDir = path.resolve(__dirname, '../../skills/project-manager/mcp-app');
 
-/** Connect an MCP client to the packaged server against a fresh fixture project. */
-async function connect({ projectRoot = null } = {}) {
+/**
+ * Connect an MCP client to the packaged server.
+ *
+ * By default a fresh fixture project is configured at launch. Pass
+ * `{ configured: false }` for the unconfigured case, where the agent is expected
+ * to select a project folder per call, or `{ projectsRoot }` to confine selection.
+ */
+async function connect({ projectRoot = null, projectsRoot = null, configured = true } = {}) {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
   const { buildCatalog, createServer } = require(builtServerPath);
 
   const root = projectRoot ?? makeProject();
-  const catalog = buildCatalog({ project: root });
-  const server = createServer({ catalog, viewDir });
+  const selection = projectsRoot ? { projectsRoot } : configured ? { project: root } : {};
+  // An empty environment keeps an ambient PROJECT_MANAGER_PROJECTS_ROOT from
+  // turning the unconfigured case into a configured one.
+  const { catalog, confinement } = buildCatalog(selection, {});
+  const server = createServer({ catalog, confinement, viewDir });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   const client = new Client({ name: 'mcp-app-test', version: '1.0.0' });
@@ -24,6 +33,7 @@ async function connect({ projectRoot = null } = {}) {
   return {
     client,
     catalog,
+    confinement,
     root,
     close: async () => { await client.close().catch(() => {}); await server.close().catch(() => {}); },
   };

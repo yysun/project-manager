@@ -22,6 +22,11 @@ project written by an older release keeps loading unchanged; no release has requ
   MCP server configuration in the standard's fixed root layout.
 - MCP App frontend under `src/mcp-app/client/`, independent of Studio's client and styled from host
   theme tokens with light and dark fallbacks.
+- MCP App project selection by the agent: model-facing tools accept a project folder path as well as
+  a configured ID or name, and the server starts with no project arguments, so no absolute path has
+  to be written into host configuration. This matches how the skill already drives the CLI scripts,
+  which take the project folder as an argument. A configured projects root remains available and now
+  acts as opt-in confinement. The view continues to receive only opaque project keys.
 
 ### Notes
 

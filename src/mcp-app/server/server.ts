@@ -21,8 +21,12 @@ export const DEFAULT_VIEW_DIR = path.resolve(__dirname, '..', 'mcp-app');
 
 export interface McpAppServerOptions {
   catalog: ProjectCatalog;
+  /** Set only when a projects root was configured; then it confines selection. */
+  confinement?: string | null;
   viewDir?: string;
 }
+
+const PROJECT_ARGUMENT = 'Project folder path, or the ID or name of a configured project. Defaults to the configured project when one exists.';
 
 function json(value: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value as Record<string, unknown> };
@@ -35,6 +39,7 @@ function failure(error: unknown): CallToolResult {
 
 export function createServer(options: McpAppServerOptions): McpServer {
   const { catalog } = options;
+  const confinement = options.confinement ?? null;
   const viewDir = options.viewDir ?? DEFAULT_VIEW_DIR;
   const server = new McpServer({ name: 'Project Manager', version: '1.0.0' });
 
@@ -42,7 +47,7 @@ export function createServer(options: McpAppServerOptions): McpServer {
   // extension defines the association; the result carries facts only.
   const summaryTool = async ({ project }: { project?: string }): Promise<CallToolResult> => {
     try {
-      const summary = projectSummary(catalog, resolveProjectKey(catalog, project));
+      const summary = projectSummary(catalog, resolveProjectKey(catalog, project, confinement));
       // The compact summary is what reaches model context; the view pulls the
       // full payload itself through the app-only tool below.
       return { content: [{ type: 'text', text: summaryText(summary) }], structuredContent: summary as unknown as Record<string, unknown> };
@@ -51,15 +56,15 @@ export function createServer(options: McpAppServerOptions): McpServer {
 
   registerAppTool(server, 'pm_project_status', {
     title: 'Project status',
-    description: 'Show a compact status card for a Project Manager project: task counts, blocked work, verified success criteria, owner gaps, target date, and next tasks. Read-only.',
-    inputSchema: { project: z.string().optional().describe('Project ID or name. Defaults to the first project.') },
+    description: 'Show a compact status card for a Project Manager project: task counts, blocked work, verified success criteria, owner gaps, target date, and next tasks. Pass the project folder to select a project, the same way the project CLI scripts take a folder. Read-only.',
+    inputSchema: { project: z.string().optional().describe(PROJECT_ARGUMENT) },
     _meta: { ui: { resourceUri: STATUS_URI } },
   }, summaryTool);
 
   registerAppTool(server, 'pm_open_board', {
     title: 'Open project board',
-    description: 'Open the full Project Manager board showing every lane and task for a project. Read-only.',
-    inputSchema: { project: z.string().optional().describe('Project ID or name. Defaults to the first project.') },
+    description: 'Open the full Project Manager board showing every lane and task for a project. Pass the project folder to select a project, the same way the project CLI scripts take a folder. Read-only.',
+    inputSchema: { project: z.string().optional().describe(PROJECT_ARGUMENT) },
     _meta: { ui: { resourceUri: BOARD_URI } },
   }, summaryTool);
 

@@ -2,8 +2,15 @@
 // model-facing summary that keeps full task collections out of model context,
 // and catalog-resolved selection so no caller-supplied path reaches the disk.
 // Deliberately imports read functions only; no mutation entry point appears here.
+import path from 'node:path';
 import type { KanbanData, ProjectCatalogData } from '../../project-manager-studio/shared/api.js';
 import type { ProjectCatalog } from '../../project-manager-studio/server/project-catalog.js';
+
+/** Selection failures the caller can correct, carrying a code like the catalog's. */
+export class ProjectSelectionError extends Error {
+  code = 'PROJECT_SELECTION_UNKNOWN';
+  constructor(message: string) { super(message); this.name = 'ProjectSelectionError'; }
+}
 
 // loadRevisionedProject retries until the project's mutation revision is stable
 // across the read. The agent writes project Markdown while this app reads it, so
@@ -40,16 +47,43 @@ export function getProject(catalog: ProjectCatalog, projectKey: unknown): Kanban
 }
 
 /**
- * Resolve a project key from an optional caller-supplied project id. Model-facing
- * tools take a human-meaningful id; only the app handles opaque keys.
+ * Resolve a project key from an optional caller-supplied selector. Model-facing
+ * tools accept a configured ID or name, or a project folder path — the same way
+ * the skill drives every CLI script. Only the view handles opaque keys.
+ *
+ * ID or name is tried first: IDs are short tokens and are the intended selector
+ * when a projects root is configured. Anything unmatched is treated as a folder.
  */
-export function resolveProjectKey(catalog: ProjectCatalog, projectId?: string): string {
+export function resolveProjectKey(catalog: ProjectCatalog, selector?: string, confinement: string | null = null): string {
   const data = catalog.data();
-  if (projectId === undefined || projectId === '') return data.initial_project_key;
-  const wanted = projectId.toLowerCase();
-  const match = data.projects.find((project) => project.id.toLowerCase() === wanted || project.name.toLowerCase() === wanted);
-  if (!match) throw new Error(`Unknown project: ${projectId}. Available: ${data.projects.map((project) => project.id).join(', ')}`);
-  return match.key;
+  if (selector === undefined || selector === '') {
+    if (data.initial_project_key === '') {
+      throw new ProjectSelectionError('No project is configured. Pass the project folder to select one.');
+    }
+    return data.initial_project_key;
+  }
+
+  const wanted = selector.toLowerCase();
+  const matches = data.projects.filter((project) => project.id.toLowerCase() === wanted || project.name.toLowerCase() === wanted);
+  // "Ambiguity is not selection" — refuse rather than silently picking the first.
+  if (matches.length > 1) throw new ProjectSelectionError(`Project selector matches more than one project: ${selector}`);
+  if (matches.length === 1) return matches[0].key;
+
+  const root = path.resolve(selector);
+  if (confinement !== null && root !== confinement && path.dirname(root) !== confinement) {
+    throw new ProjectSelectionError(`Project folder is outside the configured projects root ${confinement}: ${root}`);
+  }
+  try {
+    return catalog.register(root).key;
+  } catch (error) {
+    // A selector that matched no configured project and is not a folder is most
+    // often a mistyped ID, so name both possibilities rather than only the path.
+    const available = data.projects.map((project) => project.id);
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ProjectSelectionError(available.length
+      ? `${detail}. It also matches no configured project. Available: ${available.join(', ')}`
+      : detail);
+  }
 }
 
 /** Compact facts for the model. Deliberately omits the task and lane collections. */

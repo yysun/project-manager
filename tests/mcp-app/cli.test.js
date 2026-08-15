@@ -43,8 +43,8 @@ test('the projects root resolves from the argument, then the environment, then t
 
 test('a projects root supplied by argument and by environment produce the same catalog', () => {
   const root = makeProjectsRoot();
-  const fromArgument = buildCatalog({ projectsRoot: root }, {}).data();
-  const fromEnvironment = buildCatalog({}, { PROJECT_MANAGER_PROJECTS_ROOT: root }).data();
+  const fromArgument = buildCatalog({ projectsRoot: root }, {}).catalog.data();
+  const fromEnvironment = buildCatalog({}, { PROJECT_MANAGER_PROJECTS_ROOT: root }).catalog.data();
   assert.deepEqual(
     fromArgument.projects.map((project) => project.id),
     fromEnvironment.projects.map((project) => project.id),
@@ -52,15 +52,26 @@ test('a projects root supplied by argument and by environment produce the same c
   assert.ok(fromArgument.projects.length >= 1);
 });
 
-test('an unusable projects root fails naming the path that was tried', () => {
+test('an explicitly requested projects root that is unusable fails naming the path', () => {
   const missing = path.join(os.tmpdir(), 'pm-mcp-absent-root');
   fs.rmSync(missing, { recursive: true, force: true });
-  assert.throws(
-    () => buildCatalog({ projectsRoot: missing }, {}),
-    (error) => error.code === 'PROJECTS_ROOT_UNAVAILABLE'
-      && error.message.includes(missing)
-      && error.message.includes('PROJECT_MANAGER_PROJECTS_ROOT'),
-  );
+  const expected = (error) => error.code === 'PROJECTS_ROOT_UNAVAILABLE'
+    && error.message.includes(missing)
+    && error.message.includes('PROJECT_MANAGER_PROJECTS_ROOT');
+  assert.throws(() => buildCatalog({ projectsRoot: missing }, {}), expected);
+  assert.throws(() => buildCatalog({}, { PROJECT_MANAGER_PROJECTS_ROOT: missing }), expected);
+});
+
+test('an absent implicit default yields an empty catalog instead of failing', () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-mcp-nocwd-'));
+  const previous = process.cwd();
+  process.chdir(empty);
+  try {
+    const { catalog, confinement } = buildCatalog({}, {});
+    assert.deepEqual(catalog.data().projects, []);
+    assert.equal(catalog.data().initial_project_key, '');
+    assert.equal(confinement, null);
+  } finally { process.chdir(previous); }
 });
 
 test('an explicit project outside the projects root is refused', () => {

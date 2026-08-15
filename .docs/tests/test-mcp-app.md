@@ -24,8 +24,11 @@ Given a projects root that is not the process working directory
 When the server is started with that root supplied by argument, and separately by environment
 variable
 
-Then both runs expose the same projects, and a run with neither supplied and no discoverable default
-fails with an error naming the path it attempted
+Then both runs expose the same projects, and an explicitly requested root that cannot be used fails
+with an error naming the path it attempted
+
+Note: a run with no projects root requested and no discoverable default starts with an empty catalog
+rather than failing. See `test-mcp-app-project-selection.md`.
 
 ## Scenario 4 - Withhold app-only tools from the model
 

@@ -7,7 +7,7 @@ import { buildCatalog, PROJECTS_ROOT_ENV } from './projects.js';
 import { createServer } from './server.js';
 
 export { createServer } from './server.js';
-export { buildCatalog, resolveProjectsRoot } from './projects.js';
+export { buildCatalog, projectsRootRequested, resolveProjectsRoot } from './projects.js';
 
 const USAGE = `Usage: project-manager-mcp.js [--project <folder>] [--projects-root <folder>]\n\nThe projects root may also be set with ${PROJECTS_ROOT_ENV}.`;
 
@@ -32,9 +32,12 @@ export function parseArgs(argv: string[]): McpAppArgs {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  // Built before connecting so an unusable projects root fails at startup, where
-  // a host surfaces it clearly, rather than on the first tool call.
-  const server = createServer({ catalog: buildCatalog(args) });
+  // Built before connecting so an explicitly requested projects root that cannot
+  // be used fails at startup, where a host surfaces it clearly, rather than on
+  // the first tool call. With no configuration the catalog is simply empty and
+  // the agent selects a folder per call.
+  const { catalog, confinement } = buildCatalog(args);
+  const server = createServer({ catalog, confinement });
   await server.connect(new StdioServerTransport());
   return { server };
 }

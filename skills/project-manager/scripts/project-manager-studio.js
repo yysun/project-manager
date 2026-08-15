@@ -26295,6 +26295,9 @@ var import_node_child_process = require("node:child_process");
 var import_node_crypto = __toESM(require("node:crypto"));
 var import_node_fs = __toESM(require("node:fs"));
 var { loadProjectIdentity } = require_project_state();
+function rejected(root, problem) {
+  throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", `Project folder ${problem}: ${root}`);
+}
 var ProjectCatalogError = class extends Error {
   code;
   constructor(code, message) {
@@ -26309,13 +26312,50 @@ function stale(message) {
 var ProjectCatalog = class {
   entries;
   initialKey;
-  constructor(seeds, initialRoot) {
-    if (seeds.length === 0) throw new ProjectCatalogError("PROJECTS_ROOT_EMPTY", "Studio project catalog cannot be empty");
+  constructor(seeds, initialRoot, options = {}) {
+    if (seeds.length === 0 && !options.allowEmpty) throw new ProjectCatalogError("PROJECTS_ROOT_EMPTY", "Studio project catalog cannot be empty");
     this.entries = seeds.map((seed) => ({ ...seed, key: import_node_crypto.default.randomBytes(24).toString("hex") }));
-    const initial = this.entries.find((entry) => entry.root === initialRoot);
-    if (!initial) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Initial project is not in the Studio catalog");
-    this.initialKey = initial.key;
+    if (seeds.length === 0) {
+      this.initialKey = "";
+    } else {
+      const initial = this.entries.find((entry) => entry.root === initialRoot);
+      if (!initial) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Initial project is not in the Studio catalog");
+      this.initialKey = initial.key;
+    }
     this.validateAll();
+  }
+  /**
+   * Register a project folder chosen at request time and return its keyed entry,
+   * reusing the existing entry when that real root is already known so a key held
+   * by a rendered view stays valid. Validation runs before anything is stored, and
+   * its errors name the rejected path — an ad-hoc folder has no catalog name yet.
+   */
+  register(root) {
+    if (typeof root !== "string" || root === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "A project folder is required");
+    let stat;
+    try {
+      stat = import_node_fs.default.lstatSync(root);
+    } catch {
+      rejected(root, "does not exist");
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) rejected(root, "is not a real directory");
+    let real;
+    try {
+      real = import_node_fs.default.realpathSync(root);
+    } catch {
+      rejected(root, "cannot be resolved");
+    }
+    const existing = this.entries.find((entry2) => entry2.root === real);
+    if (existing) return existing;
+    let identity2;
+    try {
+      identity2 = loadProjectIdentity(real);
+    } catch {
+      rejected(root, "is not a Project Manager project");
+    }
+    const entry = { key: import_node_crypto.default.randomBytes(24).toString("hex"), id: identity2.project.id, name: identity2.project.name, root: real };
+    this.entries.push(entry);
+    return entry;
   }
   data() {
     for (const entry of this.entries) this.validateEntry(entry);
