@@ -66,7 +66,7 @@ say so in the rationale.
 
 - [English user guide](skills/project-manager/README.md) — manage through outcomes, events,
   constraints, evidence, and decisions.
-- [中文使用指南](skills/project-manager/README-cn.md) — 通过目标、事件、约束、证据和决策管理项目。
+- [中文使用指南](skills/project-manager/README.zh-CN.md) — 通过目标、事件、约束、证据和决策管理项目。
 
 ## Studio
 
@@ -151,9 +151,21 @@ parse as a project, never arbitrary files. Set a projects root if you want that 
 
 ## Install
 
-In your AI agent app, ask:
+Choose the installation that matches what you want.
+
+For the complete Agent Plugin — skill, MCP server, and MCP App — ask a client that supports GitHub
+Agent Plugin installation:
 
 > Install the Project Manager plugin from GitHub `yysun/project-manager`.
+
+For the standalone skill only, ask Codex:
+
+> Install the Project Manager skill from GitHub `yysun/project-manager`.
+
+Codex inspects the repository and installs `skills/project-manager/` into its skills directory. This
+does not install root `mcp.json`, `bin/`, or `ui/`, so the MCP tools and embedded App are unavailable.
+Installers that do not infer nested skill paths may require the explicit path
+`skills/project-manager`.
 
 ## Development
 

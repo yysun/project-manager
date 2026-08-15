@@ -12,7 +12,7 @@ Workspace-root project initialization must leave a portable Studio entry point w
 - `skills/project-manager/scripts/lib/mutations.js` already provides exact project-folder replacement and failure injection, but it does not transact workspace-root support files with a new project.
 - Studio already discovers `<launch-working-directory>/.projects` and accepts additional arguments through `skills/project-manager/scripts/project-manager-studio.js`; no Studio server change is needed.
 - `skills/project-manager/tests/project-manager.test.js` is the installable skill's contract suite and currently has no assertions for initialization instructions or generated launcher contracts.
-- `skills/project-manager/README.md`, `skills/project-manager/README-cn.md`, and `CHANGELOG.md` are the relevant user and release documentation.
+- `skills/project-manager/README.md`, `skills/project-manager/README.zh-CN.md`, and `CHANGELOG.md` are the relevant user and release documentation.
 - The repository requires the complete `skills/project-manager/` directory to be synced to `~/.agents/skills/project-manager/` after any installable-skill edit.
 
 ## Decisions
@@ -68,7 +68,7 @@ Workspace-root project initialization must leave a portable Studio entry point w
 ### Phase 4 - User and release documentation
 
 - [x] Update `skills/project-manager/README.md` with the workspace initialization output and direct Studio launcher commands.
-- [x] Update `skills/project-manager/README-cn.md` with equivalent workspace initialization and launcher guidance.
+- [x] Update `skills/project-manager/README.zh-CN.md` with equivalent workspace initialization and launcher guidance.
 - [x] Bump the installable skill minor version and add a `CHANGELOG.md` release entry describing local configuration and cross-platform launchers.
 
 ### Phase 5 - Installation sync and final evidence

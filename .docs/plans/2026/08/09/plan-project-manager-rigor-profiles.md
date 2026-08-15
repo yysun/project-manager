@@ -95,7 +95,7 @@ ordinary operating view.
 
 - [x] Extend `skills/project-manager/tests/project-manager.test.js` for profile policy, v3 exactness and v2-schedule preservation, old-schema STATUS compatibility, lightweight completion success/evidence/source rejection/rollback, disposition freeze/graph semantics, status/report facts, and board projection.
 - [x] Extend `tests/project-manager-studio/task-editor.test.js`, server tests, and relevant model tests for coordination editing, schema upgrades, and the changed API projection.
-- [x] Update `SKILL.md`, `README.md`, `README-cn.md`, `references/conventions.md`, `references/tasks.md`, and `references/track.md` with progressive-disclosure behavior and no new route.
+- [x] Update `SKILL.md`, `README.md`, `README.zh-CN.md`, `references/conventions.md`, `references/tasks.md`, and `references/track.md` with progressive-disclosure behavior and no new route.
 - [x] Update generated Studio server/client bundles through the repository build rather than editing generated files by hand.
 
 ### Phase 5 - Verification evidence

@@ -1,6 +1,6 @@
 # Project Manager — User Guide
 
-[中文指南](README-cn.md)
+[中文指南](README.zh-CN.md)
 
 Project Manager is an AI project manager you work with through conversation. Brief it and keep it
 informed as you would a human colleague: talk about the outcome, what happened, what changed, what is

@@ -12,29 +12,25 @@ project written by an older release keeps loading unchanged; no release has requ
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-08-15
+
 ### Added
 
 - Read-only MCP App: a stdio MCP server exposing validated project facts as tools, with an inline
   status card and a fullscreen board rendered inside supporting hosts. Model-facing tools return a
-  compact summary; the full project payload travels only over app-only tools, keeping task
-  collections out of model context.
-- Root-native Agent Plugins 1.0 package carrying the canonical skill, bundled MCP server,
-  self-contained MCP App views, and portable manifests without a generated package directory.
-- Source and distribution boundaries restructured around the plugin: MCP server code lives in
-  `src/mcp-app/`, the MCP App adapter lives with Studio in `src/project-manager-studio/mcp-app/`, and
-  generated MCP artifacts no longer pollute the installable skill source.
-- GitHub installation now targets the repository root directly; generated `dist/plugin/`,
-  `plugins/project-manager/`, and repository-local Codex marketplace copies were removed.
+  compact summary while full project data stays in app-only tools; hosts without MCP App rendering
+  receive the text result, and all project mutation remains with the agent, skill, and CLI scripts.
 - MCP App project selection by the agent: model-facing tools accept a project folder path as well as
   a configured ID or name, and the server starts with no project arguments, so no absolute path has
-  to be written into host configuration. This matches how the skill already drives the CLI scripts,
-  which take the project folder as an argument. A configured projects root remains available and now
-  acts as opt-in confinement. The view continues to receive only opaque project keys.
+  to be written into host configuration. A configured projects root remains available as opt-in
+  confinement, and views receive only opaque project keys.
 
-### Notes
+### Changed
 
-- The MCP App never mutates project state; the agent, the skill, and the CLI scripts remain the only
-  write paths. Studio behavior and packaging are unchanged.
+- Project Manager is now distributed as a root-native Agent Plugins 1.0 package for direct GitHub
+  installation.
+- GitHub installation documentation now separates the complete root plugin from Codex's standalone
+  `skills/project-manager/` installation, which intentionally excludes MCP tools and views.
 
 ## [1.7.0] — 2026-08-15
 
@@ -243,6 +239,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.8.0]: https://github.com/yysun/project-manager/releases/tag/v1.8.0
 [1.7.0]: https://github.com/yysun/project-manager/releases/tag/v1.7.0
 [1.6.0]: https://github.com/yysun/project-manager/releases/tag/v1.6.0
 [1.5.2]: https://github.com/yysun/project-manager/releases/tag/v1.5.2

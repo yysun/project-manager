@@ -1343,7 +1343,7 @@ test('initialization instructions expose the deterministic workspace and standal
   assert.match(init, /Treat `data\.committed: true` as committed work/); assert.match(init, /never rerun initialization/);
   const skill = fs.readFileSync(path.join(SKILL_ROOT, 'SKILL.md'), 'utf8');
   assert.match(skill, /project-init-workspace\.js/); assert.match(skill, /Standalone target-folder initialization/);
-  const english = fs.readFileSync(path.join(SKILL_ROOT, 'README.md'), 'utf8'); const chinese = fs.readFileSync(path.join(SKILL_ROOT, 'README-cn.md'), 'utf8');
+  const english = fs.readFileSync(path.join(SKILL_ROOT, 'README.md'), 'utf8'); const chinese = fs.readFileSync(path.join(SKILL_ROOT, 'README.zh-CN.md'), 'utf8');
   for (const guide of [english, chinese]) for (const required of ['.projects/.env.local', '.projects/.gitignore', 'studio.sh', 'studio.cmd']) assert.equal(guide.includes(required), true);
 
   const workspace = fs.realpathSync(temp()); const target = path.join(workspace, 'standalone-project'); const payload = initPayload('STANDALONE-PROJECT');
@@ -1366,7 +1366,7 @@ test('project-selection instructions auto-select one valid workspace project wit
   assert.match(skill, /explicit selection or the single-valid-project rule must resolve it/);
 
   const english = fs.readFileSync(path.join(SKILL_ROOT, 'README.md'), 'utf8');
-  const chinese = fs.readFileSync(path.join(SKILL_ROOT, 'README-cn.md'), 'utf8');
+  const chinese = fs.readFileSync(path.join(SKILL_ROOT, 'README.zh-CN.md'), 'utf8');
   assert.match(english, /contains one valid project, Project\nManager uses it automatically/);
   assert.match(chinese, /只有一个有效项目，Project Manager 会自动使用它/);
 });
