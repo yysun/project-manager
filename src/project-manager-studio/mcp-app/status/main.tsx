@@ -2,11 +2,13 @@
 // with the tool result, within the host's inline constraints: five metrics, one
 // action, content-fitted height, and no internal scrolling. Read-only by
 // construction — there is no control here that changes project state.
-import { StrictMode } from 'react';
+import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useDisplayMode, useProjectHost } from '../host.js';
+import { useDisplayMode, useProject, useProjectHost } from '../host.js';
+import { Board, BoardLoading } from '../board/Board.js';
 import type { ProjectSummary } from '../../../mcp-app/tools/project-reads.js';
 import '../theme.css';
+import '../board/board.css';
 import './status.css';
 
 function Metric({ label, value, detail, tone, small }: { label: string; value: string | number; detail?: string; tone?: 'warn' | 'good'; small?: boolean }) {
@@ -72,11 +74,24 @@ function Card({ summary, canFullscreen, onOpenBoard }: { summary: ProjectSummary
 function StatusApp() {
   const { app, isConnected, error, summary, canFullscreen } = useProjectHost();
   const requestMode = useDisplayMode(app);
+  const [showBoard, setShowBoard] = useState(false);
+  const project = useProject(app, isConnected, showBoard ? summary?.projectKey ?? null : null);
 
   if (error) return <div className="pm-error" role="alert">Could not connect to the host: {error.message}</div>;
   if (!isConnected || !summary) return <Loading />;
 
-  return <Card summary={summary} canFullscreen={canFullscreen} onOpenBoard={() => void requestMode('fullscreen')} />;
+  if (showBoard) {
+    if (project.status === 'error') return <div className="pm-error" role="alert">Could not load the project: {project.message}</div>;
+    if (project.status === 'loading') return <BoardLoading />;
+    return <Board data={project.data} />;
+  }
+
+  const openBoard = () => {
+    setShowBoard(true);
+    void requestMode('fullscreen');
+  };
+
+  return <Card summary={summary} canFullscreen={canFullscreen} onOpenBoard={openBoard} />;
 }
 
 createRoot(document.getElementById('root')!).render(<StrictMode><StatusApp /></StrictMode>);

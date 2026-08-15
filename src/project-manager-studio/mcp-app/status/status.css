@@ -87,8 +87,13 @@
 
 .next-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.actions { display: flex; gap: 8px; }
-.actions button { flex: 1; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.actions button {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: var(--pm-size-xs);
+}
 
 .skeleton-title { height: 24px; width: 60%; }
 .skeleton-metric { height: 62px; }

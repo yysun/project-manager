@@ -64,6 +64,17 @@ test('views carry their script and style inline so the host can render them offl
   } finally { await session.close(); }
 });
 
+test('the status action embeds the real board and keeps its button compact', async () => {
+  const session = await connect();
+  try {
+    const { contents } = await session.client.readResource({ uri: 'ui://project-manager/status.html' });
+    const html = contents[0].text;
+    assert.match(html, /pm_get_project/, 'status view must load the full board payload');
+    assert.match(html, /Loading project board/, 'status view must contain the lane-board renderer');
+    assert.match(html, /min-height:32px/, 'Open board button must use the compact height');
+  } finally { await session.close(); }
+});
+
 test('an unknown ui:// resource is not served', async () => {
   const session = await connect();
   try {
