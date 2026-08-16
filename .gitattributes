@@ -1,4 +1,4 @@
-plugins/project-manager/bin/project-manager-mcp.mjs -whitespace linguist-generated=true
-plugins/project-manager/ui/*.html -whitespace linguist-generated=true
-plugins/project-manager/skills/project-manager/scripts/project-manager-studio.js -whitespace linguist-generated=true
-plugins/project-manager/skills/project-manager/studio/dist/** -whitespace linguist-generated=true
+bin/project-manager-mcp.mjs -whitespace linguist-generated=true
+ui/*.html -whitespace linguist-generated=true
+skills/project-manager/scripts/project-manager-studio.js -whitespace linguist-generated=true
+skills/project-manager/studio/dist/** -whitespace linguist-generated=true

@@ -15,3 +15,7 @@ export function barGeometry(start: string, end: string, range: DateRange): { lef
 export function moveSchedule(start: string, end: string, days: number): DateRange;
 export function resizeSchedule(start: string, end: string, edge: 'start' | 'end', days: number): DateRange;
 export function pixelsToDays(pixels: number, width: number, days: number): number;
+export interface TimelineMarker { date: string; label: string; kind: string }
+export function timelineMarkers(project: { start_date: string | null; target_date: string | null }, milestones: Array<{ title: string; target_date: string | null; forecast_date: string | null }>): TimelineMarker[];
+export interface DragSuppression { begin(): void; finish(moved: boolean): void; consume(): boolean }
+export function createDragSuppression(): DragSuppression;

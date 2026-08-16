@@ -141,3 +141,26 @@ test('valid-root attachment exhaustion is fatal and closes every watcher once', 
   fake.watchers.find((item) => item.options.recursive).emit('error', new Error('root watch failed'));
   assert.equal(fatals, 1); assert.equal(fake.watchers.every((item) => item.closes === 1), true); stop(); assert.equal(fatals, 1);
 });
+
+test('retry exhaustion reports degradation and keeps the parent recovery anchor open', async () => {
+  const { watchProjectChanges } = require(builtServerPath); const root = makeProject(); const fake = fakeWatch();
+  const degraded = []; const live = []; let valid = false;
+  const resolveRoot = () => { if (!valid) throw new Error('PROJECT_SELECTION_STALE'); return root; };
+  const stop = watchProjectChanges({
+    root, resolveRoot, onChange: () => {}, watchFn: fake.watchFn, retryLimit: 0,
+    onDegraded: (error) => degraded.push(error.message), onLive: () => live.push(true),
+  });
+  assert.equal(degraded.length, 1, 'exhausting the retry budget reports the stream is not live');
+  const parentWatcher = fake.watchers.find((item) => !item.options.recursive);
+  assert.equal(parentWatcher.closes, 0, 'the parent anchor must stay open so a later binding can reattach');
+  assert.equal(fake.watchers.filter((item) => item.options.recursive).length, 0);
+
+  // The anchor still works: a valid binding reattaches and clears the state.
+  valid = true; parentWatcher.change(path.basename(root), 'rename');
+  assert.equal(fake.watchers.filter((item) => item.options.recursive).length, 1, 'later valid binding still reattaches');
+  assert.equal(degraded.length, 1, 'recovery does not re-report degradation');
+  // Without this the banner would stick on forever, and every other assertion
+  // here would still pass -- the mirror of the silent-death bug.
+  assert.deepEqual(live, [true], 'a real reattach states liveness explicitly');
+  stop();
+});

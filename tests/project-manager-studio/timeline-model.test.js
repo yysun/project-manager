@@ -54,3 +54,38 @@ test('move and resize preserve valid inclusive intervals and clamp inversion', a
   assert.deepEqual(model.resizeSchedule('2026-08-10', '2026-08-15', 'end', -99), { start: '2026-08-10', end: '2026-08-10' });
   assert.equal(model.pixelsToDays(50, 1000, 100), 5); assert.equal(model.pixelsToDays(50, 0, 100), 0);
 });
+
+test('markers derive once from project and milestones, independent of task rows', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const project = { start_date: '2026-08-01', target_date: null };
+  const milestones = [
+    { title: 'Alpha', target_date: '2026-08-20', forecast_date: null },
+    { title: 'Beta', target_date: null, forecast_date: '2026-09-01' },
+  ];
+  const markers = model.timelineMarkers(project, milestones);
+  assert.deepEqual(markers, [
+    { date: '2026-08-01', label: 'Project start', kind: 'project' },
+    { date: '2026-08-20', label: 'Alpha target', kind: 'target' },
+    { date: '2026-09-01', label: 'Beta forecast', kind: 'forecast' },
+  ]);
+  assert.deepEqual(model.timelineMarkers({ start_date: null, target_date: null }, []), []);
+});
+
+test('drag suppression clears a stale flag when the next drag begins', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const suppression = model.createDragSuppression();
+  assert.equal(suppression.consume(), false);
+  // A drag that moved, whose pointer was released away from the bar, so no
+  // click follows and the flag is never consumed.
+  suppression.begin(); suppression.finish(true);
+  // Clicking a different bar starts with that bar's pointerdown.
+  suppression.begin();
+  assert.equal(suppression.consume(), false, 'stale suppression must not swallow an unrelated click');
+  // A drag followed by its own click is still suppressed exactly once.
+  suppression.begin(); suppression.finish(true);
+  assert.equal(suppression.consume(), true);
+  assert.equal(suppression.consume(), false);
+  // A press that never moved is a click, not a drag.
+  suppression.begin(); suppression.finish(false);
+  assert.equal(suppression.consume(), false);
+});

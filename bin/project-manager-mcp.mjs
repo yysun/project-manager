@@ -295,10 +295,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path6) {
+  if (!path6)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path6.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -626,11 +626,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path6, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path6);
     return iss;
   });
 }
@@ -847,16 +847,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path5 = []) => {
+  const processError = (error52, path6 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path6, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else {
-        const fullpath = [...path5, ...issue2.path];
+        const fullpath = [...path6, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -883,17 +883,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path5 = []) => {
+  const processError = (error52, path6 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path6, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else {
-        const fullpath = [...path5, ...issue2.path];
+        const fullpath = [...path6, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -925,8 +925,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path5 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path5) {
+  const path6 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path6) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -14356,13 +14356,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path5 = ref.slice(1).split("/").filter(Boolean);
-  if (path5.length === 0) {
+  const path6 = ref.slice(1).split("/").filter(Boolean);
+  if (path6.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path5[0] === defsKey) {
-    const key = path5[1];
+  if (path6[0] === defsKey) {
+    const key = path6[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -15142,7 +15142,7 @@ var require_contracts = __commonJS({
     "use strict";
     var crypto2 = __require("node:crypto");
     var fs4 = __require("node:fs");
-    var path5 = __require("node:path");
+    var path6 = __require("node:path");
     var EVIDENCE_KINDS = /* @__PURE__ */ new Set(["file", "command", "review", "artifact", "approval", "note", "commit"]);
     var MANIFEST_STATUSES = /* @__PURE__ */ new Set(["implemented", "verification", "verified", "blocked"]);
     var STAGE_ORDER = { implemented: 0, verification: 1, verified: 2 };
@@ -15243,10 +15243,10 @@ var require_contracts = __commonJS({
     function contractExecutor(executor, projectRoot) {
       const scope = executor.scope ?? (executor.root === null ? null : "absolute");
       const declared = executor.root;
-      const resolved = declared === null ? null : scope === "project" ? path5.resolve(projectRoot, declared) : declared;
+      const resolved = declared === null ? null : scope === "project" ? path6.resolve(projectRoot, declared) : declared;
       return { provider: executor.provider, scope, declared_root: declared, root: resolved };
     }
-    function buildTaskContract(project, task, sourceBindings, createdAt) {
+    function buildTaskContract(project, task, sourceBindings2, createdAt) {
       const payload = {
         schema_version: 1,
         project: { id: project.id, root: project.root },
@@ -15260,7 +15260,7 @@ var require_contracts = __commonJS({
           success_criteria: task.success_criteria,
           milestone: task.milestone,
           critical: task.critical,
-          sources: sourceBindings,
+          sources: sourceBindings2,
           dependencies: task.depends_on,
           evidence_requirements: task.evidence_requirements,
           executor: contractExecutor(task.executor, project.root)
@@ -15282,10 +15282,10 @@ var require_contracts = __commonJS({
       exactKeys(contract.payload.task, ["id", "spec_sha256", "title", "outcome", "constraints", "acceptance", "success_criteria", "milestone", "critical", "sources", "dependencies", "evidence_requirements", "executor"], "Task Contract task");
       for (const key of ["id", "title", "outcome"]) nonEmptyString(contract.payload.task[key], `Task Contract task.${key}`);
       if (!/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.project.id) || !/^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(contract.payload.task.id)) throw new Error("Task Contract project/task ID is invalid");
-      if (!path5.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
+      if (!path6.isAbsolute(contract.payload.project.root)) throw new Error("Task Contract project.root must be absolute");
       if (!options.allowHistoricalRoot && (!fs4.existsSync(contract.payload.project.root) || !fs4.lstatSync(contract.payload.project.root).isDirectory() || fs4.lstatSync(contract.payload.project.root).isSymbolicLink() || fs4.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error("Task Contract project.root must be an existing canonical real directory");
       if (!/^[a-f0-9]{64}$/.test(contract.payload.task.spec_sha256)) throw new Error("Task Contract spec hash is invalid");
-      for (const key of ["constraints", "acceptance", "success_criteria", "sources", "dependencies"]) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ["success_criteria", "dependencies", "sources"].includes(key) && key !== "sources" });
+      for (const key of ["constraints", "acceptance", "success_criteria", "sources", "dependencies"]) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ["success_criteria", "dependencies"].includes(key) });
       if (contract.payload.task.acceptance.length === 0 || contract.payload.task.acceptance.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract acceptance must contain non-empty strings");
       if (contract.payload.task.constraints.some((item) => typeof item !== "string" || item.trim() === "")) throw new Error("Task Contract constraints must contain non-empty strings");
       const safeId = (value) => typeof value === "string" && /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(value);
@@ -15302,21 +15302,21 @@ var require_contracts = __commonJS({
       const declaredRoot = contract.payload.task.executor.declared_root;
       if (provider === "human" && (executorRoot !== null || scope !== null || declaredRoot !== null)) throw new Error("Human executor root must be null");
       if (!(["agent", "external"].includes(provider) && executorRoot === null && scope === null && declaredRoot === null) && provider !== "human" && !["absolute", "project"].includes(scope)) throw new Error("Executor scope must be absolute, project, or null for agent/external");
-      if (scope === "absolute" && (declaredRoot !== executorRoot || !path5.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
+      if (scope === "absolute" && (declaredRoot !== executorRoot || !path6.isAbsolute(executorRoot))) throw new Error("Absolute executor root binding is invalid");
       if (scope === "project") {
-        if (typeof declaredRoot !== "string" || declaredRoot === "" || path5.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
-        if (executorRoot !== path5.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
+        if (typeof declaredRoot !== "string" || declaredRoot === "" || path6.isAbsolute(declaredRoot) || declaredRoot.split(/[\\/]/).includes("..")) throw new Error("Project executor root must be a safe relative path");
+        if (executorRoot !== path6.resolve(contract.payload.project.root, declaredRoot)) throw new Error("Project executor root binding is invalid");
         if (!options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
           let cursor = contract.payload.project.root;
           for (const piece of declaredRoot.split(/[\\/]/)) {
-            cursor = path5.join(cursor, piece);
+            cursor = path6.join(cursor, piece);
             if (!fs4.existsSync(cursor) || fs4.lstatSync(cursor).isSymbolicLink() || !fs4.lstatSync(cursor).isDirectory()) throw new Error("Project executor root prefixes must be existing real directories");
           }
-          if (!fs4.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path5.sep}`)) throw new Error("Project executor root escapes the project");
+          if (!fs4.realpathSync(executorRoot).startsWith(`${contract.payload.project.root}${path6.sep}`)) throw new Error("Project executor root escapes the project");
         }
       }
-      if (provider === "rpd" && (typeof executorRoot !== "string" || !path5.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
-      if (["agent", "external"].includes(provider) && executorRoot !== null && !path5.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
+      if (provider === "rpd" && (typeof executorRoot !== "string" || !path6.isAbsolute(executorRoot))) throw new Error("RPD executor root must be absolute");
+      if (["agent", "external"].includes(provider) && executorRoot !== null && !path6.isAbsolute(executorRoot)) throw new Error("Agent/external executor root must be null or absolute");
       if (executorRoot !== null && !options.allowHistoricalRoot && !options.allowUnavailableExecutorRoot) {
         if (!fs4.existsSync(executorRoot) || fs4.lstatSync(executorRoot).isSymbolicLink() || !fs4.lstatSync(executorRoot).isDirectory()) throw new Error("Executor root must be an existing real directory");
       }
@@ -15503,25 +15503,25 @@ ${canonicalJson(contract.payload)}
       if (fs4.lstatSync(root).isSymbolicLink() || !fs4.lstatSync(realRoot).isDirectory()) throw new Error("RPD executor root must be a real directory");
       let cursor = realRoot;
       for (const piece of [".docs", category]) {
-        cursor = path5.join(cursor, piece);
+        cursor = path6.join(cursor, piece);
         if (!fs4.existsSync(cursor)) {
           if (required2) throw new Error(`Missing RPD evidence directory ${piece}`);
           return null;
         }
         const stat = fs4.lstatSync(cursor);
-        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs4.realpathSync(cursor).startsWith(`${realRoot}${path5.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
+        if (stat.isSymbolicLink() || !stat.isDirectory() || !fs4.realpathSync(cursor).startsWith(`${realRoot}${path6.sep}`)) throw new Error("RPD evidence directories must be real executor-root descendants");
       }
       const categoryRoot = cursor;
       const matches = [];
       function walk(folder) {
         if (!fs4.existsSync(folder)) return;
         for (const entry of fs4.readdirSync(folder, { withFileTypes: true })) {
-          const full = path5.join(folder, entry.name);
+          const full = path6.join(folder, entry.name);
           const stat = fs4.lstatSync(full);
           if (stat.isSymbolicLink()) throw new Error("RPD evidence cannot traverse symlinks");
           if (stat.isDirectory()) walk(full);
           else {
-            if (!stat.isFile() || !fs4.realpathSync(full).startsWith(`${realRoot}${path5.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
+            if (!stat.isFile() || !fs4.realpathSync(full).startsWith(`${realRoot}${path6.sep}`)) throw new Error("RPD evidence entries must be contained regular files");
             if (entry.name === filename) matches.push(full);
           }
         }
@@ -15531,14 +15531,14 @@ ${canonicalJson(contract.payload)}
       return matches[0] ?? null;
     }
     function snapshotRpdEvidence({ executor_root, project_root, attempt_root, story, terminal }) {
-      if (!path5.isAbsolute(executor_root) || !path5.isAbsolute(project_root) || !path5.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
+      if (!path6.isAbsolute(executor_root) || !path6.isAbsolute(project_root) || !path6.isAbsolute(attempt_root)) throw new Error("RPD evidence roots must be absolute");
       const realProject = fs4.realpathSync(project_root);
       if (fs4.lstatSync(project_root).isSymbolicLink() || realProject !== project_root) throw new Error("Project root must be canonical for RPD snapshot");
-      const attemptRelative = path5.relative(realProject, attempt_root);
-      if (attemptRelative === "" || attemptRelative.startsWith("..") || path5.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
+      const attemptRelative = path6.relative(realProject, attempt_root);
+      if (attemptRelative === "" || attemptRelative.startsWith("..") || path6.isAbsolute(attemptRelative)) throw new Error("RPD attempt root must be inside the project");
       let projectCursor = realProject;
-      for (const piece of attemptRelative.split(path5.sep)) {
-        projectCursor = path5.join(projectCursor, piece);
+      for (const piece of attemptRelative.split(path6.sep)) {
+        projectCursor = path6.join(projectCursor, piece);
         if (!fs4.existsSync(projectCursor)) break;
         const stat = fs4.lstatSync(projectCursor);
         if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("RPD snapshot path prefixes must be real project directories");
@@ -15553,21 +15553,21 @@ ${canonicalJson(contract.payload)}
       ];
       if (fs4.existsSync(attempt_root)) throw new Error("RPD evidence snapshot already exists");
       fs4.mkdirSync(attempt_root, { recursive: true });
-      if (!fs4.realpathSync(path5.dirname(attempt_root)).startsWith(`${realProject}${path5.sep}`) || fs4.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
+      if (!fs4.realpathSync(path6.dirname(attempt_root)).startsWith(`${realProject}${path6.sep}`) || fs4.lstatSync(attempt_root).isSymbolicLink()) throw new Error("RPD snapshot destination escaped the project");
       const sources = [];
       try {
         for (const [category, filename, role, required2] of artifacts) {
           const source = findExactArtifact(executor_root, category, filename, required2);
           if (!source) continue;
-          const relative = path5.join(category, filename);
-          const target = path5.join(attempt_root, relative);
-          fs4.mkdirSync(path5.dirname(target), { recursive: true });
+          const relative = path6.join(category, filename);
+          const target = path6.join(attempt_root, relative);
+          fs4.mkdirSync(path6.dirname(target), { recursive: true });
           fs4.copyFileSync(source, target, fs4.constants.COPYFILE_EXCL);
-          sources.push({ path: path5.relative(project_root, target).split(path5.sep).join("/"), sha256: sha256(fs4.readFileSync(target)), role });
+          sources.push({ path: path6.relative(project_root, target).split(path6.sep).join("/"), sha256: sha256(fs4.readFileSync(target)), role });
         }
-        const terminalPath = path5.join(attempt_root, "RPD-TERMINAL.md");
+        const terminalPath = path6.join(attempt_root, "RPD-TERMINAL.md");
         fs4.writeFileSync(terminalPath, terminal, { flag: "wx" });
-        sources.push({ path: path5.relative(project_root, terminalPath).split(path5.sep).join("/"), sha256: sha256(fs4.readFileSync(terminalPath)), role: "rpd-terminal" });
+        sources.push({ path: path6.relative(project_root, terminalPath).split(path6.sep).join("/"), sha256: sha256(fs4.readFileSync(terminalPath)), role: "rpd-terminal" });
         return sources.sort((a, b) => a.role.localeCompare(b.role));
       } catch (error51) {
         fs4.rmSync(attempt_root, { recursive: true, force: true });
@@ -15588,9 +15588,16 @@ ${canonicalJson(payload)}
 \`\`\`
 ` };
     }
+    function sourceBindings(state, task) {
+      return task.sources.map((id) => {
+        const source = state.sources.items.find((item) => item.id === id);
+        return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
+      });
+    }
     module.exports = {
       DEFAULT_EVIDENCE,
       EVIDENCE_KINDS,
+      sourceBindings,
       canonicalJson,
       sha256,
       validateEvidenceRecord,
@@ -15630,12 +15637,12 @@ var require_project_state = __commonJS({
   "skills/project-manager/scripts/lib/project-state.js"(exports, module) {
     "use strict";
     var fs4 = __require("node:fs");
-    var path5 = __require("node:path");
-    var { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
+    var path6 = __require("node:path");
+    var { DEFAULT_EVIDENCE, canonicalJson, sha256, sourceBindings, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require_contracts();
     var { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
     var REQUIRED = ["PROJECT.md", "TASKS.md", "STATUS.md"];
     var OPTIONAL_FILES = ["MILESTONES.md", "RISKS.md", "DECISIONS.md", "SOURCES.md", "TRACEABILITY.md", "CHANGES.md", "ASSUMPTIONS.md", "ISSUES.md", "STAKEHOLDERS.md", "LESSONS.md", "CLOSURE.md"];
-    var OPTIONAL_DIRS = ["handoffs", path5.join("reports", "history")];
+    var OPTIONAL_DIRS = ["handoffs", path6.join("reports", "history")];
     var TASK_STATUSES = ["planned", "ready", "in_progress", "implemented", "verification", "verified", "done"];
     var TASK_DISPOSITIONS = ["active", "deferred", "cancelled"];
     var PROVIDERS = ["human", "rpd", "agent", "external"];
@@ -15703,12 +15710,12 @@ var require_project_state = __commonJS({
     function rpdCommand(state, task, executionWarning = null) {
       if (executionWarning) return `${taskClosed(task) ? "Execution history warning" : "Execution blocked"} for ${task.id}: ${executionWarning.cause_code ?? executionWarning.code}.`;
       if (task.executor.provider === "rpd" && task.active_contract !== null) {
-        const contractPath = path5.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
-        const contractDoc = readSafe(state.root, path5.relative(state.root, contractPath), true);
+        const contractPath = path6.join(state.root, "handoffs", task.id, task.active_contract, "TASK-CONTRACT.md");
+        const contractDoc = readSafe(state.root, path6.relative(state.root, contractPath), true);
         const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
         return `RPD ${parsedContract.envelope.story} using task contract ${JSON.stringify(contractPath)}.`;
       }
-      return `RPD ${JSON.stringify(task.title)} using project task ${JSON.stringify(path5.join(state.root, "TASKS.md"))}.`;
+      return `RPD ${JSON.stringify(task.title)} using project task ${JSON.stringify(path6.join(state.root, "TASKS.md"))}.`;
     }
     function namespacedId(value, prefix) {
       return ID.test(value) && value.startsWith(prefix);
@@ -15819,10 +15826,10 @@ var require_project_state = __commonJS({
       return { envelope: parsed.data, payload };
     }
     function readSafeBuffer(root, relative, required2 = false) {
-      const normalized = path5.normalize(relative);
-      if (path5.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path5.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
-      const target = path5.join(root, relative);
-      const parentRelative = path5.dirname(normalized);
+      const normalized = path6.normalize(relative);
+      if (path6.isAbsolute(relative) || normalized === ".." || normalized.startsWith(`..${path6.sep}`)) fail("path", "ESCAPE", relative, "Project state path escapes selected root");
+      const target = path6.join(root, relative);
+      const parentRelative = path6.dirname(normalized);
       if (parentRelative !== ".") assertRealDirectoryChain(root, parentRelative);
       let stat;
       try {
@@ -15834,7 +15841,7 @@ var require_project_state = __commonJS({
       if (stat.isSymbolicLink()) fail("path", "SYMLINK", target, "Known project state paths cannot be symlinks");
       if (!stat.isFile()) fail("path", "NOT_FILE", target, "Expected a regular file");
       const real = fs4.realpathSync(target);
-      if (real !== root && !real.startsWith(`${root}${path5.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
+      if (real !== root && !real.startsWith(`${root}${path6.sep}`)) fail("path", "ESCAPE", target, "Project state escapes selected root");
       return fs4.readFileSync(target);
     }
     function readSafe(root, relative, required2 = false) {
@@ -15843,8 +15850,8 @@ var require_project_state = __commonJS({
     }
     function assertRealDirectoryChain(root, relative) {
       let cursor = root;
-      for (const piece of relative.split(path5.sep)) {
-        cursor = path5.join(cursor, piece);
+      for (const piece of relative.split(path6.sep)) {
+        cursor = path6.join(cursor, piece);
         if (!fs4.existsSync(cursor)) return false;
         const stat = fs4.lstatSync(cursor);
         if (stat.isSymbolicLink() || !stat.isDirectory()) fail("path", "UNSAFE_DIRECTORY", cursor, "Known project directories must be real directories");
@@ -15901,8 +15908,8 @@ var require_project_state = __commonJS({
       assert2(PROVIDERS.includes(executor.provider) && project.adapters.includes(executor.provider), "TASK_EXECUTOR", filePath, `Task ${record2.id} provider is not enabled`, project);
       const nullRootAllowed = ["human", "agent", "external"].includes(executor.provider) && executor.root === null && executor.scope === null;
       assert2(nullRootAllowed || ["absolute", "project"].includes(executor.scope), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} executor scope is invalid`, project);
-      if (executor.scope === "absolute") assert2(path5.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} absolute executor root is invalid`, project);
-      if (executor.scope === "project") assert2(nonEmpty(executor.root) && !path5.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} project executor root must be a safe relative path`, project);
+      if (executor.scope === "absolute") assert2(path6.isAbsolute(executor.root), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} absolute executor root is invalid`, project);
+      if (executor.scope === "project") assert2(nonEmpty(executor.root) && !path6.isAbsolute(executor.root) && !executor.root.split(/[\\/]/).includes(".."), "TASK_EXECUTOR_ROOT", filePath, `Task ${record2.id} project executor root must be a safe relative path`, project);
       assert2(executor.provider !== "rpd" || executor.root !== null, "TASK_EXECUTOR_ROOT", filePath, `RPD task ${record2.id} requires a root`, project);
       assert2(executor.provider !== "human" || executor.root === null, "TASK_EXECUTOR_ROOT", filePath, `Human task ${record2.id} root must be null`, project);
       const providerRequirements = JSON.parse(JSON.stringify(DEFAULT_EVIDENCE[executor.provider]));
@@ -15978,14 +15985,14 @@ var require_project_state = __commonJS({
     }
     function executorRootWarning(task, physicalProjectRoot) {
       if (task.status === "done" || task.executor.root === null) return null;
-      const executorRoot = task.executor.scope === "project" ? path5.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
+      const executorRoot = task.executor.scope === "project" ? path6.resolve(physicalProjectRoot, task.executor.root) : task.executor.root;
       let available = false;
       try {
         if (task.executor.scope === "project") {
           let cursor = physicalProjectRoot;
           available = true;
           for (const piece of task.executor.root.split(/[\\/]/)) {
-            cursor = path5.join(cursor, piece);
+            cursor = path6.join(cursor, piece);
             if (!fs4.existsSync(cursor)) {
               available = false;
               break;
@@ -15996,7 +16003,7 @@ var require_project_state = __commonJS({
               break;
             }
           }
-          if (available) available = fs4.realpathSync(executorRoot).startsWith(`${fs4.realpathSync(physicalProjectRoot)}${path5.sep}`);
+          if (available) available = fs4.realpathSync(executorRoot).startsWith(`${fs4.realpathSync(physicalProjectRoot)}${path6.sep}`);
         } else if (fs4.existsSync(executorRoot)) {
           const stat = fs4.lstatSync(executorRoot);
           available = !stat.isSymbolicLink() && stat.isDirectory();
@@ -16204,9 +16211,11 @@ var require_project_state = __commonJS({
       const milestoneIds = new Set(state.milestones.items.map((item) => item.id));
       const sourceIds = new Set(state.sources.items.map((item) => item.id));
       const riskIds = new Set(state.risks.items.map((item) => item.id));
+      const blockedBy = new Map(state.tasks.map((task) => [task.id, []]));
+      for (const task of state.tasks) for (const id of task.depends_on) blockedBy.get(id)?.push(task.id);
       for (const task of state.tasks) {
         assert2(task.depends_on.every((id) => byId.has(id) && id !== task.id), "TASK_DEPENDENCY", "TASKS.md", `Task ${task.id} has invalid dependency`, state.project);
-        const expectedBlocks = state.tasks.filter((candidate) => candidate.depends_on.includes(task.id)).map((item) => item.id).sort();
+        const expectedBlocks = [...blockedBy.get(task.id)].sort();
         assert2(canonicalJson(task.blocks) === canonicalJson(expectedBlocks), "TASK_REVERSE_LINK", "TASKS.md", `Task ${task.id} blocks is stale`, state.project);
         assert2(task.success_criteria.every((id) => successIds.has(id)), "TASK_SUCCESS_REF", "TASKS.md", `Task ${task.id} has unknown success criterion`, state.project);
         assert2(task.milestone === null || milestoneIds.has(task.milestone), "TASK_MILESTONE_REF", "TASKS.md", `Task ${task.id} has unknown milestone`, state.project);
@@ -16303,9 +16312,9 @@ var require_project_state = __commonJS({
       }
     }
     function validateAttempt(state, task) {
-      const attemptRoot = path5.join(state.root, "handoffs", task.id, task.active_contract);
-      const contractPath = path5.join(attemptRoot, "TASK-CONTRACT.md");
-      const contractDoc = readSafe(state.root, path5.relative(state.root, contractPath), true);
+      const attemptRoot = path6.join(state.root, "handoffs", task.id, task.active_contract);
+      const contractPath = path6.join(attemptRoot, "TASK-CONTRACT.md");
+      const contractDoc = readSafe(state.root, path6.relative(state.root, contractPath), true);
       const parsedContract = parseAttempt(contractDoc, contractPath, "contract");
       const contract = { payload: parsedContract.payload, payload_sha256: parsedContract.envelope.payload_sha256, contract_id: parsedContract.envelope.contract_id };
       const allowHistoricalRoot = task.status === "done";
@@ -16320,10 +16329,7 @@ var require_project_state = __commonJS({
       }
       const executing = task.status !== "done";
       assert2(contract.contract_id === task.active_contract && contract.payload.project.id === state.project.id && (!executing || contract.payload.project.root === state.project.root) && contract.payload.task.id === task.id && contract.payload.task.spec_sha256 === task.spec_sha256, "CONTRACT_BINDING", contractPath, `Task ${task.id} contract binding or active root is stale`, state.project);
-      const liveBindings = task.sources.map((id) => {
-        const source = state.sources.items.find((item) => item.id === id);
-        return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
-      });
+      const liveBindings = sourceBindings(state, task);
       assert2(canonicalJson(liveBindings) === canonicalJson(contract.payload.task.sources), "CONTRACT_SOURCE_BINDING", contractPath, `Task ${task.id} source binding is stale`, state.project);
       const derived = parsedContract.envelope;
       const provider = task.executor.provider;
@@ -16333,8 +16339,8 @@ var require_project_state = __commonJS({
         const digest = contract.contract_id.slice(3);
         const storyPrefix = `pm-${state.project.id.toLowerCase()}-${task.id.toLowerCase()}-`;
         assert2([12, 16, 32, 64].some((length) => derived.story === `${storyPrefix}${digest.slice(0, length)}`), "RPD_STORY", contractPath, "RPD story is not derived from this attempt", state.project);
-        const relativeContract = path5.relative(state.root, contractPath).split(path5.sep).join("/");
-        const issuanceContractPath = path5.join(contract.payload.project.root, relativeContract);
+        const relativeContract = path6.relative(state.root, contractPath).split(path6.sep).join("/");
+        const issuanceContractPath = path6.join(contract.payload.project.root, relativeContract);
         const expectedPrompt = renderRpdPrompt({ project_id: state.project.id, task_id: task.id, contract_id: contract.contract_id, story: derived.story, executor_root: contract.payload.task.executor.root, contract_absolute_path: issuanceContractPath, contract_relative_path: relativeContract, acceptance: task.acceptance, constraints: task.constraints, evidence_requirements: task.evidence_requirements });
         assert2(derived.executor_prompt === expectedPrompt && derived.executor_prompt_sha256 === sha256(expectedPrompt), "RPD_PROMPT", contractPath, "RPD executor prompt/hash is stale or tampered", state.project);
       }
@@ -16345,8 +16351,8 @@ var require_project_state = __commonJS({
       const previous = [];
       for (const [index, name] of entries.entries()) {
         assert2(name === `EVIDENCE-${String(index + 1).padStart(3, "0")}.md`, "MANIFEST_SEQUENCE", attemptRoot, "Manifest filenames must be gap-free", state.project);
-        const manifestPath = path5.join(attemptRoot, name);
-        const manifestDoc = readSafe(state.root, path5.relative(state.root, manifestPath), true);
+        const manifestPath = path6.join(attemptRoot, name);
+        const manifestDoc = readSafe(state.root, path6.relative(state.root, manifestPath), true);
         const parsed = parseAttempt(manifestDoc, manifestPath, "manifest");
         let result;
         try {
@@ -16371,7 +16377,7 @@ var require_project_state = __commonJS({
           assert2(canonicalJson(roles) === canonicalJson(allowedRoles.sort()) || canonicalJson(roles) === canonicalJson(allowedWithTest), "RPD_SOURCE_ROLE", manifestPath, "RPD source roles must be exact and unique", state.project);
           const byRole = new Map(parsed.payload.sources.map((source) => [source.role, source]));
           for (const role of ["rpd-req", "rpd-plan", "rpd-done", "rpd-terminal"]) assert2(byRole.has(role), "RPD_SOURCE_ROLE", manifestPath, `RPD verified evidence missing ${role}`, state.project);
-          assert2(path5.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path5.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path5.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
+          assert2(path6.basename(byRole.get("rpd-req").path) === `req-${derived.story}.md` && path6.basename(byRole.get("rpd-plan").path) === `plan-${derived.story}.md` && path6.basename(byRole.get("rpd-done").path) === `${derived.story}.md`, "RPD_SOURCE_STORY", manifestPath, "RPD artifacts do not match the attempt story", state.project);
           assert2(byRole.get("rpd-req").path === `${requiredPrefix}reqs/req-${derived.story}.md` && byRole.get("rpd-plan").path === `${requiredPrefix}plans/plan-${derived.story}.md` && byRole.get("rpd-done").path === `${requiredPrefix}done/${derived.story}.md` && byRole.get("rpd-terminal").path === `${requiredPrefix}RPD-TERMINAL.md` && (!byRole.has("rpd-test") || byRole.get("rpd-test").path === `${requiredPrefix}tests/test-${derived.story}.md`), "RPD_SOURCE_LAYOUT", manifestPath, "RPD source layout is invalid", state.project);
           const terminal = readSafe(state.root, byRole.get("rpd-terminal").path, true);
           try {
@@ -16444,15 +16450,15 @@ var require_project_state = __commonJS({
       }
     }
     function validateReverificationBinding(state, change, taskId, value) {
-      const attemptRoot = path5.join(state.root, "handoffs", taskId, value.contract_id);
-      const contractPath = path5.join(attemptRoot, "TASK-CONTRACT.md");
-      const parsedContract = parseAttempt(readSafe(state.root, path5.relative(state.root, contractPath), true), contractPath, "contract");
+      const attemptRoot = path6.join(state.root, "handoffs", taskId, value.contract_id);
+      const contractPath = path6.join(attemptRoot, "TASK-CONTRACT.md");
+      const parsedContract = parseAttempt(readSafe(state.root, path6.relative(state.root, contractPath), true), contractPath, "contract");
       assert2(parsedContract.envelope.contract_id === value.contract_id && parsedContract.payload.task.id === taskId && Date.parse(parsedContract.payload.created_at) > Date.parse(change.observed_at), "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} reverification contract predates or mismatches the change`, state.project);
       if (value.status === "complete") {
         const evidenceNames = fs4.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name));
         const matched = evidenceNames.some((name) => {
-          const manifestPath = path5.join(attemptRoot, name);
-          const parsed = parseAttempt(readSafe(state.root, path5.relative(state.root, manifestPath), true), manifestPath, "manifest");
+          const manifestPath = path6.join(attemptRoot, name);
+          const parsed = parseAttempt(readSafe(state.root, path6.relative(state.root, manifestPath), true), manifestPath, "manifest");
           return parsed.envelope.manifest_id === value.manifest_id && parsed.payload.status === "verified" && parsed.payload.task.id === taskId && parsed.payload.contract_id === value.contract_id;
         });
         assert2(matched, "CHANGE_REVERIFY_BINDING", "CHANGES.md", `Change ${change.id} complete reverification manifest is missing or not verified`, state.project);
@@ -16505,27 +16511,27 @@ var require_project_state = __commonJS({
     function loadProjectIdentity3(folder, options = {}) {
       const root = resolveProjectRoot(folder);
       const logicalRoot = options.logicalRoot ?? root;
-      if (!path5.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const projectPath = path5.join(root, "PROJECT.md");
+      if (!path6.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const projectPath = path6.join(root, "PROJECT.md");
       const project = parseProjectIdentity(readSafe(root, "PROJECT.md", true), projectPath, logicalRoot);
       return { root, project };
     }
     function loadProject(folder, options = {}) {
       const root = resolveProjectRoot(folder);
       const logicalRoot = options.logicalRoot ?? root;
-      if (!path5.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
-      const project = parseProject(readSafe(root, "PROJECT.md", true), path5.join(root, "PROJECT.md"), logicalRoot);
+      if (!path6.isAbsolute(logicalRoot)) fail("path", "INVALID_LOGICAL_ROOT", logicalRoot, "Logical project root must be absolute");
+      const project = parseProject(readSafe(root, "PROJECT.md", true), path6.join(root, "PROJECT.md"), logicalRoot);
       checkOptionalDirectories(root);
       const texts = Object.fromEntries(REQUIRED.filter((name) => name !== "PROJECT.md").map((name) => [name, readSafe(root, name, true)]));
       for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
-      const taskRecords = parseCollection(texts["TASKS.md"], path5.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
-      const tasks = taskRecords.map((record2) => normalizeTask(record2, project, path5.join(root, "TASKS.md"), taskRecords.schema_version));
+      const taskRecords = parseCollection(texts["TASKS.md"], path6.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
+      const tasks = taskRecords.map((record2) => normalizeTask(record2, project, path6.join(root, "TASKS.md"), taskRecords.schema_version));
       const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
       function module2(name, kind, schemaVersions = [1]) {
         const text = texts[name];
         if (text === null) return { configured: false, items: [] };
-        const records = parseCollection(text, path5.join(root, name), { schemaVersions });
-        const items = records.map((record2) => normalizeSimple(record2, kind, project, path5.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
+        const records = parseCollection(text, path6.join(root, name), { schemaVersions });
+        const items = records.map((record2) => normalizeSimple(record2, kind, project, path6.join(root, name), records.schema_version)).sort((a, b) => a.id.localeCompare(b.id));
         return { configured: true, items };
       }
       const state = {
@@ -16545,7 +16551,7 @@ var require_project_state = __commonJS({
         lessons: module2("LESSONS.md", "lessons"),
         closure: module2("CLOSURE.md", "closure")
       };
-      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path5.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
+      state.traceability = loadTraceability(texts["TRACEABILITY.md"], path6.join(root, "TRACEABILITY.md"), project, tasks, state.sources.items);
       validateGraph(state, options);
       const whenConfigured = (entry) => entry.configured ? entry.items : void 0;
       state.source_sha256 = sha256({
@@ -16563,9 +16569,9 @@ var require_project_state = __commonJS({
         lessons: whenConfigured(state.lessons),
         closure: whenConfigured(state.closure)
       });
-      const statusParsed = parseFrontmatter(texts["STATUS.md"], path5.join(root, "STATUS.md"));
-      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path5.join(root, "STATUS.md"), "STATUS frontmatter", project);
-      assert2(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path5.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
+      const statusParsed = parseFrontmatter(texts["STATUS.md"], path6.join(root, "STATUS.md"));
+      exactKeys(statusParsed.data, ["schema_version", "project_id", "generated_at", "source_sha256"], path6.join(root, "STATUS.md"), "STATUS frontmatter", project);
+      assert2(statusParsed.data.schema_version === 1 && statusParsed.data.project_id === project.id && validTimestamp(statusParsed.data.generated_at) && HASH.test(statusParsed.data.source_sha256), "STATUS_SCHEMA", path6.join(root, "STATUS.md"), "Invalid STATUS cache envelope", project);
       state.status_stale = statusParsed.data.source_sha256 !== state.source_sha256;
       validateAttempts(state, options);
       validateReverificationBindings(state, options);
@@ -16573,24 +16579,24 @@ var require_project_state = __commonJS({
     }
     function loadProjectIndex(indexPath) {
       if (fs4.lstatSync(indexPath).isSymbolicLink()) fail("path", "INDEX_SYMLINK", indexPath, "Discovery index cannot be a symlink");
-      const indexRoot = fs4.realpathSync(path5.dirname(indexPath));
+      const indexRoot = fs4.realpathSync(path6.dirname(indexPath));
       const text = fs4.readFileSync(indexPath, "utf8");
       const records = parseCollection(text, indexPath);
       const seenPaths = /* @__PURE__ */ new Set();
       const projects = [];
       for (const record2 of records) {
         exactKeys(record2.raw, ["path"], indexPath, `index ${record2.id}`);
-        assert2(nonEmpty(record2.raw.path) && !path5.isAbsolute(record2.raw.path), "INDEX_PATH", indexPath, `Index path for ${record2.id} must be relative`);
+        assert2(nonEmpty(record2.raw.path) && !path6.isAbsolute(record2.raw.path), "INDEX_PATH", indexPath, `Index path for ${record2.id} must be relative`);
         const pieces = record2.raw.path.split(/[\\/]/);
         assert2(!pieces.includes("..") && !pieces.includes("") && !pieces.includes("."), "INDEX_PATH", indexPath, `Index path for ${record2.id} escapes or is empty`);
         let cursor = indexRoot;
         for (const piece of pieces) {
-          cursor = path5.join(cursor, piece);
+          cursor = path6.join(cursor, piece);
           const stat = fs4.lstatSync(cursor);
           assert2(!stat.isSymbolicLink(), "INDEX_SYMLINK", indexPath, `Index path for ${record2.id} contains a symlink`);
         }
         const real = fs4.realpathSync(cursor);
-        assert2(real.startsWith(`${indexRoot}${path5.sep}`), "INDEX_PATH", indexPath, `Index path for ${record2.id} escapes index root`);
+        assert2(real.startsWith(`${indexRoot}${path6.sep}`), "INDEX_PATH", indexPath, `Index path for ${record2.id} escapes index root`);
         const pathKey = real.toLowerCase();
         assert2(!seenPaths.has(pathKey), "INDEX_DUPLICATE", indexPath, `Index path for ${record2.id} is duplicated`);
         seenPaths.add(pathKey);
@@ -16613,9 +16619,9 @@ var require_project_state = __commonJS({
       const projects = [];
       for (const name of fs4.readdirSync(root).sort()) {
         if (name === ".git") continue;
-        const target = path5.join(root, name);
+        const target = path6.join(root, name);
         const stat = fs4.lstatSync(target);
-        const projectFile = path5.join(target, "PROJECT.md");
+        const projectFile = path6.join(target, "PROJECT.md");
         let hasProjectFile = false;
         if (stat.isDirectory()) {
           try {
@@ -16626,7 +16632,7 @@ var require_project_state = __commonJS({
           }
         }
         if (PROJECT_WORK_NAME.test(name) && stat.isDirectory() && !hasProjectFile) {
-          const marker = path5.join(target, PROJECT_WORK_MARKER);
+          const marker = path6.join(target, PROJECT_WORK_MARKER);
           let markerStat;
           try {
             markerStat = fs4.lstatSync(marker);
@@ -16684,17 +16690,29 @@ var require_project_state = __commonJS({
       }
       return { projects_root: catalog.root, selector: selector.trim(), project: matches[0] };
     }
-    function unfinishedDependencies(task, state) {
-      const byId = new Map(state.tasks.map((item) => [item.id, item]));
+    function taskIndex(state) {
+      return new Map(state.tasks.map((item) => [item.id, item]));
+    }
+    function unfinishedDependencies(task, state, byId = taskIndex(state)) {
       return task.depends_on.filter((id) => byId.get(id).status !== "done");
     }
-    function blockerItems(state) {
-      return state.tasks.filter((task) => taskDisposition(task) === "active" && (task.blocked_by.length || unfinishedDependencies(task, state).length)).map((task) => ({
+    function blockerItems(state, byId = taskIndex(state)) {
+      return state.tasks.filter((task) => taskDisposition(task) === "active" && (task.blocked_by.length || unfinishedDependencies(task, state, byId).length)).map((task) => ({
         id: task.id,
         title: task.title,
-        dependency_tasks: unfinishedDependencies(task, state),
+        dependency_tasks: unfinishedDependencies(task, state, byId),
         waiting_on: task.blocked_by
       })).sort((a, b) => a.id.localeCompare(b.id));
+    }
+    function blockedTaskIds(state, options = {}) {
+      const byId = options.byId ?? taskIndex(state);
+      const blockers = options.blockers ?? new Map(blockerItems(state, byId).map((item) => [item.id, item]));
+      const executionWarnings = options.executionWarnings ?? new Map(state.tasks.flatMap((task) => {
+        const warning = taskExecutionWarning(state, task.id);
+        return warning ? [[task.id, warning]] : [];
+      }));
+      const executionBlockers = state.tasks.filter((task) => !taskClosed(task) && executionWarnings.has(task.id)).map((task) => task.id);
+      return /* @__PURE__ */ new Set([...blockers.keys(), ...executionBlockers]);
     }
     function successCounts(state) {
       const result = { total: state.project.success_criteria_items.length, covered: 0, verified: 0 };
@@ -16713,12 +16731,11 @@ var require_project_state = __commonJS({
       });
       return { schema_version: 1, configured: true, criteria: { total: items.length, covered: items.filter((item) => item.covered).length, verified: items.filter((item) => item.verified).length, uncovered: items.filter((item) => !item.covered).length }, items };
     }
-    function nextData(state) {
+    function nextData(state, byId = taskIndex(state)) {
       if (state.project.status !== "active") return { schema_version: 1, tasks: [] };
-      const candidates = state.tasks.filter((task) => taskDisposition(task) === "active" && task.status === "ready" && !task.blocked_by.length && !unfinishedDependencies(task, state).length && !taskExecutionWarning(state, task.id));
-      const taskById = new Map(state.tasks.map((task) => [task.id, task]));
+      const candidates = state.tasks.filter((task) => taskDisposition(task) === "active" && task.status === "ready" && !task.blocked_by.length && !unfinishedDependencies(task, state, byId).length && !taskExecutionWarning(state, task.id));
       const rows = candidates.map((task) => {
-        const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === "active" && candidate.status === "planned" && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === "done")).length;
+        const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === "active" && candidate.status === "planned" && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || byId.get(id).status === "done")).length;
         const reasons = [];
         if (task.critical) reasons.push("declared critical");
         if (unlocks) reasons.push(`unlocks ${unlocks}`);
@@ -16738,17 +16755,17 @@ var require_project_state = __commonJS({
         tailored_out: KNOWLEDGE_AREAS.filter((area) => !tailoring[area].applied).map((area) => ({ area, rationale: tailoring[area].rationale, decided: tailoring[area].decided }))
       };
     }
-    function statusData(state, asOf = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
+    function statusData(state, asOf = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), byId = taskIndex(state)) {
       const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, state.tasks.filter((task) => task.status === status).length]));
       const byDisposition = Object.fromEntries(TASK_DISPOSITIONS.map((disposition) => [disposition, state.tasks.filter((task) => taskDisposition(task) === disposition).length]));
-      const blockers = blockerItems(state);
+      const blockers = blockerItems(state, byId);
       const coverage = coverageData(state);
       return {
         schema_version: 3,
         as_of_date: asOf,
         project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date, profile: state.project.profile, policy: profilePolicy(state.project.profile) },
         tailoring: tailoringSummary(state),
-        tasks: { total: state.tasks.length, by_status: byStatus, by_disposition: byDisposition, actionable: nextData(state).tasks.length, blocked: blockers.length },
+        tasks: { total: state.tasks.length, by_status: byStatus, by_disposition: byDisposition, actionable: nextData(state, byId).tasks.length, blocked: blockers.length },
         success: successCounts(state),
         milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== "complete" })) } : { configured: false },
         coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
@@ -16764,10 +16781,11 @@ var require_project_state = __commonJS({
     function validateData(state) {
       const warnings = [...state.warnings];
       if (state.status_stale) warnings.push({ code: "STATUS_STALE", path: "STATUS.md", message: "Derived STATUS cache does not match current source state" });
-      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs4.existsSync(path5.join(state.root, "handoffs")), reports: fs4.existsSync(path5.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
+      return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs4.existsSync(path6.join(state.root, "handoffs")), reports: fs4.existsSync(path6.join(state.root, "reports", "history")) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
     }
     function reportData(state) {
-      const status = statusData(state);
+      const reportIndex = taskIndex(state);
+      const status = statusData(state, void 0, reportIndex);
       delete status.schema_version;
       const unknowns = [];
       if (!state.milestones.configured) unknowns.push({ field: "status.milestones", reason: "Milestones are unconfigured" });
@@ -16778,7 +16796,7 @@ var require_project_state = __commonJS({
       for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: "Forecast is unknown" });
       const configuredItems = (module2) => module2.configured ? { configured: true, items: module2.items } : { configured: false };
       const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
-      return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
+      return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state, reportIndex), next: nextData(state, reportIndex).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
     }
     var KANBAN_LANES = [
       { id: "planned", title: "Planned", display_statuses: ["planned"] },
@@ -16792,7 +16810,7 @@ var require_project_state = __commonJS({
       if (taskDisposition(task) !== "active") return { editable: false, reason: "Reactivate deferred work before changing its specification; cancelled work is terminal." };
       if (!["planned", "ready"].includes(task.status)) return { editable: false, reason: "Evidence-backed work must be changed through project update." };
       if (task.active_contract !== null || task.last_manifest !== null) return { editable: false, reason: "This task has active execution evidence and must be changed through project update." };
-      if (fs4.existsSync(path5.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
+      if (fs4.existsSync(path6.join(state.root, "handoffs", task.id))) return { editable: false, reason: "This task has attempt history and must be changed through project update." };
       if (state.changes.items.some((change) => Object.hasOwn(change.reverification, task.id))) return { editable: false, reason: "This task is governed by re-verification state and must be changed through project update." };
       return { editable: true, reason: null };
     }
@@ -16812,16 +16830,26 @@ var require_project_state = __commonJS({
       if (taskDisposition(task) === "cancelled") return { editable: false, reason: "Cancellation is terminal." };
       return { editable: true, reason: null };
     }
+    function summaryData(state, byId = taskIndex(state)) {
+      const status = statusData(state, void 0, byId);
+      return {
+        tasks: { total: state.tasks.length, actionable: status.tasks.actionable, blocked: blockedTaskIds(state, { byId }).size },
+        success: { verified: status.success.verified, total: status.success.total },
+        owner_gaps: state.tasks.filter((task) => task.owner === null).length,
+        next: nextData(state, byId).tasks.map((task) => ({ id: task.id, title: task.title })),
+        warnings: state.warnings.length + (state.status_stale ? 1 : 0)
+      };
+    }
     function kanbanData(state, mutationRevision = null) {
-      const status = statusData(state);
-      const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
+      const byId = taskIndex(state);
+      const status = statusData(state, void 0, byId);
+      const blockers = new Map(blockerItems(state, byId).map((item) => [item.id, item]));
       const executionWarnings = new Map(state.tasks.flatMap((task) => {
         const warning = taskExecutionWarning(state, task.id);
         return warning ? [[task.id, warning]] : [];
       }));
-      const executionBlockers = state.tasks.filter((task) => !taskClosed(task) && executionWarnings.has(task.id)).map((task) => task.id);
-      status.tasks.blocked = (/* @__PURE__ */ new Set([...blockers.keys(), ...executionBlockers])).size;
-      const next = nextData(state).tasks;
+      status.tasks.blocked = blockedTaskIds(state, { byId, blockers, executionWarnings }).size;
+      const next = nextData(state, byId).tasks;
       const nextRank = new Map(next.map((item, index) => [item.id, index + 1]));
       const tasks = state.tasks.map((task) => {
         const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
@@ -16942,11 +16970,13 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
     }
     function regenerateStatus(folder, generatedAt = (/* @__PURE__ */ new Date()).toISOString(), options = {}) {
       const state = loadProject(folder, options);
-      fs4.writeFileSync(path5.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
+      fs4.writeFileSync(path6.join(state.root, "STATUS.md"), renderStatus(state, generatedAt));
       return loadProject(state.root, options);
     }
     module.exports = {
       ProjectError,
+      blockedTaskIds,
+      summaryData,
       loadProject,
       loadProjectIdentity: loadProjectIdentity3,
       loadProjectIndex,
@@ -20173,8 +20203,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path6) {
+      let input = path6;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -20426,8 +20456,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path5, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const [path6, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -23864,7 +23894,7 @@ var require_mutations = __commonJS({
   "skills/project-manager/scripts/lib/mutations.js"(exports, module) {
     "use strict";
     var fs4 = __require("node:fs");
-    var path5 = __require("node:path");
+    var path6 = __require("node:path");
     var crypto2 = __require("node:crypto");
     var { canonicalJson } = require_contracts();
     var { PROJECT_WORK_PREFIX, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require_work_area();
@@ -23905,8 +23935,8 @@ var require_mutations = __commonJS({
       const records = [];
       function walk(folder) {
         for (const name of fs4.readdirSync(folder).sort()) {
-          const full = path5.join(folder, name);
-          const relative = path5.relative(root, full).split(path5.sep).join("/");
+          const full = path6.join(folder, name);
+          const relative = path6.relative(root, full).split(path6.sep).join("/");
           const stat = fs4.lstatSync(full);
           if (stat.isDirectory()) {
             records.push({ path: relative, type: "directory" });
@@ -23930,7 +23960,7 @@ var require_mutations = __commonJS({
     }
     function createProjectWork(parent, prefix, excludedTarget = null) {
       for (let attempt = 0; attempt < 128; attempt += 1) {
-        const area = path5.join(parent, `${PROJECT_WORK_PREFIX}${crypto2.randomBytes(12).toString("hex")}`);
+        const area = path6.join(parent, `${PROJECT_WORK_PREFIX}${crypto2.randomBytes(12).toString("hex")}`);
         try {
           fs4.mkdirSync(area, { mode: 448 });
         } catch (error51) {
@@ -23942,8 +23972,8 @@ var require_mutations = __commonJS({
             fs4.rmdirSync(area);
             continue;
           }
-          fs4.writeFileSync(path5.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
-          return fs4.mkdtempSync(path5.join(area, prefix));
+          fs4.writeFileSync(path6.join(area, PROJECT_WORK_MARKER), PROJECT_WORK_MARKER_TEXT, { flag: "wx", mode: 384 });
+          return fs4.mkdtempSync(path6.join(area, prefix));
         } catch (error51) {
           fs4.rmSync(area, { recursive: true, force: true });
           throw error51;
@@ -23952,9 +23982,9 @@ var require_mutations = __commonJS({
       throw Object.assign(new Error(`Could not allocate an isolated project work area under ${parent}`), { code: "WORK_AREA_EXHAUSTED" });
     }
     function cleanupProjectWork(work) {
-      const area = path5.dirname(work);
+      const area = path6.dirname(work);
       if (fs4.existsSync(work)) fs4.rmSync(work, { recursive: true, force: true });
-      const marker = path5.join(area, PROJECT_WORK_MARKER);
+      const marker = path6.join(area, PROJECT_WORK_MARKER);
       if (fs4.existsSync(marker)) fs4.unlinkSync(marker);
       try {
         fs4.rmdirSync(area);
@@ -23964,31 +23994,31 @@ var require_mutations = __commonJS({
     }
     function immutableInventory(root) {
       const inventory = /* @__PURE__ */ new Map();
-      for (const relativeRoot of ["handoffs", path5.join("reports", "history")]) {
+      for (const relativeRoot of ["handoffs", path6.join("reports", "history")]) {
         let walk = function(folder) {
-          inventory.set(path5.relative(root, folder), "directory");
+          inventory.set(path6.relative(root, folder), "directory");
           for (const entry of fs4.readdirSync(folder, { withFileTypes: true })) {
-            const full = path5.join(folder, entry.name);
+            const full = path6.join(folder, entry.name);
             const stat = fs4.lstatSync(full);
             if (stat.isSymbolicLink()) throw new Error("Immutable history cannot contain symlinks");
             if (stat.isDirectory()) walk(full);
-            else if (stat.isFile()) inventory.set(path5.relative(root, full), crypto2.createHash("sha256").update(fs4.readFileSync(full)).digest("hex"));
+            else if (stat.isFile()) inventory.set(path6.relative(root, full), crypto2.createHash("sha256").update(fs4.readFileSync(full)).digest("hex"));
             else throw new Error("Immutable history must contain only files and directories");
           }
         };
-        const start = path5.join(root, relativeRoot);
+        const start = path6.join(root, relativeRoot);
         if (!fs4.existsSync(start)) continue;
         walk(start);
       }
       return inventory;
     }
     function manifestSources(candidate, relative) {
-      const text = fs4.readFileSync(path5.join(candidate, relative), "utf8");
+      const text = fs4.readFileSync(path6.join(candidate, relative), "utf8");
       const match = /## Payload\n+```json\n([^\n]+)\n```/.exec(text);
       if (!match) throw new Error(`New manifest lacks canonical payload: ${relative}`);
       const payload = JSON.parse(match[1]);
       if (!Array.isArray(payload.sources)) throw new Error(`New manifest sources are invalid: ${relative}`);
-      return payload.sources.map((source) => path5.normalize(source.path));
+      return payload.sources.map((source) => path6.normalize(source.path));
     }
     function assertImmutablePreserved(before, candidate, beforeState, afterState) {
       const after = immutableInventory(candidate);
@@ -24001,18 +24031,22 @@ var require_mutations = __commonJS({
       }
       for (const relative of after.keys()) {
         if (before.has(relative)) continue;
-        if (relative.startsWith(`reports${path5.sep}history${path5.sep}`)) {
+        if (relative.startsWith(`reports${path6.sep}history${path6.sep}`)) {
           if (after.get(relative) === "directory" || relative.endsWith(".md")) continue;
           throw new Error(`Saved report additions must be Markdown: ${relative}`);
         }
-        const pieces = relative.split(path5.sep);
+        const pieces = relative.split(path6.sep);
         if (pieces[0] !== "handoffs") continue;
         if (pieces.length < 3) {
-          const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path5.join("handoffs", task.id, task.active_contract).startsWith(relative));
+          const isValidatedAncestor = afterState?.tasks?.some((task) => {
+            if (!task.active_contract) return false;
+            const full = path6.join("handoffs", task.id, task.active_contract);
+            return full.startsWith(`${relative}${path6.sep}`);
+          });
           if (isValidatedAncestor) continue;
           throw new Error(`Immutable handoff directory is not tied to validated active state: ${relative}`);
         }
-        const contractRoot = pieces.slice(0, 3).join(path5.sep);
+        const contractRoot = pieces.slice(0, 3).join(path6.sep);
         const taskId = pieces[1];
         const contractId = pieces[2];
         const beforeTask = beforeState?.tasks?.find((task) => task.id === taskId);
@@ -24021,8 +24055,8 @@ var require_mutations = __commonJS({
         const newValidatedAttempt = !before.has(contractRoot) && afterTask?.active_contract === contractId;
         if (!existingLiveAttempt && !newValidatedAttempt) throw new Error(`Cannot add to an inactive or terminal immutable attempt: ${relative}`);
         if (after.get(relative) === "directory") {
-          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path5.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
-        } else if (allowed.has(relative) || newValidatedAttempt && relative === path5.join(contractRoot, "TASK-CONTRACT.md")) continue;
+          if ([...allowed].some((item) => item === relative || item.startsWith(`${relative}${path6.sep}`)) || newValidatedAttempt && relative === contractRoot) continue;
+        } else if (allowed.has(relative) || newValidatedAttempt && relative === path6.join(contractRoot, "TASK-CONTRACT.md")) continue;
         throw new Error(`Immutable attempt addition is not derived from validated active state: ${relative}`);
       }
     }
@@ -24038,9 +24072,9 @@ var require_mutations = __commonJS({
       }
     }
     function atomicProjectMutation(target, mutateCandidate, validateCandidate, options = {}) {
-      if (!path5.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
-      const parent = path5.dirname(target);
-      const name = path5.basename(target);
+      if (!path6.isAbsolute(target)) throw new Error("Project mutation target must be absolute");
+      const parent = path6.dirname(target);
+      const name = path6.basename(target);
       if (!fs4.existsSync(parent) || !fs4.lstatSync(parent).isDirectory()) throw new Error("Project parent directory must exist");
       const targetStat = lstatIfExists(target);
       const exists = targetStat !== null;
@@ -24056,8 +24090,8 @@ var require_mutations = __commonJS({
       }
       const beforeState = exists && !initializing ? validateCandidate(target, { logicalRoot: target }) : null;
       const work = createProjectWork(parent, `${name}.transaction-`, target);
-      const candidate = path5.join(work, name);
-      const backup = path5.join(work, `${name}.backup`);
+      const candidate = path6.join(work, name);
+      const backup = path6.join(work, `${name}.backup`);
       let targetMoved = false;
       let candidateMoved = false;
       let committed = false;
@@ -24125,8 +24159,8 @@ var require_task_editor = __commonJS({
   "skills/project-manager/scripts/lib/task-editor.js"(exports, module) {
     "use strict";
     var fs4 = __require("node:fs");
-    var path5 = __require("node:path");
-    var { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require_project_state();
+    var path6 = __require("node:path");
+    var { loadProject, kanbanData, summaryData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require_project_state();
     var { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require_mutations();
     var PLANNING_FIELDS = [
       "title",
@@ -24230,21 +24264,45 @@ var require_task_editor = __commonJS({
       else if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
       return output;
     }
-    function loadRevisionedProject2(root, attempts = 3, options = {}) {
+    function loadStableSnapshot(root, attempts, { revision = mutationRevision, load, onBusy, guardFirstRead = true }) {
+      const observed = guardFirstRead ? void 0 : revision(root);
       let transient = null;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         try {
-          const before = mutationRevision(root);
-          const state = loadProject(root, options);
-          const data = kanbanData(state, before);
-          const after = mutationRevision(root);
-          if (before === after) return { state, data, mutation_revision: after };
+          const before = attempt === 0 && observed !== void 0 ? observed : revision(root);
+          const value = load(root, before);
+          const after = revision(root);
+          if (before === after) return { value, mutation_revision: after };
         } catch (error51) {
           if (!["ENOENT", "ENOTDIR", "ESTALE"].includes(error51.code)) throw error51;
           transient = error51;
         }
       }
-      throw new TaskEditError("PROJECT_BUSY", "Project changed repeatedly while Studio was loading it. Refresh and retry.", { causeCode: transient?.code ?? null });
+      return onBusy(transient);
+    }
+    function loadRevisionedProject2(root, attempts = 3, options = {}) {
+      const snapshot = loadStableSnapshot(root, attempts, {
+        load: (folder, before) => {
+          const state = loadProject(folder, options);
+          return { state, data: kanbanData(state, before) };
+        },
+        onBusy: (transient) => {
+          throw new TaskEditError("PROJECT_BUSY", "Project changed repeatedly while Studio was loading it. Refresh and retry.", { causeCode: transient?.code ?? null });
+        }
+      });
+      return { state: snapshot.value.state, data: snapshot.value.data, mutation_revision: snapshot.mutation_revision };
+    }
+    function loadRevisionedSummary2(root, attempts = 3, options = {}) {
+      const snapshot = loadStableSnapshot(root, attempts, {
+        load: (folder) => {
+          const state = loadProject(folder, options);
+          return { state, summary: summaryData(state) };
+        },
+        onBusy: (transient) => {
+          throw new TaskEditError("PROJECT_BUSY", "Project changed repeatedly while Studio was loading it. Refresh and retry.", { causeCode: transient?.code ?? null });
+        }
+      });
+      return { state: snapshot.value.state, summary: snapshot.value.summary, mutation_revision: snapshot.mutation_revision };
     }
     function validateEnvelope(snapshot, taskId, request) {
       assertExactKeys(request, ["mutationRevision", "taskRevision", "edit"], "request");
@@ -24282,7 +24340,7 @@ var require_task_editor = __commonJS({
       return task;
     }
     function applyCandidateEdit(candidate, logicalRoot, taskId, request, projectOptions = {}) {
-      const tasksPath = path5.join(candidate, "TASKS.md");
+      const tasksPath = path6.join(candidate, "TASKS.md");
       const observedAt = (/* @__PURE__ */ new Date()).toISOString();
       const date5 = observedAt.slice(0, 10);
       fs4.writeFileSync(tasksPath, transformTaskDocument(fs4.readFileSync(tasksPath, "utf8"), taskId, request.edit, date5, observedAt));
@@ -24294,10 +24352,10 @@ var require_task_editor = __commonJS({
       const snapshot = loadRevisionedProject2(root, 3, projectOptions);
       validateEnvelope(snapshot, taskId, request);
       const canonicalRoot = snapshot.state.root;
-      const parent = path5.dirname(canonicalRoot);
-      const name = path5.basename(canonicalRoot);
+      const parent = path6.dirname(canonicalRoot);
+      const name = path6.basename(canonicalRoot);
       const work = createProjectWork(parent, `${name}.studio-check-`, canonicalRoot);
-      const candidate = path5.join(work, name);
+      const candidate = path6.join(work, name);
       try {
         fs4.cpSync(canonicalRoot, candidate, { recursive: true, errorOnExist: true, preserveTimestamps: true, dereference: false, verbatimSymlinks: true });
         if (mutationRevision(candidate) !== request.mutationRevision) throw new TaskEditError("MUTATION_CONFLICT", "Candidate copy did not match the loaded project", { currentRevision: mutationRevision(canonicalRoot) });
@@ -24338,7 +24396,9 @@ var require_task_editor = __commonJS({
       parseTaskRecords,
       renderRecord,
       transformTaskDocument,
+      loadStableSnapshot,
       loadRevisionedProject: loadRevisionedProject2,
+      loadRevisionedSummary: loadRevisionedSummary2,
       checkTaskEdit,
       saveTaskEdit
     };
@@ -25985,16 +26045,17 @@ var StdioServerTransport = class {
 };
 
 // src/mcp-app/cli.ts
-import path4 from "node:path";
+import path5 from "node:path";
 import { pathToFileURL } from "node:url";
 
 // src/mcp-app/projects.ts
 import fs2 from "node:fs";
-import path from "node:path";
+import path2 from "node:path";
 
 // src/project-manager-studio/server/project-catalog.ts
 import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 var { loadProjectIdentity } = require_project_state();
 function rejected(root, problem) {
   throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", `Project folder ${problem}: ${root}`);
@@ -26012,8 +26073,12 @@ function stale(message) {
 }
 var ProjectCatalog = class {
   entries;
+  confinement;
+  confinementDecided;
   initialKey;
   constructor(seeds, initialRoot, options = {}) {
+    this.confinementDecided = options.confinement !== void 0;
+    this.confinement = options.confinement ?? null;
     if (seeds.length === 0 && !options.allowEmpty) throw new ProjectCatalogError("PROJECTS_ROOT_EMPTY", "Studio project catalog cannot be empty");
     this.entries = seeds.map((seed) => ({ ...seed, key: crypto.randomBytes(24).toString("hex") }));
     if (seeds.length === 0) {
@@ -26032,7 +26097,20 @@ var ProjectCatalog = class {
    * its errors name the rejected path — an ad-hoc folder has no catalog name yet.
    */
   register(root) {
+    if (!this.confinementDecided) {
+      throw new ProjectCatalogError("PROJECT_SELECTION_UNCONFINED", "This catalog was built without a containment decision, so request-time project selection is refused.");
+    }
     if (typeof root !== "string" || root === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "A project folder is required");
+    if (this.confinement !== null) {
+      const outside = () => new ProjectCatalogError("PROJECT_OUTSIDE_ROOT", `Project folder is outside the configured projects root ${this.confinement}: ${root}`);
+      let parentReal;
+      try {
+        parentReal = fs.realpathSync(path.dirname(root));
+      } catch {
+        throw outside();
+      }
+      if (parentReal !== this.confinement) throw outside();
+    }
     let stat;
     try {
       stat = fs.lstatSync(root);
@@ -26045,6 +26123,9 @@ var ProjectCatalog = class {
       real = fs.realpathSync(root);
     } catch {
       rejected(root, "cannot be resolved");
+    }
+    if (this.confinement !== null && path.dirname(real) !== this.confinement) {
+      throw new ProjectCatalogError("PROJECT_OUTSIDE_ROOT", `Project folder is outside the configured projects root ${this.confinement}: ${root}`);
     }
     const existing = this.entries.find((entry2) => entry2.root === real);
     if (existing) return existing;
@@ -26060,6 +26141,13 @@ var ProjectCatalog = class {
   }
   data() {
     for (const entry of this.entries) this.validateEntry(entry);
+    return this.listing();
+  }
+  /** Names and keys only, with no per-entry disk validation. Selection matches a
+   *  caller's ID or name against this; the entry that is actually read is still
+   *  validated by `resolve`. `data()` keeps validating because the app-facing
+   *  catalog listing is what a view trusts to still be live. */
+  listing() {
     return { schema_version: 1, initial_project_key: this.initialKey, projects: this.entries.map(({ key, id, name }) => ({ key, id, name })) };
   }
   issued(key) {
@@ -26118,7 +26206,7 @@ var PROJECTS_ROOT_ENV = "PROJECT_MANAGER_PROJECTS_ROOT";
 var DEFAULT_PROJECTS_ROOT = ".projects";
 function resolveProjectsRoot(selection, env = process.env) {
   const requested = selection.projectsRoot ?? env[PROJECTS_ROOT_ENV] ?? DEFAULT_PROJECTS_ROOT;
-  return path.resolve(requested);
+  return path2.resolve(requested);
 }
 function projectsRootRequested(selection, env = process.env) {
   return selection.projectsRoot !== void 0 || env[PROJECTS_ROOT_ENV] !== void 0;
@@ -26126,16 +26214,16 @@ function projectsRootRequested(selection, env = process.env) {
 function buildCatalog(selection, env = process.env) {
   const requested = projectsRootRequested(selection, env);
   if (selection.project && !requested) {
-    const identity = loadProjectIdentity2(path.resolve(selection.project));
+    const identity = loadProjectIdentity2(path2.resolve(selection.project));
     const seed = { id: identity.project.id, name: identity.project.name, root: identity.root };
-    return { catalog: new ProjectCatalog([seed], seed.root), confinement: null };
+    return { catalog: new ProjectCatalog([seed], seed.root, { confinement: null }), confinement: null };
   }
   const requestedRoot = resolveProjectsRoot(selection, env);
   let discovered;
   try {
     discovered = loadProjectCatalogRoot(requestedRoot);
   } catch (error51) {
-    if (!requested) return { catalog: new ProjectCatalog([], "", { allowEmpty: true }), confinement: null };
+    if (!requested) return { catalog: new ProjectCatalog([], "", { allowEmpty: true, confinement: null }), confinement: null };
     throw new ProjectCatalogError(
       "PROJECTS_ROOT_UNAVAILABLE",
       `No Project Manager projects were found at ${requestedRoot}. Pass --projects-root, or set ${PROJECTS_ROOT_ENV}. (${error51 instanceof Error ? error51.message : String(error51)})`
@@ -26143,7 +26231,7 @@ function buildCatalog(selection, env = process.env) {
   }
   let initialRoot = discovered.projects[0].root;
   if (selection.project) {
-    const requestedProject = path.resolve(selection.project);
+    const requestedProject = path2.resolve(selection.project);
     let stat;
     try {
       stat = fs2.lstatSync(requestedProject);
@@ -26153,15 +26241,15 @@ function buildCatalog(selection, env = process.env) {
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Explicit project must be a real direct child of the projects root");
     const real = fs2.realpathSync(requestedProject);
     const selected = discovered.projects.find((candidate) => candidate.root === real);
-    if (!selected || path.dirname(real) !== discovered.root) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Explicit project must be a direct child of the projects root");
+    if (!selected || path2.dirname(real) !== discovered.root) throw new ProjectCatalogError("PROJECT_SELECTION_UNKNOWN", "Explicit project must be a direct child of the projects root");
     initialRoot = selected.root;
   }
-  return { catalog: new ProjectCatalog(discovered.projects, initialRoot), confinement: discovered.root };
+  return { catalog: new ProjectCatalog(discovered.projects, initialRoot, { confinement: discovered.root }), confinement: discovered.root };
 }
 
 // src/mcp-app/server.ts
 import fs3 from "node:fs/promises";
-import path3 from "node:path";
+import path4 from "node:path";
 import { fileURLToPath } from "node:url";
 
 // node_modules/zod/v3/helpers/util.js
@@ -26523,8 +26611,8 @@ function getErrorMap2() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path5, errorMaps, issueData } = params;
-  const fullPath = [...path5, ...issueData.path || []];
+  const { data, path: path6, errorMaps, issueData } = params;
+  const fullPath = [...path6, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -26639,11 +26727,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path5, key) {
+  constructor(parent, value, path6, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path5;
+    this._path = path6;
     this._key = key;
   }
   get path() {
@@ -30182,11 +30270,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path5) {
-  if (path5.length === 0) {
+function getDotPath(path6) {
+  if (path6.length === 0) {
     return "object root";
   }
-  return path5.reduce((acc, seg, index) => {
+  return path6.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -34212,7 +34300,7 @@ function N3(Z, $, J, X, V) {
 var PROJECT_MANAGER_VERSION = "1.8.0";
 
 // src/mcp-app/tools/project-reads.ts
-import path2 from "node:path";
+import path3 from "node:path";
 var ProjectSelectionError = class extends Error {
   code = "PROJECT_SELECTION_UNKNOWN";
   constructor(message) {
@@ -34220,7 +34308,7 @@ var ProjectSelectionError = class extends Error {
     this.name = "ProjectSelectionError";
   }
 };
-var { loadRevisionedProject } = require_task_editor();
+var { loadRevisionedProject, loadRevisionedSummary } = require_task_editor();
 var PROJECT_OPTIONS = { taskErrorsAsWarnings: true };
 var MAX_SUMMARY_NEXT = 3;
 function listProjects(catalog) {
@@ -34230,8 +34318,8 @@ function getProject(catalog, projectKey) {
   const entry = catalog.resolve(projectKey);
   return catalog.decorate(entry.key, loadRevisionedProject(entry.root, 3, PROJECT_OPTIONS).data);
 }
-function resolveProjectKey(catalog, selector, confinement = null) {
-  const data = catalog.data();
+function resolveProjectKey(catalog, selector) {
+  const data = catalog.listing();
   if (selector === void 0 || selector === "") {
     if (data.initial_project_key === "") {
       throw new ProjectSelectionError("No project is configured. Pass the project folder to select one.");
@@ -34242,33 +34330,35 @@ function resolveProjectKey(catalog, selector, confinement = null) {
   const matches = data.projects.filter((project) => project.id.toLowerCase() === wanted || project.name.toLowerCase() === wanted);
   if (matches.length > 1) throw new ProjectSelectionError(`Project selector matches more than one project: ${selector}`);
   if (matches.length === 1) return matches[0].key;
-  const root = path2.resolve(selector);
-  if (confinement !== null && root !== confinement && path2.dirname(root) !== confinement) {
-    throw new ProjectSelectionError(`Project folder is outside the configured projects root ${confinement}: ${root}`);
-  }
   try {
-    return catalog.register(root).key;
+    return catalog.register(path3.resolve(selector)).key;
   } catch (error51) {
+    const code = error51 && typeof error51 === "object" && "code" in error51 ? String(error51.code) : "";
+    if (code === "PROJECT_OUTSIDE_ROOT" || code === "PROJECT_SELECTION_UNCONFINED") throw error51;
     const available = data.projects.map((project) => project.id);
     const detail = error51 instanceof Error ? error51.message : String(error51);
     throw new ProjectSelectionError(available.length ? `${detail}. It also matches no configured project. Available: ${available.join(", ")}` : detail);
   }
 }
 function projectSummary(catalog, projectKey) {
-  const data = getProject(catalog, projectKey);
+  const entry = catalog.resolve(projectKey);
+  const { state, summary } = loadRevisionedSummary(entry.root, 3, PROJECT_OPTIONS);
+  if (state.project.id !== entry.id || state.root !== entry.root) {
+    throw new ProjectCatalogError("PROJECT_SELECTION_STALE", `Project identity changed for ${entry.name}`);
+  }
   return {
     projectKey,
-    id: data.project.id,
-    name: data.project.name,
-    status: data.project.status,
-    objective: data.project.objective,
-    targetDate: data.project.target_date,
-    currentMilestone: data.project.current_milestone,
-    tasks: { total: data.summary.tasks.total, actionable: data.summary.tasks.actionable, blocked: data.summary.tasks.blocked },
-    success: { verified: data.summary.success.verified, total: data.summary.success.total },
-    ownerGaps: data.summary.owner_gaps,
-    next: data.next.slice(0, MAX_SUMMARY_NEXT).map((task) => ({ id: task.id, title: task.title })),
-    warnings: data.warnings.length
+    id: state.project.id,
+    name: state.project.name,
+    status: state.project.status,
+    objective: state.project.objective,
+    targetDate: state.project.target_date,
+    currentMilestone: state.project.current_milestone,
+    tasks: summary.tasks,
+    success: summary.success,
+    ownerGaps: summary.owner_gaps,
+    next: summary.next.slice(0, MAX_SUMMARY_NEXT),
+    warnings: summary.warnings
   };
 }
 function summaryText(summary) {
@@ -34287,7 +34377,7 @@ function summaryText(summary) {
 // src/mcp-app/server.ts
 var STATUS_URI = "ui://project-manager/status.html";
 var BOARD_URI = "ui://project-manager/board.html";
-var DEFAULT_VIEW_DIR = path3.resolve(path3.dirname(fileURLToPath(import.meta.url)), "..", "ui");
+var DEFAULT_VIEW_DIR = path4.resolve(path4.dirname(fileURLToPath(import.meta.url)), "..", "ui");
 var PROJECT_ARGUMENT = "Project folder path, or the ID or name of a configured project. Defaults to the configured project when one exists.";
 function json2(value) {
   return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
@@ -34298,12 +34388,11 @@ function failure(error51) {
 }
 function createServer(options) {
   const { catalog } = options;
-  const confinement = options.confinement ?? null;
   const viewDir = options.viewDir ?? DEFAULT_VIEW_DIR;
   const server = new McpServer({ name: "Project Manager", version: PROJECT_MANAGER_VERSION });
   const summaryTool = async ({ project }) => {
     try {
-      const summary = projectSummary(catalog, resolveProjectKey(catalog, project, confinement));
+      const summary = projectSummary(catalog, resolveProjectKey(catalog, project));
       return { content: [{ type: "text", text: summaryText(summary) }], structuredContent: summary };
     } catch (error51) {
       return failure(error51);
@@ -34350,7 +34439,7 @@ function createServer(options) {
     name,
     uri,
     { mimeType: p, description },
-    async () => ({ contents: [{ uri, mimeType: p, text: await fs3.readFile(path3.join(viewDir, file2), "utf-8") }] })
+    async () => ({ contents: [{ uri, mimeType: p, text: await fs3.readFile(path4.join(viewDir, file2), "utf-8") }] })
   );
   view("Project status card", STATUS_URI, "status.html", "Inline Project Manager status card");
   view("Project board", BOARD_URI, "board.html", "Fullscreen Project Manager board");
@@ -34379,12 +34468,12 @@ function parseArgs(argv) {
 }
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const { catalog, confinement } = buildCatalog(args);
-  const server = createServer({ catalog, confinement });
+  const { catalog } = buildCatalog(args);
+  const server = createServer({ catalog });
   await server.connect(new StdioServerTransport());
   return { server };
 }
-var launchedDirectly = process.argv[1] !== void 0 && import.meta.url === pathToFileURL(path4.resolve(process.argv[1])).href;
+var launchedDirectly = process.argv[1] !== void 0 && import.meta.url === pathToFileURL(path5.resolve(process.argv[1])).href;
 if (launchedDirectly) {
   main().catch((error51) => {
     const code = error51 && typeof error51 === "object" && "code" in error51 ? `${String(error51.code)}: ` : "";

@@ -38,8 +38,8 @@ export async function main(argv = process.argv.slice(2)) {
   // be used fails at startup, where a host surfaces it clearly, rather than on
   // the first tool call. With no configuration the catalog is simply empty and
   // the agent selects a folder per call.
-  const { catalog, confinement } = buildCatalog(args);
-  const server = createServer({ catalog, confinement });
+  const { catalog } = buildCatalog(args);
+  const server = createServer({ catalog });
   await server.connect(new StdioServerTransport());
   return { server };
 }

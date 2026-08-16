@@ -8,11 +8,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  buildTaskContract, formatTaskContract, formatEvidenceManifest, validateEvidenceRecord, validTimestamp,
+  buildTaskContract, formatTaskContract, formatEvidenceManifest, validateEvidenceRecord, validTimestamp, sourceBindings,
 } = require('./contracts');
 const { loadProject, regenerateStatus, profilePolicy, taskDisposition } = require('./project-state');
 const { atomicProjectMutation, mutationRevision } = require('./mutations');
-const { parseTaskRecords, renderRecord } = require('./task-editor');
+const { parseTaskRecords, renderRecord, loadStableSnapshot } = require('./task-editor');
 
 class HumanCompletionError extends Error {
   constructor(code, message) {
@@ -27,20 +27,14 @@ function reject(code, message) {
 }
 
 function loadStableProject(root, attempts = 3, revision = mutationRevision, load = loadProject) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const before = revision(root);
-    const state = load(root);
-    const after = revision(root);
-    if (before === after) return { state, mutation_revision: after };
-  }
-  reject('PROJECT_BUSY', 'Project changed repeatedly while lightweight completion was reading it');
-}
-
-function sourceBindings(state, task) {
-  return task.sources.map((id) => {
-    const source = state.sources.items.find((item) => item.id === id);
-    return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
+  const snapshot = loadStableSnapshot(root, attempts, {
+    revision,
+    load: (folder) => load(folder),
+    // A CLI-supplied root that names nothing is invalid input, not a race.
+    guardFirstRead: false,
+    onBusy: () => reject('PROJECT_BUSY', 'Project changed repeatedly while lightweight completion was reading it'),
   });
+  return { state: snapshot.value, mutation_revision: snapshot.mutation_revision };
 }
 
 function approvalSatisfies(requirements) {

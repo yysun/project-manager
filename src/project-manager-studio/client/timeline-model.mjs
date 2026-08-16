@@ -1,5 +1,7 @@
 /* Pure UTC date and display geometry for Project Manager Studio Timeline.
-   Ranges are inclusive; long canvases keep a readable weekly minimum width. */
+   Ranges are inclusive; long canvases keep a readable weekly minimum width.
+   Also owns marker derivation and drag-click suppression, extracted here so
+   both are unit-testable without rendering the component. */
 export const DAY_MS = 86_400_000;
 
 export function toDay(date) { return Date.parse(`${date}T00:00:00Z`); }
@@ -58,3 +60,28 @@ export function resizeSchedule(start, end, edge, days) {
   return { start, end: candidate < start ? start : candidate };
 }
 export function pixelsToDays(pixels, width, days) { return width <= 0 ? 0 : Math.round((pixels / width) * days); }
+
+/* Marker derivation depends only on the project and its milestones, never on a
+   task row, so it is computed once per render and passed down as a prop. */
+export function timelineMarkers(project, milestones) {
+  return [
+    project.start_date && { date: project.start_date, label: 'Project start', kind: 'project' },
+    project.target_date && { date: project.target_date, label: 'Project target', kind: 'project' },
+    ...milestones.flatMap((milestone) => [
+      milestone.target_date && { date: milestone.target_date, label: `${milestone.title} target`, kind: 'target' },
+      milestone.forecast_date && { date: milestone.forecast_date, label: `${milestone.title} forecast`, kind: 'forecast' },
+    ]),
+  ].filter(Boolean);
+}
+
+/* Drag-click suppression. A drag that ends away from its bar produces no click,
+   so the flag must be cleared when the next drag begins rather than only by the
+   click it suppresses — otherwise it swallows a click on an unrelated bar. */
+export function createDragSuppression() {
+  let suppressed = false;
+  return {
+    begin() { suppressed = false; },
+    finish(moved) { suppressed = Boolean(moved); },
+    consume() { const value = suppressed; suppressed = false; return value; },
+  };
+}

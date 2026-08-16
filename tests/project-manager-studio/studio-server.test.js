@@ -457,3 +457,35 @@ test('missing OS browser launcher does not crash the default Studio process', as
     assert.match(String(url), /^http:\/\/127\.0\.0\.1:/); await new Promise((resolve) => setTimeout(resolve, 100)); assert.equal(child.exitCode, null);
   } finally { if (child.exitCode === null) { child.kill('SIGTERM'); await new Promise((resolve) => child.once('exit', resolve)); } }
 });
+
+test('a degraded watcher is reported on the wire and a failed reattach does not clear it', async () => {
+  const root = fs.realpathSync(makeProject()); const { createServer, ProjectCatalog } = require(builtServerPath);
+  let watcherOptions;
+  const watchProject = (options) => { watcherOptions = options; return () => {}; };
+  const catalogInstance = new ProjectCatalog([{ id: 'STUDIO', name: 'Studio Delivery', root }], root, { confinement: null });
+  const { app, sessionToken } = createServer({ catalog: catalogInstance, clientDistDir: path.resolve(__dirname, '../../skills/project-manager/studio/dist'), onHeartbeat: () => {}, watchProject });
+  const server = http.createServer(app); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const controller = new AbortController();
+  try {
+    let response = await fetch(`${origin}/?token=${sessionToken}`, { redirect: 'manual' });
+    const cookie = response.headers.get('set-cookie').split(';')[0];
+    response = await fetch(`${origin}/api/events?project=${catalogInstance.initialKey}`, { headers: { Cookie: cookie }, signal: controller.signal });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader(); const decoder = new TextDecoder();
+    await reader.read(); // the ": connected" preamble
+
+    watcherOptions.onDegraded(new Error('root binding lost'));
+    assert.match(decoder.decode((await reader.read()).value), /^event: project-stale/m, 'degradation reaches the wire');
+    // The stream stays open rather than ending: the reads below succeeding is
+    // the proof, since an ended response would yield done:true instead.
+
+    // A failed reattach still notifies, so a change must not imply liveness.
+    watcherOptions.onChange();
+    assert.match(decoder.decode((await reader.read()).value), /^event: project-change/m);
+
+    // Only a real reattach states it.
+    watcherOptions.onLive();
+    assert.match(decoder.decode((await reader.read()).value), /^event: project-live/m, 'recovery is stated, not inferred');
+  } finally { controller.abort(); await new Promise((resolve) => server.close(resolve)); }
+});

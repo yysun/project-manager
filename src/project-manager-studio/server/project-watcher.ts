@@ -1,5 +1,7 @@
 // Project-scoped Studio file watching: relevant-path filtering, trailing
 // coalescing, catalog-revalidated root replacement, retry, and safe cleanup.
+// Retry exhaustion is reported through onDegraded rather than ending the watch:
+// closing here would close the parent anchor and make recovery impossible.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -26,6 +28,16 @@ export interface ProjectWatcherOptions {
   resolveRoot: () => string;
   onChange: () => void;
   onFatal?: (error: Error) => void;
+  /** The root binding could not be re-established within the retry budget. Not
+   *  fatal: the parent watcher stays open as the recovery anchor, so a later
+   *  valid binding still reattaches. Reported so the client can stop trusting
+   *  the stream rather than silently observing no changes. */
+  onDegraded?: (error: Error) => void;
+  /** The root binding was re-established after a degrade. Liveness is stated by
+   *  the watcher, never inferred from a data event: `replaceRoot` notifies
+   *  before the reattach outcome is known, so a failed reattach also emits a
+   *  change and inferring from it would clear the warning on a dead stream. */
+  onLive?: () => void;
   watchFn?: WatchFn;
   lstatFn?: typeof fs.lstatSync;
   realpathFn?: typeof fs.realpathSync;
@@ -67,6 +79,7 @@ export function watchProjectChanges(options: ProjectWatcherOptions): () => void 
   let changeTimer: Timer | null = null;
   let generation = 0;
   let stopped = false;
+  let degraded = false;
 
   const closeWatcher = (watcher: WatcherLike | null) => { try { watcher?.close(); } catch { /* already closed */ } };
   const cancelRetry = () => { if (retryTimer !== null) { clearTimer(retryTimer); retryTimer = null; } };
@@ -80,6 +93,17 @@ export function watchProjectChanges(options: ProjectWatcherOptions): () => void 
   }
 
   function fatal(error: Error) { if (!stopped) { stop(); options.onFatal?.(error); } }
+
+  /** One retry policy for every recoverable attachment failure. Exhaustion is
+   *  deliberately not fatal -- closing here would close the parent anchor and
+   *  make recovery impossible -- so it degrades instead, once per outage. */
+  function scheduleRetryOrDegrade(token: number, attempt: number, cause: Error) {
+    if (attempt < retryLimit) {
+      retryTimer = setTimer(() => { retryTimer = null; attachRoot(token, attempt + 1); }, PROJECT_WATCH_RETRY_MS);
+      return;
+    }
+    if (!degraded && !stopped) { degraded = true; options.onDegraded?.(cause); }
+  }
 
   function notify() {
     if (stopped) return;
@@ -106,8 +130,8 @@ export function watchProjectChanges(options: ProjectWatcherOptions): () => void 
     if (stopped || token !== generation) return;
     let resolved: { root: string; identity: Identity };
     try { resolved = resolvedIdentity(); }
-    catch {
-      if (attempt < retryLimit) retryTimer = setTimer(() => { retryTimer = null; attachRoot(token, attempt + 1); }, PROJECT_WATCH_RETRY_MS);
+    catch (error) {
+      scheduleRetryOrDegrade(token, attempt, error instanceof Error ? error : new Error(String(error)));
       return;
     }
     let next: WatcherLike;
@@ -124,19 +148,20 @@ export function watchProjectChanges(options: ProjectWatcherOptions): () => void 
     next.on('error', (error) => { if (token === generation && next === rootWatcher) replaceRoot(error); });
     let confirmed: { root: string; identity: Identity };
     try { confirmed = resolvedIdentity(); }
-    catch {
+    catch (error) {
       closeWatcher(next);
-      if (attempt < retryLimit) retryTimer = setTimer(() => { retryTimer = null; attachRoot(token, attempt + 1); }, PROJECT_WATCH_RETRY_MS);
+      scheduleRetryOrDegrade(token, attempt, error instanceof Error ? error : new Error(String(error)));
       return;
     }
     if (!sameIdentity(resolved.identity, confirmed.identity)) {
       closeWatcher(next);
-      if (attempt < retryLimit) retryTimer = setTimer(() => { retryTimer = null; attachRoot(token, attempt + 1); }, PROJECT_WATCH_RETRY_MS);
+      scheduleRetryOrDegrade(token, attempt, new Error('Project root identity changed during watcher attachment'));
       return;
     }
     if (stopped || token !== generation) { closeWatcher(next); return; }
     const previous = rootWatcher;
     rootWatcher = next; attachedIdentity = resolved.identity;
+    if (degraded) { degraded = false; options.onLive?.(); }
     closeWatcher(previous);
   }
 

@@ -6,12 +6,15 @@
  * Recent changes: add PROJECT v2 tailoring, optional PMI modules, exact
  * project-name resolution, safe identity-only Studio discovery, and scoped
  * read-time warnings while retaining strict execution-time enforcement.
+ * One id->task index (`taskIndex`) is now built per projection and threaded
+ * through the dependency, blocker, and ranking helpers instead of being rebuilt
+ * per call, which removes the quadratic cost in task count.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require('./contracts');
+const { DEFAULT_EVIDENCE, canonicalJson, sha256, sourceBindings, taskSpecHash, validateEvidenceRecord, validateEvidenceRequirements, validateTaskContract, validateManifest, renderRpdPrompt, validTimestamp, validateRpdTerminal } = require('./contracts');
 const { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require('./work-area');
 
 const REQUIRED = ['PROJECT.md', 'TASKS.md', 'STATUS.md'];
@@ -575,9 +578,14 @@ function validateGraph(state, options = {}) {
   const milestoneIds = new Set(state.milestones.items.map((item) => item.id));
   const sourceIds = new Set(state.sources.items.map((item) => item.id));
   const riskIds = new Set(state.risks.items.map((item) => item.id));
+  // Reverse dependencies are derived once. Filtering the whole task list per
+  // task made this validation quadratic, and it runs on every project load.
+  // `?.` because a dependency on an unknown id is only rejected inside the loop.
+  const blockedBy = new Map(state.tasks.map((task) => [task.id, []]));
+  for (const task of state.tasks) for (const id of task.depends_on) blockedBy.get(id)?.push(task.id);
   for (const task of state.tasks) {
     assert(task.depends_on.every((id) => byId.has(id) && id !== task.id), 'TASK_DEPENDENCY', 'TASKS.md', `Task ${task.id} has invalid dependency`, state.project);
-    const expectedBlocks = state.tasks.filter((candidate) => candidate.depends_on.includes(task.id)).map((item) => item.id).sort();
+    const expectedBlocks = [...blockedBy.get(task.id)].sort();
     assert(canonicalJson(task.blocks) === canonicalJson(expectedBlocks), 'TASK_REVERSE_LINK', 'TASKS.md', `Task ${task.id} blocks is stale`, state.project);
     assert(task.success_criteria.every((id) => successIds.has(id)), 'TASK_SUCCESS_REF', 'TASKS.md', `Task ${task.id} has unknown success criterion`, state.project);
     assert(task.milestone === null || milestoneIds.has(task.milestone), 'TASK_MILESTONE_REF', 'TASKS.md', `Task ${task.id} has unknown milestone`, state.project);
@@ -683,10 +691,7 @@ function validateAttempt(state, task) {
     }
     const executing = task.status !== 'done';
     assert(contract.contract_id === task.active_contract && contract.payload.project.id === state.project.id && (!executing || contract.payload.project.root === state.project.root) && contract.payload.task.id === task.id && contract.payload.task.spec_sha256 === task.spec_sha256, 'CONTRACT_BINDING', contractPath, `Task ${task.id} contract binding or active root is stale`, state.project);
-    const liveBindings = task.sources.map((id) => {
-      const source = state.sources.items.find((item) => item.id === id);
-      return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
-    });
+    const liveBindings = sourceBindings(state, task);
     assert(canonicalJson(liveBindings) === canonicalJson(contract.payload.task.sources), 'CONTRACT_SOURCE_BINDING', contractPath, `Task ${task.id} source binding is stale`, state.project);
     const derived = parsedContract.envelope; const provider = task.executor.provider;
     if (provider !== 'rpd') {
@@ -1025,15 +1030,39 @@ function resolveProjectInRoot(folder, selector) {
   return { projects_root: catalog.root, selector: selector.trim(), project: matches[0] };
 }
 
-function unfinishedDependencies(task, state) {
-  const byId = new Map(state.tasks.map((item) => [item.id, item]));
+/** One id->task index per projection. Callers that already hold one pass it in;
+ *  external callers omit it and get a freshly built index. Rebuilding it per
+ *  helper call is what made the projection quadratic in task count. */
+function taskIndex(state) {
+  return new Map(state.tasks.map((item) => [item.id, item]));
+}
+
+function unfinishedDependencies(task, state, byId = taskIndex(state)) {
   return task.depends_on.filter((id) => byId.get(id).status !== 'done');
 }
 
-function blockerItems(state) {
-  return state.tasks.filter((task) => taskDisposition(task) === 'active' && (task.blocked_by.length || unfinishedDependencies(task, state).length)).map((task) => ({
-    id: task.id, title: task.title, dependency_tasks: unfinishedDependencies(task, state), waiting_on: task.blocked_by,
+function blockerItems(state, byId = taskIndex(state)) {
+  return state.tasks.filter((task) => taskDisposition(task) === 'active' && (task.blocked_by.length || unfinishedDependencies(task, state, byId).length)).map((task) => ({
+    id: task.id, title: task.title, dependency_tasks: unfinishedDependencies(task, state, byId), waiting_on: task.blocked_by,
   })).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * The set of tasks counted as blocked: explicit blockers, unfinished
+ * dependencies, and open execution issues on work that is not closed. Accepts
+ * the caller's already-built maps so the board projection does not recompute
+ * what it is holding, and so the compact summary and the board can never
+ * disagree about what "blocked" means.
+ */
+function blockedTaskIds(state, options = {}) {
+  const byId = options.byId ?? taskIndex(state);
+  const blockers = options.blockers ?? new Map(blockerItems(state, byId).map((item) => [item.id, item]));
+  const executionWarnings = options.executionWarnings ?? new Map(state.tasks.flatMap((task) => {
+    const warning = taskExecutionWarning(state, task.id);
+    return warning ? [[task.id, warning]] : [];
+  }));
+  const executionBlockers = state.tasks.filter((task) => !taskClosed(task) && executionWarnings.has(task.id)).map((task) => task.id);
+  return new Set([...blockers.keys(), ...executionBlockers]);
 }
 
 function successCounts(state) {
@@ -1055,12 +1084,11 @@ function coverageData(state) {
   return { schema_version: 1, configured: true, criteria: { total: items.length, covered: items.filter((item) => item.covered).length, verified: items.filter((item) => item.verified).length, uncovered: items.filter((item) => !item.covered).length }, items };
 }
 
-function nextData(state) {
+function nextData(state, byId = taskIndex(state)) {
   if (state.project.status !== 'active') return { schema_version: 1, tasks: [] };
-  const candidates = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state).length && !taskExecutionWarning(state, task.id));
-  const taskById = new Map(state.tasks.map((task) => [task.id, task]));
+  const candidates = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state, byId).length && !taskExecutionWarning(state, task.id));
   const rows = candidates.map((task) => {
-    const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === 'active' && candidate.status === 'planned' && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || taskById.get(id).status === 'done')).length;
+    const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === 'active' && candidate.status === 'planned' && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || byId.get(id).status === 'done')).length;
     const reasons = [];
     if (task.critical) reasons.push('declared critical');
     if (unlocks) reasons.push(`unlocks ${unlocks}`);
@@ -1082,16 +1110,16 @@ function tailoringSummary(state) {
   };
 }
 
-function statusData(state, asOf = new Date().toISOString().slice(0, 10)) {
+function statusData(state, asOf = new Date().toISOString().slice(0, 10), byId = taskIndex(state)) {
   const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, state.tasks.filter((task) => task.status === status).length]));
   const byDisposition = Object.fromEntries(TASK_DISPOSITIONS.map((disposition) => [disposition, state.tasks.filter((task) => taskDisposition(task) === disposition).length]));
-  const blockers = blockerItems(state);
+  const blockers = blockerItems(state, byId);
   const coverage = coverageData(state);
   return {
     schema_version: 3, as_of_date: asOf,
     project: { status: state.project.status, current_milestone: state.project.current_milestone, target_date: state.project.target_date, profile: state.project.profile, policy: profilePolicy(state.project.profile) },
     tailoring: tailoringSummary(state),
-    tasks: { total: state.tasks.length, by_status: byStatus, by_disposition: byDisposition, actionable: nextData(state).tasks.length, blocked: blockers.length },
+    tasks: { total: state.tasks.length, by_status: byStatus, by_disposition: byDisposition, actionable: nextData(state, byId).tasks.length, blocked: blockers.length },
     success: successCounts(state),
     milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== 'complete' })) } : { configured: false },
     coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
@@ -1112,7 +1140,8 @@ function validateData(state) {
 }
 
 function reportData(state) {
-  const status = statusData(state); delete status.schema_version;
+  const reportIndex = taskIndex(state);
+  const status = statusData(state, undefined, reportIndex); delete status.schema_version;
   const unknowns = [];
   if (!state.milestones.configured) unknowns.push({ field: 'status.milestones', reason: 'Milestones are unconfigured' });
   if (!state.traceability.configured) unknowns.push({ field: 'status.coverage', reason: 'Traceability is unconfigured' });
@@ -1123,7 +1152,7 @@ function reportData(state) {
   for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: 'Forecast is unknown' });
   const configuredItems = (module) => module.configured ? { configured: true, items: module.items } : { configured: false };
   const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
-  return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state), next: nextData(state).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
+  return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state, reportIndex), next: nextData(state, reportIndex).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
 }
 
 const KANBAN_LANES = [
@@ -1162,16 +1191,33 @@ function dispositionEditEligibility(state, task) {
   return { editable: true, reason: null };
 }
 
+/**
+ * Exactly the facts the compact MCP summary reports, without building the lane
+ * and per-task board projection it would otherwise discard. Shares one task
+ * index and the `blockedTaskIds` definition with `kanbanData`, so the two
+ * surfaces report identical numbers.
+ */
+function summaryData(state, byId = taskIndex(state)) {
+  const status = statusData(state, undefined, byId);
+  return {
+    tasks: { total: state.tasks.length, actionable: status.tasks.actionable, blocked: blockedTaskIds(state, { byId }).size },
+    success: { verified: status.success.verified, total: status.success.total },
+    owner_gaps: state.tasks.filter((task) => task.owner === null).length,
+    next: nextData(state, byId).tasks.map((task) => ({ id: task.id, title: task.title })),
+    warnings: state.warnings.length + (state.status_stale ? 1 : 0),
+  };
+}
+
 function kanbanData(state, mutationRevision = null) {
-  const status = statusData(state);
-  const blockers = new Map(blockerItems(state).map((item) => [item.id, item]));
+  const byId = taskIndex(state);
+  const status = statusData(state, undefined, byId);
+  const blockers = new Map(blockerItems(state, byId).map((item) => [item.id, item]));
   const executionWarnings = new Map(state.tasks.flatMap((task) => {
     const warning = taskExecutionWarning(state, task.id);
     return warning ? [[task.id, warning]] : [];
   }));
-  const executionBlockers = state.tasks.filter((task) => !taskClosed(task) && executionWarnings.has(task.id)).map((task) => task.id);
-  status.tasks.blocked = new Set([...blockers.keys(), ...executionBlockers]).size;
-  const next = nextData(state).tasks;
+  status.tasks.blocked = blockedTaskIds(state, { byId, blockers, executionWarnings }).size;
+  const next = nextData(state, byId).tasks;
   const nextRank = new Map(next.map((item, index) => [item.id, index + 1]));
   const tasks = state.tasks.map((task) => {
     const blocker = blockers.get(task.id) ?? { dependency_tasks: [], waiting_on: [] };
@@ -1288,7 +1334,7 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
 }
 
 module.exports = {
-  ProjectError, loadProject, loadProjectIdentity, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData,
+  ProjectError, blockedTaskIds, summaryData, loadProject, loadProjectIdentity, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData,
   blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility,
   dispositionEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
   parseAttempt, successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,

@@ -22,8 +22,6 @@ export const DEFAULT_VIEW_DIR = path.resolve(path.dirname(fileURLToPath(import.m
 
 export interface McpAppServerOptions {
   catalog: ProjectCatalog;
-  /** Set only when a projects root was configured; then it confines selection. */
-  confinement?: string | null;
   viewDir?: string;
 }
 
@@ -40,7 +38,6 @@ function failure(error: unknown): CallToolResult {
 
 export function createServer(options: McpAppServerOptions): McpServer {
   const { catalog } = options;
-  const confinement = options.confinement ?? null;
   const viewDir = options.viewDir ?? DEFAULT_VIEW_DIR;
   const server = new McpServer({ name: 'Project Manager', version: PROJECT_MANAGER_VERSION });
 
@@ -48,7 +45,7 @@ export function createServer(options: McpAppServerOptions): McpServer {
   // extension defines the association; the result carries facts only.
   const summaryTool = async ({ project }: { project?: string }): Promise<CallToolResult> => {
     try {
-      const summary = projectSummary(catalog, resolveProjectKey(catalog, project, confinement));
+      const summary = projectSummary(catalog, resolveProjectKey(catalog, project));
       // The compact summary is what reaches model context; the view pulls the
       // full payload itself through the app-only tool below.
       return { content: [{ type: 'text', text: summaryText(summary) }], structuredContent: summary as unknown as Record<string, unknown> };

@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { spawnSync } = require('node:child_process');
-const { loadProject, regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
+const { loadProject, kanbanData, regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
 const { buildTaskContract, formatTaskContract, taskSpecHash, sha256 } = require('../../skills/project-manager/scripts/lib/contracts');
 const { mutationRevision, atomicProjectMutation, UnsupportedProjectEntryError } = require('../../skills/project-manager/scripts/lib/mutations');
 const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../skills/project-manager/scripts/lib/task-editor');
@@ -147,4 +147,58 @@ test('post-replacement failure restores the exact prior tree', () => {
   const root = makeProject(); const before = mutationRevision(root); const body = request(root, 'TASK-PLAN', { owner: 'Rollback' });
   assert.throws(() => saveTaskEdit(root, 'TASK-PLAN', body, { injectFailureAfterReplace: true }), /Injected failure/);
   assert.equal(mutationRevision(root), before);
+});
+
+test('immutable handoff ancestors are matched by path segment, not string prefix', () => {
+  // TASK-1 is a string prefix of TASK-10. Only TASK-10 holds a validated active
+  // attempt, so a bare handoffs/TASK-1 directory is tied to no active state.
+  const records = [
+    { id: 'TASK-1', title: 'Prefix task', data: { outcome: 'Prefix work ships.', acceptance: ['Accepted.'], status: 'planned', priority: 'P1' } },
+    { id: 'TASK-10', title: 'Active task', data: { outcome: 'Active work ships.', acceptance: ['Accepted.'], status: 'planned', priority: 'P1' } },
+  ];
+  const root = makeProject(records, 'PREFIX-GUARD');
+  const state = loadProject(root); const active = state.tasks.find((item) => item.id === 'TASK-10');
+  const contract = buildTaskContract(state.project, active, [], '2026-08-08T00:00:00Z');
+  const attempt = path.join(root, 'handoffs', 'TASK-10', contract.contract_id); fs.mkdirSync(attempt, { recursive: true });
+  fs.writeFileSync(path.join(attempt, 'TASK-CONTRACT.md'), formatTaskContract(contract, { story: null, executor_prompt: null, executor_prompt_sha256: null }));
+  records[1].data.status = 'in_progress'; records[1].data.active_contract = contract.contract_id;
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records)); regenerateStatus(root, '2026-08-08T00:00:01Z');
+
+  const before = mutationRevision(root);
+  assert.throws(() => atomicProjectMutation(root, (candidate, context) => {
+    fs.mkdirSync(path.join(candidate, 'handoffs', 'TASK-1'), { recursive: true });
+    regenerateStatus(candidate, '2026-08-08T00:00:02Z', context);
+  }, loadProject), /not tied to validated active state/);
+  assert.equal(mutationRevision(root), before);
+  assert.equal(fs.existsSync(path.join(root, 'handoffs', 'TASK-1')), false);
+});
+
+test('the compact summary reports the same facts as the board projection', () => {
+  const { summaryData, blockedTaskIds } = require('../../skills/project-manager/scripts/lib/project-state');
+  // A task claiming in_progress with no active contract has inconsistent
+  // lifecycle pointers. Under taskErrorsAsWarnings that becomes an execution
+  // warning rather than a load failure, which is exactly the case where the
+  // set-union `blocked` differs from a plain blocker count -- without it this
+  // comparison would pass vacuously.
+  const sound = [
+    { id: 'TASK-BROKEN', title: 'Inconsistent work', data: { outcome: 'Work ships.', acceptance: ['Accepted.'], status: 'planned', priority: 'P1', owner: null } },
+    { id: 'TASK-WAIT', title: 'Waiting work', data: { outcome: 'Later work ships.', acceptance: ['Accepted.'], status: 'planned', priority: 'P2', owner: 'Ari', blocked_by: ['Waiting on vendor'] } },
+  ];
+  const root = makeProject(sound, 'SUMMARY-PARITY');
+  // Introduced after construction: the fixture builder regenerates STATUS under
+  // strict validation and would reject the inconsistency outright.
+  sound[0].data.status = 'in_progress';
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection(sound));
+  const state = loadProject(root, { taskErrorsAsWarnings: true });
+
+  assert.ok(state.warnings.length > 0, 'fixture must produce a warning for this comparison to mean anything');
+  assert.ok(blockedTaskIds(state).size > 0, 'fixture must produce a blocked task');
+
+  const board = kanbanData(state);
+  const summary = summaryData(state);
+  assert.deepEqual(summary.tasks, { total: board.summary.tasks.total, actionable: board.summary.tasks.actionable, blocked: board.summary.tasks.blocked });
+  assert.deepEqual(summary.success, { verified: board.summary.success.verified, total: board.summary.success.total });
+  assert.equal(summary.owner_gaps, board.summary.owner_gaps);
+  assert.equal(summary.warnings, board.warnings.length);
+  assert.deepEqual(summary.next, board.next.map((task) => ({ id: task.id, title: task.title })));
 });

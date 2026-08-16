@@ -30,7 +30,7 @@ async function connect({ projectRoot = null, projectsRoot = null, configured = t
   // An empty environment keeps an ambient PROJECT_MANAGER_PROJECTS_ROOT from
   // turning the unconfigured case into a configured one.
   const { catalog, confinement } = buildCatalog(selection, {});
-  const server = createServer({ catalog, confinement, viewDir });
+  const server = createServer({ catalog, viewDir });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   const client = new Client({ name: 'mcp-app-test', version: '1.0.0' });

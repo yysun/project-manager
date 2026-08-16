@@ -1,7 +1,10 @@
 // Local Studio HTTP boundary: token handshake, opaque-key project reads,
 // deterministic checks, serialized atomic saves, authenticated SSE refresh,
 // lease renewal, and static assets. It exposes no shell, executor, evidence,
-// or arbitrary-path selection API.
+// or arbitrary-path selection API. A degraded watcher is surfaced as a
+// project-stale event and its recovery as project-live, both deferred through
+// the same gate as project-change so nothing is written before the response
+// headers are flushed.
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { KanbanData, TaskEditRequest } from '../shared/api.js';
@@ -82,10 +85,21 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
 
   api.get('/events', (req, res) => {
     let stop = () => {};
-    let ready = false; let queued = false; let closed = false;
+    let ready = false; let queued = false; let queuedStale = false; let queuedLive = false; let closed = false;
     const sendChange = () => {
       if (!ready) { queued = true; return; }
       res.write(`event: project-change\ndata: ${JSON.stringify({ projectKey: req.query.project })}\n\n`);
+    };
+    // Deferred like sendChange: the watcher attaches synchronously, before
+    // flushHeaders, so an early write would send a bare 200 with no event-stream
+    // headers and then fail with ERR_HTTP_HEADERS_SENT.
+    const sendStale = () => {
+      if (!ready) { queuedStale = true; return; }
+      res.write(`event: project-stale\ndata: ${JSON.stringify({ projectKey: req.query.project })}\n\n`);
+    };
+    const sendLive = () => {
+      if (!ready) { queuedLive = true; return; }
+      res.write(`event: project-live\ndata: ${JSON.stringify({ projectKey: req.query.project })}\n\n`);
     };
     const close = () => { if (!closed) { closed = true; stop(); } };
     try {
@@ -94,6 +108,8 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
         root: entry.root,
         resolveRoot: () => options.catalog.resolve(entry.key).root,
         onChange: sendChange,
+        onDegraded: sendStale,
+        onLive: sendLive,
         onFatal: () => { if (!res.writableEnded) res.end(); },
       });
       res.status(200);
@@ -103,6 +119,8 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
       res.flushHeaders(); ready = true;
       res.write(': connected\n\n');
       if (queued) sendChange();
+      if (queuedStale) sendStale();
+      if (queuedLive) sendLive();
       req.once('close', close); res.once('close', close);
     } catch (error) {
       close(); const result = apiError(error); res.status(result.status).json(result.body);

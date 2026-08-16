@@ -1,7 +1,10 @@
 /**
  * Responsibility: canonical Task Contract and Evidence Manifest primitives.
  * Invariants: v1 exact schemas, stable hashes, immutable-attempt identities, and
- * replay-resistant evidence validation. Initial project-manager implementation.
+ * replay-resistant evidence validation. Recent changes: `sourceBindings` lives
+ * here as the single canonical projection shared by both writers and the
+ * verifier, so a contract's hashed source binding cannot drift from the shape
+ * that validates it.
  */
 'use strict';
 
@@ -166,7 +169,7 @@ function validateTaskContract(contract, options = {}) {
   if (!path.isAbsolute(contract.payload.project.root)) throw new Error('Task Contract project.root must be absolute');
   if (!options.allowHistoricalRoot && (!fs.existsSync(contract.payload.project.root) || !fs.lstatSync(contract.payload.project.root).isDirectory() || fs.lstatSync(contract.payload.project.root).isSymbolicLink() || fs.realpathSync(contract.payload.project.root) !== contract.payload.project.root)) throw new Error('Task Contract project.root must be an existing canonical real directory');
   if (!/^[a-f0-9]{64}$/.test(contract.payload.task.spec_sha256)) throw new Error('Task Contract spec hash is invalid');
-  for (const key of ['constraints', 'acceptance', 'success_criteria', 'sources', 'dependencies']) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ['success_criteria', 'dependencies', 'sources'].includes(key) && key !== 'sources' });
+  for (const key of ['constraints', 'acceptance', 'success_criteria', 'sources', 'dependencies']) uniqueArray(contract.payload.task[key], `Task Contract task.${key}`, { sorted: ['success_criteria', 'dependencies'].includes(key) });
   if (contract.payload.task.acceptance.length === 0 || contract.payload.task.acceptance.some((item) => typeof item !== 'string' || item.trim() === '')) throw new Error('Task Contract acceptance must contain non-empty strings');
   if (contract.payload.task.constraints.some((item) => typeof item !== 'string' || item.trim() === '')) throw new Error('Task Contract constraints must contain non-empty strings');
   const safeId = (value) => typeof value === 'string' && /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/.test(value);
@@ -451,9 +454,23 @@ function formatEvidenceManifest(payload, contract, previous = []) {
   return { ...validated, document: `---\n${Object.entries(envelope).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---\n\n## Payload\n\n\`\`\`json\n${canonicalJson(payload)}\n\`\`\`\n` };
 }
 
+/**
+ * The canonical source-binding projection. Both writers (agent execution and
+ * lightweight human completion) and the verifier in project-state.js derive it
+ * from here, so the shape that gets hashed into a Task Contract can never drift
+ * from the shape that validates it.
+ */
+function sourceBindings(state, task) {
+  return task.sources.map((id) => {
+    const source = state.sources.items.find((item) => item.id === id);
+    return { id, version: source.version, record_sha256: source.record_sha256, content_sha256: source.sha256 };
+  });
+}
+
 module.exports = {
   DEFAULT_EVIDENCE,
   EVIDENCE_KINDS,
+  sourceBindings,
   canonicalJson,
   sha256,
   validateEvidenceRecord,

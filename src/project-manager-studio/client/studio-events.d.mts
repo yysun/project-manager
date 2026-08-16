@@ -2,5 +2,6 @@
 export function startStudioEvents(options: {
   projectKey: string;
   onReconcile: () => void;
+  onStreamState?: (live: boolean) => void;
   EventSourceCtor?: new (url: string) => Pick<EventSource, 'addEventListener' | 'removeEventListener' | 'close'>;
 }): () => void;

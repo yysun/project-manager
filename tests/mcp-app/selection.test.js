@@ -167,3 +167,34 @@ test('registering the same root through the catalog reuses its entry', () => {
   assert.equal(first.root, fs.realpathSync(root));
   assert.throws(() => catalog.register(''), (error) => error.code === 'PROJECT_SELECTION_REQUIRED');
 });
+
+test('a project reached through a symlinked root path is inside the configured root', async () => {
+  // The configured root is realpathed by discovery, so comparing an unresolved
+  // caller path against it rejected legitimate children whenever any ancestor
+  // was a symlink -- /tmp on macOS, or a linked home directory.
+  const root = makeProjectsRoot('delivery');
+  const link = path.join(tempDir('pm-sel-link-'), 'link');
+  fs.symlinkSync(root, link, 'dir');
+  const session = await connect({ projectsRoot: root });
+  try {
+    const viaLink = await session.client.callTool({ name: 'pm_project_status', arguments: { project: path.join(link, 'delivery') } });
+    assert.notEqual(viaLink.isError, true, text(viaLink));
+    assert.match(text(viaLink), /Studio Delivery/);
+
+    // Containment still refuses a project that is genuinely outside the root.
+    const outside = makeProject();
+    const refused = await session.client.callTool({ name: 'pm_project_status', arguments: { project: outside } });
+    assert.equal(refused.isError, true);
+    assert.match(text(refused), /outside the configured projects root/);
+    assert.ok(text(refused).includes(outside), 'refusal names the rejected path');
+  } finally { await session.close(); }
+});
+
+test('a catalog built without a containment decision refuses request-time selection', () => {
+  // Five construction sites live in untyped JS, so the runtime refusal -- not the
+  // type system -- is what keeps an undecided catalog from defaulting to open.
+  const undecided = new ProjectCatalog([], '', { allowEmpty: true });
+  assert.throws(() => undecided.register(makeProject()), (error) => error.code === 'PROJECT_SELECTION_UNCONFINED');
+  const decided = new ProjectCatalog([], '', { allowEmpty: true, confinement: null });
+  assert.doesNotThrow(() => decided.register(makeProject()));
+});

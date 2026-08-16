@@ -28,3 +28,39 @@ test('driver owns encoded selected-project URL and reconciles on every open and 
   stop(); stop(); assert.equal(source.closes, 1); assert.equal(source.listeners.size, 0);
   source.emit('open'); assert.equal(reconciliations, 3);
 });
+
+test('a project-stale event marks the stream not live until it recovers', async () => {
+  const { startStudioEvents } = await import(eventsPath);
+  const states = []; let reconciliations = 0;
+  const stop = startStudioEvents({
+    projectKey: 'alpha', onReconcile: () => { reconciliations += 1; },
+    onStreamState: (live) => states.push(live), EventSourceCtor: FakeEventSource,
+  });
+  const source = FakeEventSource.instances.at(-1);
+
+  source.emit('project-stale', JSON.stringify({ projectKey: 'alpha' }));
+  assert.deepEqual(states, [false], 'a stale event for this project marks it not live');
+  assert.equal(reconciliations, 0, 'degradation is not a data change');
+
+  // Another project's stale event is not ours to act on.
+  source.emit('project-stale', JSON.stringify({ projectKey: 'other' }));
+  source.emit('project-stale', 'not json');
+  assert.deepEqual(states, [false]);
+
+  // A project-change must NOT assert liveness: replaceRoot notifies before the
+  // reattach outcome is known, so a failed reattach emits one too. Inferring
+  // liveness from it cleared the banner on a permanently dead stream.
+  source.emit('project-change', JSON.stringify({ projectKey: 'alpha' }));
+  assert.deepEqual(states, [false], 'a data event is not proof the stream is watching');
+  assert.equal(reconciliations, 1, 'but it is still a reconcile');
+
+  // Only the server saying so brings it back.
+  source.emit('project-live', JSON.stringify({ projectKey: 'alpha' }));
+  assert.deepEqual(states, [false, true]);
+
+  // A reconnect also proves liveness.
+  source.emit('project-stale', JSON.stringify({ projectKey: 'alpha' }));
+  source.emit('open');
+  assert.deepEqual(states, [false, true, false, true], 'a reconnect also proves liveness');
+  stop();
+});

@@ -3,12 +3,15 @@
  * atomic specification, disposition, and schedule edits. Invariants: separate edit authority,
  * exact field allowlists, coherent snapshots, preserved narrative/history, and
  * no live write before full candidate validation, and isolated check workspaces.
+ * Also owns `loadStableSnapshot`, the one revision-stable read that Studio, the
+ * MCP App, agent execution, and human completion all route through, so the
+ * torn-snapshot guard cannot drift between them.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadProject, kanbanData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require('./project-state');
+const { loadProject, kanbanData, summaryData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require('./project-state');
 const { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require('./mutations');
 
 const PLANNING_FIELDS = [
@@ -103,21 +106,64 @@ function transformTaskDocument(text, taskId, edit, date, observedAt = null) {
   return output;
 }
 
-function loadRevisionedProject(root, attempts = 3, options = {}) {
+/**
+ * The one revision-stable read: retry until the mutation revision is unchanged
+ * across the load, treating a project replaced mid-read as transient rather than
+ * fatal. Every caller goes through this, so the agent-execution and
+ * human-completion paths cannot drift back to crashing on a concurrent save.
+ * `load` receives the observed `before` revision because the Studio projection
+ * embeds it. `onBusy` lets each caller raise its own error type.
+ */
+function loadStableSnapshot(root, attempts, { revision = mutationRevision, load, onBusy, guardFirstRead = true }) {
+  // Whether the first read is guarded depends on where the root came from.
+  // A CLI argument that names nothing is invalid input, and retrying it into
+  // PROJECT_BUSY would mask a real error — those callers pass false. A root the
+  // catalog just resolved, lstat'd and identity-checked cannot be invalid, so an
+  // ENOENT there is always a mid-read replacement and must stay retryable.
+  const observed = guardFirstRead ? undefined : revision(root);
   let transient = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const before = mutationRevision(root);
-      const state = loadProject(root, options);
-      const data = kanbanData(state, before);
-      const after = mutationRevision(root);
-      if (before === after) return { state, data, mutation_revision: after };
+      const before = attempt === 0 && observed !== undefined ? observed : revision(root);
+      const value = load(root, before);
+      const after = revision(root);
+      if (before === after) return { value, mutation_revision: after };
     } catch (error) {
       if (!['ENOENT', 'ENOTDIR', 'ESTALE'].includes(error.code)) throw error;
       transient = error;
     }
   }
-  throw new TaskEditError('PROJECT_BUSY', 'Project changed repeatedly while Studio was loading it. Refresh and retry.', { causeCode: transient?.code ?? null });
+  return onBusy(transient);
+}
+
+function loadRevisionedProject(root, attempts = 3, options = {}) {
+  const snapshot = loadStableSnapshot(root, attempts, {
+    load: (folder, before) => {
+      const state = loadProject(folder, options);
+      return { state, data: kanbanData(state, before) };
+    },
+    onBusy: (transient) => {
+      throw new TaskEditError('PROJECT_BUSY', 'Project changed repeatedly while Studio was loading it. Refresh and retry.', { causeCode: transient?.code ?? null });
+    },
+  });
+  return { state: snapshot.value.state, data: snapshot.value.data, mutation_revision: snapshot.mutation_revision };
+}
+
+/**
+ * The compact-summary read. Same revision-stable guard as the board load, but
+ * it never builds the lane and per-task projection the summary would discard.
+ */
+function loadRevisionedSummary(root, attempts = 3, options = {}) {
+  const snapshot = loadStableSnapshot(root, attempts, {
+    load: (folder) => {
+      const state = loadProject(folder, options);
+      return { state, summary: summaryData(state) };
+    },
+    onBusy: (transient) => {
+      throw new TaskEditError('PROJECT_BUSY', 'Project changed repeatedly while Studio was loading it. Refresh and retry.', { causeCode: transient?.code ?? null });
+    },
+  });
+  return { state: snapshot.value.state, summary: snapshot.value.summary, mutation_revision: snapshot.mutation_revision };
 }
 
 function validateEnvelope(snapshot, taskId, request) {
@@ -208,5 +254,5 @@ function saveTaskEdit(root, taskId, request, options = {}) {
 
 module.exports = {
   EDITABLE_FIELDS, PLANNING_FIELDS, COORDINATION_FIELDS, SCHEDULE_FIELDS, TaskEditError, parseTaskRecords,
-  renderRecord, transformTaskDocument, loadRevisionedProject, checkTaskEdit, saveTaskEdit,
+  renderRecord, transformTaskDocument, loadStableSnapshot, loadRevisionedProject, loadRevisionedSummary, checkTaskEdit, saveTaskEdit,
 };

@@ -4,6 +4,8 @@
  * restore exact prior bytes after any failed replacement. Recent changes: exact
  * tree revisions, verbatim candidate copies, isolated sibling work areas, and
  * before/after disposition guards prevent stale swaps and terminal-state bypass.
+ * Immutable handoff ancestors are matched by path segment, so a task id that is
+ * a string prefix of another (TASK-1 vs TASK-10) cannot admit an untied directory.
  */
 'use strict';
 
@@ -150,7 +152,13 @@ function assertImmutablePreserved(before, candidate, beforeState, afterState) {
     const pieces = relative.split(path.sep);
     if (pieces[0] !== 'handoffs') continue;
     if (pieces.length < 3) {
-      const isValidatedAncestor = afterState?.tasks?.some((task) => task.active_contract && path.join('handoffs', task.id, task.active_contract).startsWith(relative));
+      // Segment-wise, not a bare string prefix: handoffs/TASK-1 must not be
+      // admitted because TASK-10 holds the validated attempt.
+      const isValidatedAncestor = afterState?.tasks?.some((task) => {
+        if (!task.active_contract) return false;
+        const full = path.join('handoffs', task.id, task.active_contract);
+        return full.startsWith(`${relative}${path.sep}`);
+      });
       if (isValidatedAncestor) continue;
       throw new Error(`Immutable handoff directory is not tied to validated active state: ${relative}`);
     }

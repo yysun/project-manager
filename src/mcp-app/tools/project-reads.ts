@@ -2,9 +2,11 @@
 // model-facing summary that keeps full task collections out of model context,
 // and catalog-resolved selection so no caller-supplied path reaches the disk.
 // Deliberately imports read functions only; no mutation entry point appears here.
+// Selection no longer carries its own containment check: the catalog enforces it,
+// so this boundary cannot judge a path the catalog would judge differently.
 import path from 'node:path';
 import type { KanbanData, ProjectCatalogData } from '../../project-manager-studio/shared/api.js';
-import type { ProjectCatalog } from '../../project-manager-studio/server/project-catalog.js';
+import { ProjectCatalogError, type ProjectCatalog } from '../../project-manager-studio/server/project-catalog.js';
 
 /** Selection failures the caller can correct, carrying a code like the catalog's. */
 export class ProjectSelectionError extends Error {
@@ -15,7 +17,7 @@ export class ProjectSelectionError extends Error {
 // loadRevisionedProject retries until the project's mutation revision is stable
 // across the read. The agent writes project Markdown while this app reads it, so
 // that torn-snapshot guard is the reason this path is used instead of a plain load.
-const { loadRevisionedProject } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
+const { loadRevisionedProject, loadRevisionedSummary } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
 
 const PROJECT_OPTIONS = { taskErrorsAsWarnings: true };
 const MAX_SUMMARY_NEXT = 3;
@@ -54,8 +56,8 @@ export function getProject(catalog: ProjectCatalog, projectKey: unknown): Kanban
  * ID or name is tried first: IDs are short tokens and are the intended selector
  * when a projects root is configured. Anything unmatched is treated as a folder.
  */
-export function resolveProjectKey(catalog: ProjectCatalog, selector?: string, confinement: string | null = null): string {
-  const data = catalog.data();
+export function resolveProjectKey(catalog: ProjectCatalog, selector?: string): string {
+  const data = catalog.listing();
   if (selector === undefined || selector === '') {
     if (data.initial_project_key === '') {
       throw new ProjectSelectionError('No project is configured. Pass the project folder to select one.');
@@ -69,13 +71,17 @@ export function resolveProjectKey(catalog: ProjectCatalog, selector?: string, co
   if (matches.length > 1) throw new ProjectSelectionError(`Project selector matches more than one project: ${selector}`);
   if (matches.length === 1) return matches[0].key;
 
-  const root = path.resolve(selector);
-  if (confinement !== null && root !== confinement && path.dirname(root) !== confinement) {
-    throw new ProjectSelectionError(`Project folder is outside the configured projects root ${confinement}: ${root}`);
-  }
   try {
-    return catalog.register(root).key;
+    // Containment is enforced inside register, on the resolved real path, so it
+    // cannot be forgotten by a call site or judged on an unresolved path.
+    return catalog.register(path.resolve(selector)).key;
   } catch (error) {
+    // A containment refusal names a real project the caller may not reach, and a
+    // catalog with no containment decision is a configuration fault. Neither is a
+    // mistyped ID, so both propagate with their own code instead of being
+    // rewrapped with the "Available:" hint.
+    const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+    if (code === 'PROJECT_OUTSIDE_ROOT' || code === 'PROJECT_SELECTION_UNCONFINED') throw error;
     // A selector that matched no configured project and is not a folder is most
     // often a mistyped ID, so name both possibilities rather than only the path.
     const available = data.projects.map((project) => project.id);
@@ -88,20 +94,29 @@ export function resolveProjectKey(catalog: ProjectCatalog, selector?: string, co
 
 /** Compact facts for the model. Deliberately omits the task and lane collections. */
 export function projectSummary(catalog: ProjectCatalog, projectKey: string): ProjectSummary {
-  const data = getProject(catalog, projectKey);
+  const entry = catalog.resolve(projectKey);
+  // Deliberately not getProject: the summary needs a dozen scalars, and building
+  // the lane and per-task board projection only to discard it is the cost this
+  // path exists to avoid. The revision guard is unchanged.
+  const { state, summary } = loadRevisionedSummary(entry.root, 3, PROJECT_OPTIONS);
+  // catalog.decorate performed this identity check on the board projection;
+  // without one, the read boundary asserts it directly.
+  if (state.project.id !== entry.id || state.root !== entry.root) {
+    throw new ProjectCatalogError('PROJECT_SELECTION_STALE', `Project identity changed for ${entry.name}`);
+  }
   return {
     projectKey,
-    id: data.project.id,
-    name: data.project.name,
-    status: data.project.status,
-    objective: data.project.objective,
-    targetDate: data.project.target_date,
-    currentMilestone: data.project.current_milestone,
-    tasks: { total: data.summary.tasks.total, actionable: data.summary.tasks.actionable, blocked: data.summary.tasks.blocked },
-    success: { verified: data.summary.success.verified, total: data.summary.success.total },
-    ownerGaps: data.summary.owner_gaps,
-    next: data.next.slice(0, MAX_SUMMARY_NEXT).map((task) => ({ id: task.id, title: task.title })),
-    warnings: data.warnings.length,
+    id: state.project.id,
+    name: state.project.name,
+    status: state.project.status,
+    objective: state.project.objective,
+    targetDate: state.project.target_date,
+    currentMilestone: state.project.current_milestone,
+    tasks: summary.tasks,
+    success: summary.success,
+    ownerGaps: summary.owner_gaps,
+    next: summary.next.slice(0, MAX_SUMMARY_NEXT),
+    warnings: summary.warnings,
   };
 }
 

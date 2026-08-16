@@ -1,6 +1,8 @@
 // Project Manager Studio shell: tab-local project selection, stale-response
 // guards, SSE auto refresh with edit barriers, URL-addressable views, coherent
 // filters, shared sticky headers, task warnings, preferences, and browser lease.
+// A stream that reports itself not live raises a banner, so a paused watcher is
+// visible rather than looking like a project with no activity.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import type { KanbanData, KanbanTask, Priority, ProjectCatalogData } from '../shared/api';
 import { TaskDialog } from './components/TaskDialog';
@@ -33,6 +35,7 @@ export function App() {
   const [view, setViewState] = useState<StudioView>(viewFromUrl);
   const [panelPreferences, setPanelPreferences] = useState(() => readPanelPreferences(window));
   const [stickyTop, setStickyTop] = useState(0);
+  const [streamLive, setStreamLive] = useState(true);
   const [selected, setSelected] = useState<{ task: KanbanTask; opener: HTMLElement | null; formRevision: string } | null>(null);
 
   useEffect(() => startStudioHeartbeat(), []);
@@ -68,7 +71,10 @@ export function App() {
 
   useEffect(() => () => autoRefresh.stop(), [autoRefresh]);
   useEffect(() => { autoRefresh.setBlocked(mutationPending || timelineDraftPending || selected !== null); }, [autoRefresh, mutationPending, timelineDraftPending, selected]);
-  useEffect(() => selectedKey ? startStudioEvents({ projectKey: selectedKey, onReconcile: () => autoRefresh.notify() }) : undefined, [autoRefresh, selectedKey]);
+  useEffect(() => {
+    setStreamLive(true);
+    return selectedKey ? startStudioEvents({ projectKey: selectedKey, onReconcile: () => autoRefresh.notify(), onStreamState: setStreamLive }) : undefined;
+  }, [autoRefresh, selectedKey]);
 
   useEffect(() => {
     let active = true;
@@ -180,6 +186,7 @@ export function App() {
     </header>
     {projectWarnings.map((warning) => <div className="warning-banner" role="status" key={`${warning.code}:${warning.message}`}>{warning.message}</div>)}
     {error && <div className="error-banner" role="alert">Refresh failed: {error}</div>}
+    {!streamLive && <div className="warning-banner" role="status">Live updates are paused: this project&rsquo;s files cannot be watched right now. Use Refresh to load the latest state.</div>}
     <section className="summary-panel">
       <button type="button" className="panel-toggle" aria-expanded={!panelPreferences.summaryCollapsed} aria-controls="summary-grid" onClick={() => togglePanel('summaryCollapsed')}>
         <span className="panel-toggle-icon" aria-hidden="true">▾</span><span>Summary</span>

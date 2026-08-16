@@ -41,7 +41,7 @@ function buildCatalog(args: ReturnType<typeof parseArgs>): ProjectCatalog {
   if (args.project && !args.projectsRoot) {
     const identity = loadProjectIdentity(path.resolve(args.project));
     const seed: ProjectSeed = { id: identity.project.id, name: identity.project.name, root: identity.root };
-    return new ProjectCatalog([seed], seed.root);
+    return new ProjectCatalog([seed], seed.root, { confinement: null });
   }
   const requestedRoot = path.resolve(args.projectsRoot ?? '.projects');
   const discovered = loadProjectCatalogRoot(requestedRoot) as { root: string; projects: ProjectSeed[] };
@@ -56,7 +56,7 @@ function buildCatalog(args: ReturnType<typeof parseArgs>): ProjectCatalog {
     if (!selected || path.dirname(real) !== discovered.root) throw new Error('Explicit project must be a direct child of --projects-root');
     initialRoot = selected.root;
   }
-  return new ProjectCatalog(discovered.projects, initialRoot);
+  return new ProjectCatalog(discovered.projects, initialRoot, { confinement: discovered.root });
 }
 
 function openBrowser(url: string): ChildProcess | null {
