@@ -70,8 +70,10 @@
    that rule's own background-color. A row is two grid cells, so the lift is
    painted on both halves or the dragged row reads as half-detached, and both are
    raised above the sticky label's z-index 5 so the shadow falls over its
-   neighbours rather than under them. */
-.timeline-label,.timeline-track { transition:background-color .12s ease,box-shadow .12s ease; }
+   neighbours rather than under them.
+   Deliberately not transitioned: this is the feedback for "I have picked this
+   row up", and fading it in over even a tenth of a second reads as the drag
+   being slow to respond. */
 .timeline-label--dragging,.timeline-track--dragging { z-index:6; background-color:#e8f4f8; box-shadow:0 5px 14px rgba(32,42,35,.16); }
 .timeline-label--dragging .timeline-order-grip { background:#d7ebf3; color:var(--ink); }
 /* The pointer is captured by the grip, so it travels over bars, labels and

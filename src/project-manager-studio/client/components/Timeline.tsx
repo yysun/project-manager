@@ -68,7 +68,13 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   const markers = useMemo(() => timelineMarkers(data.project, data.milestones), [data.project, data.milestones]);
   useEffect(() => () => onDraftChange(false), [onDraftChange]);
 
-  function updateDraft(next: Draft | null) { onDraftChange(next !== null); setDraft(next); }
+  // Only tell the shell when the pending state actually flips. A drag commits a
+  // new draft on every crossed row, and each notification re-enters the parent's
+  // refresh-barrier bookkeeping for no change.
+  function updateDraft(next: Draft | null) {
+    if ((next !== null) !== (draft !== null)) onDraftChange(next !== null);
+    setDraft(next);
+  }
 
   function registerRow(taskId: string, element: HTMLElement | null) {
     if (element) rows.current.set(taskId, element); else rows.current.delete(taskId);
