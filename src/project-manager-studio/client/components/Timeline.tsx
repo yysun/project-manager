@@ -56,8 +56,11 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   const rows = useRef(new Map<string, HTMLElement>());
   const headerScroll = useRef<HTMLDivElement | null>(null);
   // Lazy initializer: constructed once for the component's lifetime, not
-  // rebuilt on every pointer-frequency re-render during a drag.
+  // rebuilt on every pointer-frequency re-render during a drag. Rows get their
+  // own instance: sharing one with the bars would let a row drag that ended over
+  // a bar swallow that bar's click.
   const [suppressClick] = useState(createDragSuppression);
+  const [suppressRowClick] = useState(createDragSuppression);
 
   const scheduleDraft = draft?.kind === 'schedule' ? draft : null;
   const orderable = data.project.task_order_editable;
@@ -131,18 +134,22 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   }
 
   function beginRowDrag(event: PointerEvent<HTMLElement>, task: KanbanTask) {
-    if (!orderable || scheduleDraft) return;
+    if (!orderable || scheduleDraft || rowDrag.current || event.button !== 0) return;
+    suppressRowClick.begin();
     // Deliberately no setPointerCapture. Committing a move reorders the row's DOM
     // nodes, which releases capture held by the grip, after which events only
     // arrive while the pointer happens to be over another grip — every grip shares
     // these handlers, so a straight drag looks fine while any sideways drift
     // silently stops the drag and releasing off-grip strands it mid-drag. The
     // window listeners below see the whole gesture regardless of what the DOM does.
-    // Suppresses the native text-selection drag, which also suppresses the focus
-    // the press would have moved to the grip, so focus is set explicitly: pressing
-    // a grip and then using the arrow keys has to keep working.
+    // Suppresses the native text-selection drag. That also suppresses the focus
+    // the press would have moved, so a press on the grip focuses it explicitly:
+    // pressing a grip and then using the arrow keys has to keep working. A press
+    // on the label body deliberately does not steal focus, since that press is
+    // just as likely to be a click that opens the task.
     event.preventDefault();
-    event.currentTarget.focus();
+    const grip = (event.target as HTMLElement).closest('.timeline-order-grip');
+    if (grip instanceof HTMLElement) grip.focus();
     const [label] = rowCells(task.id);
     const top = label?.getBoundingClientRect().top ?? event.clientY;
     rowDrag.current = { taskId: task.id, sequence: null, grab: event.clientY - top, offset: 0, pointerY: event.clientY };
@@ -170,6 +177,9 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
     const current = rowDrag.current;
     if (!current) return;
     for (const cell of rowCells(current.taskId)) cell.style.transform = '';
+    // A press that reordered must not also open the task it landed on; a press
+    // that never moved is an ordinary click and opens it.
+    suppressRowClick.finish(current.sequence !== null);
     rowDrag.current = null;
     setDragging(null);
     if (current.sequence) announce(current.taskId, current.sequence);
@@ -255,7 +265,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   }
 
   const row = (task: KanbanTask) => <TimelineLabel task={task} onOpen={onOpen} orderable={orderable} reason={data.project.task_order_edit_reason} locked={scheduleDraft !== null}
-    dragging={dragging === task.id} register={registerRow} onBegin={beginRowDrag} onNudge={nudgeRow} />;
+    dragging={dragging === task.id} register={registerRow} onBegin={beginRowDrag} onNudge={nudgeRow} suppressClick={suppressRowClick} />;
 
   return <section className={`timeline-panel ${dragging ? 'timeline-panel--reordering' : ''}`} aria-label="Task timeline">
     {draft && <div className="timeline-draft-actions" role="status">
@@ -316,22 +326,30 @@ interface LabelProps {
   register: (taskId: string, element: HTMLElement | null) => void;
   onBegin: (event: PointerEvent<HTMLElement>, task: KanbanTask) => void;
   onNudge: (event: KeyboardEvent<HTMLElement>, task: KanbanTask) => void;
+  suppressClick: DragSuppression;
 }
 
-function TimelineLabel({ task, onOpen, orderable, reason, locked, dragging, register, onBegin, onNudge }: LabelProps) {
+function TimelineLabel({ task, onOpen, orderable, reason, locked, dragging, register, onBegin, onNudge, suppressClick }: LabelProps) {
   const disabled = !orderable || locked;
-  return <div className={`timeline-label timeline-label--row ${dragging ? 'timeline-label--dragging' : ''}`} ref={(element) => register(task.id, element)}>
-    <button type="button" className="timeline-order-grip" disabled={disabled}
+  // The drag starts from the whole label cell, not just the grip, so the hit
+  // target is the row you are looking at. The grip stays because it carries what
+  // a bare row cannot: a focusable control with arrow-key reordering, an explicit
+  // "Reorder <task>" name for assistive technology, a visible hint that rows move
+  // at all, and `touch-action:none`, which is the only way to drag on a
+  // touchscreen without the gesture being taken for a scroll.
+  return <div className={`timeline-label timeline-label--row ${disabled ? '' : 'timeline-label--draggable'} ${dragging ? 'timeline-label--dragging' : ''}`}
+    ref={(element) => register(task.id, element)}
+    onPointerDown={(event) => onBegin(event, task)}>
+    <button type="button" className="timeline-order-grip" disabled={disabled} tabIndex={disabled ? -1 : 0}
       aria-label={`Reorder ${task.title}`}
-      title={!orderable && reason ? reason : locked ? 'Save or cancel the pending schedule change first.' : `Reorder ${task.title}: drag, or use the up and down arrow keys`}
-      onPointerDown={(event) => onBegin(event, task)}
+      title={!orderable && reason ? reason : locked ? 'Save or cancel the pending schedule change first.' : `Reorder ${task.title}: drag the row, or use the up and down arrow keys`}
       onKeyDown={(event) => onNudge(event, task)}><span aria-hidden="true">⠿</span></button>
-    <TaskLabelButton task={task} onOpen={onOpen} />
+    <TaskLabelButton task={task} onOpen={onOpen} suppressClick={suppressClick} />
   </div>;
 }
 
-function TaskLabelButton({ task, onOpen }: { task: KanbanTask; onOpen: Props['onOpen'] }) {
-  return <button className="timeline-task-label" onClick={(event) => onOpen(task, event.currentTarget)}>
+function TaskLabelButton({ task, onOpen, suppressClick }: { task: KanbanTask; onOpen: Props['onOpen']; suppressClick: DragSuppression }) {
+  return <button className="timeline-task-label" onClick={(event) => { if (suppressClick.consume()) return; onOpen(task, event.currentTarget); }}>
     <span className="timeline-title-line"><strong>{task.title}</strong><span className="task-id">{task.id}</span></span>
     <span className="timeline-label-meta"><span className={`state state--${task.display_status}`}>{task.display_status.replaceAll('_', ' ')}</span><span className={`priority priority--${task.priority.toLowerCase()}`}>{task.priority}</span><span>{task.owner ?? 'Unassigned'}</span><span>{task.milestone ?? 'No milestone'}</span></span>
     {task.depends_on.length > 0 && <span className="timeline-context">After {task.depends_on.join(', ')}</span>}
