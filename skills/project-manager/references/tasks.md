@@ -54,7 +54,33 @@ reactivate every deferred task (cancelled tasks cannot be downgraded), clear eve
 verify no schedule or disposition keys remain, change only the `TASKS.md` frontmatter version to 1, validate the
 project, and regenerate `STATUS.md`.
 
+## Row order
+
+Every task has a Timeline row order number. Schema v4 stores it as optional `order`, a positive
+integer:
+
+```json
+{"outcome":"All move-day vendors are confirmed.","acceptance":["Every vendor has acknowledged the schedule."],"order":3}
+```
+
+A task with no stored `order` gets a default generated from the derived arrangement — scheduled
+start, then scheduled end, then milestone, then ID, undated last — so a project that has never been
+reordered reads exactly as it always did, and a task added later lands at its date position rather
+than at the end. Defaults are generated for display only: reading a project never writes order back
+to it. Where a stored number and a generated default would collide, the stored one keeps the slot.
+
+Order is display metadata. It is excluded from the task specification hash and the immutable Task
+Contract, it never affects ranking, dependencies, coverage, or actionability, and reordering leaves
+every task's `updated` date alone. There is no ordering mode or toggle: order is simply a task
+property.
+
+Studio writes the complete sequence for every task at once, so one reorder renumbers the project
+`1..N`. Clearing the order removes the field from every task and restores generated defaults without
+lowering the schema version. V1/v2/v3 reject `order`.
+
 Studio may reschedule non-completed work unless the project or assigned milestone is complete.
+Row order has its own authority: any task may be reordered, including done, cancelled, and
+evidence-backed work, and only a complete project refuses it.
 Specification and status authority remains separate: only genuinely never-started tasks may edit
 execution-defining fields or switch between `planned` and `ready`.
 

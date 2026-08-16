@@ -797,7 +797,8 @@ var require_project_state = __commonJS({
     function normalizeTask(record, project, filePath, schemaVersion = 1) {
       const allowed = ["outcome", "acceptance", "status", "priority", "milestone", "owner", "executor", "depends_on", "blocks", "blocked_by", "sources", "success_criteria", "constraints", "evidence_requirements", "external_refs", "critical", "active_contract", "last_manifest", "created", "updated"];
       if (schemaVersion >= 2) allowed.push("scheduled_start", "scheduled_end");
-      if (schemaVersion === 3) allowed.push("disposition", "disposition_changed_at");
+      if (schemaVersion >= 3) allowed.push("disposition", "disposition_changed_at");
+      if (schemaVersion >= 4) allowed.push("order");
       exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
       assert(nonEmpty(record.raw.outcome), "TASK_OUTCOME", filePath, `Task ${record.id} requires outcome`, project);
       uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
@@ -836,15 +837,16 @@ var require_project_state = __commonJS({
         created: record.raw.created ?? null,
         updated: record.raw.updated ?? null
       };
-      if (schemaVersion === 2) {
+      if (schemaVersion >= 2) {
         task.scheduled_start = record.raw.scheduled_start ?? null;
         task.scheduled_end = record.raw.scheduled_end ?? null;
       }
-      if (schemaVersion === 3) {
-        task.scheduled_start = record.raw.scheduled_start ?? null;
-        task.scheduled_end = record.raw.scheduled_end ?? null;
+      if (schemaVersion >= 3) {
         task.disposition = record.raw.disposition ?? "active";
         task.disposition_changed_at = record.raw.disposition_changed_at ?? null;
+      }
+      if (schemaVersion >= 4) {
+        task.order = record.raw.order ?? null;
       }
       assert(TASK_STATUSES.includes(task.status), "TASK_STATUS", filePath, `Task ${task.id} has invalid status`, project);
       assert(PRIORITIES.includes(task.priority), "TASK_PRIORITY", filePath, `Task ${task.id} has invalid priority`, project);
@@ -862,12 +864,15 @@ var require_project_state = __commonJS({
       }
       const dispositionKeys = ["disposition", "disposition_changed_at"].filter((key) => Object.hasOwn(record.raw, key));
       assert(dispositionKeys.length === 0 || dispositionKeys.length === 2, "TASK_DISPOSITION", filePath, `Task ${task.id} disposition must contain both disposition and disposition_changed_at`, project);
-      if (schemaVersion === 3 && dispositionKeys.length === 2) {
+      if (schemaVersion >= 3 && dispositionKeys.length === 2) {
         assert(["deferred", "cancelled"].includes(task.disposition), "TASK_DISPOSITION", filePath, `Task ${task.id} disposition must be deferred or cancelled when persisted`, project);
         assert(validTimestamp(task.disposition_changed_at), "TASK_DISPOSITION", filePath, `Task ${task.id} disposition_changed_at must be RFC3339 UTC`, project);
       }
-      if (schemaVersion === 3 && dispositionKeys.length === 0) {
+      if (schemaVersion >= 3 && dispositionKeys.length === 0) {
         assert(task.disposition === "active" && task.disposition_changed_at === null, "TASK_DISPOSITION", filePath, `Task ${task.id} active disposition must be implicit`, project);
+      }
+      if (schemaVersion >= 4 && Object.hasOwn(record.raw, "order")) {
+        assert(Number.isInteger(task.order) && task.order > 0, "TASK_ORDER", filePath, `Task ${task.id} order must be a positive integer`, project);
       }
       assert(TASK_DISPOSITIONS.includes(taskDisposition(task)), "TASK_DISPOSITION", filePath, `Task ${task.id} disposition is invalid`, project);
       assert(task.created === null || validDate(task.created), "INVALID_DATE", filePath, `Task ${task.id} created is invalid`, project);
@@ -1423,7 +1428,7 @@ var require_project_state = __commonJS({
       checkOptionalDirectories(root);
       const texts = Object.fromEntries(REQUIRED.filter((name) => name !== "PROJECT.md").map((name) => [name, readSafe(root, name, true)]));
       for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
-      const taskRecords = parseCollection(texts["TASKS.md"], path4.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3] });
+      const taskRecords = parseCollection(texts["TASKS.md"], path4.join(root, "TASKS.md"), { schemaVersions: [1, 2, 3, 4] });
       const tasks = taskRecords.map((record) => normalizeTask(record, project, path4.join(root, "TASKS.md"), taskRecords.schema_version));
       const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
       function module3(name, kind, schemaVersions = [1]) {
@@ -1729,6 +1734,10 @@ var require_project_state = __commonJS({
       if (taskDisposition(task) === "cancelled") return { editable: false, reason: "Cancellation is terminal." };
       return { editable: true, reason: null };
     }
+    function taskOrderEditEligibility(state) {
+      if (state.project.status === "complete") return { editable: false, reason: "Completed projects cannot be reordered in Studio." };
+      return { editable: true, reason: null };
+    }
     function summaryData(state, byId = taskIndex(state)) {
       const status = statusData(state, void 0, byId);
       return {
@@ -1790,6 +1799,7 @@ var require_project_state = __commonJS({
           scheduled_start: task.scheduled_start ?? null,
           scheduled_end: task.scheduled_end ?? null,
           schedule_conflicts: scheduleConflicts,
+          order: task.order ?? null,
           created: task.created,
           updated: task.updated,
           task_revision: task.spec_sha256,
@@ -1803,6 +1813,7 @@ var require_project_state = __commonJS({
         };
       });
       const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
+      const orderEligibility = taskOrderEditEligibility(state);
       return {
         schema_version: 2,
         mutation_revision: mutationRevision,
@@ -1818,7 +1829,9 @@ var require_project_state = __commonJS({
           target_date: state.project.target_date,
           current_milestone: state.project.current_milestone,
           profile: state.project.profile,
-          policy: profilePolicy(state.project.profile)
+          policy: profilePolicy(state.project.profile),
+          task_order_editable: orderEligibility.editable,
+          task_order_edit_reason: orderEligibility.reason
         },
         summary: {
           tasks: status.tasks,
@@ -1892,6 +1905,7 @@ ${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blo
       taskEditEligibility,
       scheduleEditEligibility,
       dispositionEditEligibility,
+      taskOrderEditEligibility,
       renderStatus,
       regenerateStatus,
       parseFrontmatter,
@@ -26089,7 +26103,7 @@ var require_task_editor = __commonJS({
     "use strict";
     var fs4 = require("node:fs");
     var path4 = require("node:path");
-    var { loadProject, kanbanData, summaryData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require_project_state();
+    var { loadProject, kanbanData, summaryData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskOrderEditEligibility, taskDisposition } = require_project_state();
     var { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require_mutations();
     var PLANNING_FIELDS = [
       "title",
@@ -26191,6 +26205,36 @@ var require_task_editor = __commonJS({
       const hasDisposition = dispositionChanged;
       if (hasDisposition) output = output.replace(/^(schema_version: )[12](\r?)$/m, (_match, prefix, cr) => `${prefix}3${cr}`);
       else if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
+      return output;
+    }
+    function transformTaskOrderDocument(text, order) {
+      const records = parseTaskRecords(text);
+      let assigned = null;
+      if (order !== null) {
+        if (!Array.isArray(order) || order.some((id) => typeof id !== "string")) throw new TaskEditError2("INVALID_REQUEST", "order must be an array of task ids or null");
+        const ids = records.map((record) => record.id);
+        const unknown = order.filter((id) => !ids.includes(id));
+        if (unknown.length) throw new TaskEditError2("TASK_NOT_FOUND", `Unknown tasks in order: ${unknown.join(", ")}`);
+        if (new Set(order).size !== order.length) throw new TaskEditError2("INVALID_REQUEST", "order must not repeat a task id");
+        const missing = ids.filter((id) => !order.includes(id));
+        if (missing.length) throw new TaskEditError2("INVALID_REQUEST", `order must list every task; missing: ${missing.join(", ")}`);
+        assigned = new Map(order.map((id, index) => [id, index + 1]));
+      }
+      let changed = false;
+      for (const record of records) {
+        const before = Object.hasOwn(record.raw, "order") ? record.raw.order : void 0;
+        if (assigned === null) delete record.raw.order;
+        else record.raw.order = assigned.get(record.id);
+        const after = Object.hasOwn(record.raw, "order") ? record.raw.order : void 0;
+        record.orderChanged = before !== after;
+        changed ||= record.orderChanged;
+      }
+      if (!changed) return text;
+      let output = text;
+      for (const record of [...records].sort((a, b) => b.start - a.start)) {
+        if (record.orderChanged) output = `${output.slice(0, record.start)}${renderRecord(record)}${output.slice(record.end)}`;
+      }
+      if (assigned !== null) output = output.replace(/^(schema_version: )[123](\r?)$/m, (_match, prefix, cr) => `${prefix}4${cr}`);
       return output;
     }
     function loadStableSnapshot(root, attempts, { revision = mutationRevision, load, onBusy, guardFirstRead = true }) {
@@ -26316,6 +26360,34 @@ var require_task_editor = __commonJS({
       }
       return loadRevisionedProject2(canonicalRoot, 3, projectOptions).data;
     }
+    function saveTaskOrder2(root, request, options = {}) {
+      const projectOptions = options.projectOptions ?? {};
+      const loadForMutation = (folder, context = {}) => loadProject(folder, { ...projectOptions, ...context });
+      const snapshot = loadRevisionedProject2(root, 3, projectOptions);
+      assertExactKeys(request, ["mutationRevision", "order"], "request");
+      if (typeof request.mutationRevision !== "string") throw new TaskEditError2("INVALID_REQUEST", "mutationRevision is required");
+      if (snapshot.mutation_revision !== request.mutationRevision) throw new TaskEditError2("MUTATION_CONFLICT", "Project changed since this row order was loaded. Refresh and retry.", { currentRevision: snapshot.mutation_revision });
+      const eligibility = taskOrderEditEligibility(snapshot.state);
+      if (!eligibility.editable) throw new TaskEditError2("TASK_ORDER_READ_ONLY", eligibility.reason);
+      const canonicalRoot = snapshot.state.root;
+      try {
+        atomicProjectMutation(canonicalRoot, (candidate, context) => {
+          const tasksPath = path4.join(candidate, "TASKS.md");
+          const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+          fs4.writeFileSync(tasksPath, transformTaskOrderDocument(fs4.readFileSync(tasksPath, "utf8"), request.order));
+          regenerateStatus(candidate, observedAt, { ...projectOptions, logicalRoot: context.logicalRoot });
+        }, loadForMutation, {
+          validateLive: loadForMutation,
+          expectedMutationRevision: request.mutationRevision,
+          injectFailureAfterReplace: options.injectFailureAfterReplace,
+          injectRollbackFailure: options.injectRollbackFailure
+        });
+      } catch (error) {
+        if (error instanceof MutationConflictError) throw new TaskEditError2("MUTATION_CONFLICT", error.message, { currentRevision: error.currentRevision });
+        throw error;
+      }
+      return loadRevisionedProject2(canonicalRoot, 3, projectOptions).data;
+    }
     module2.exports = {
       EDITABLE_FIELDS,
       PLANNING_FIELDS,
@@ -26325,11 +26397,13 @@ var require_task_editor = __commonJS({
       parseTaskRecords,
       renderRecord,
       transformTaskDocument,
+      transformTaskOrderDocument,
       loadStableSnapshot,
       loadRevisionedProject: loadRevisionedProject2,
       loadRevisionedSummary,
       checkTaskEdit: checkTaskEdit2,
-      saveTaskEdit: saveTaskEdit2
+      saveTaskEdit: saveTaskEdit2,
+      saveTaskOrder: saveTaskOrder2
     };
   }
 });
@@ -26727,7 +26801,7 @@ function watchProjectChanges(options) {
 }
 
 // src/project-manager-studio/server/server.ts
-var { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require_task_editor();
+var { loadRevisionedProject, checkTaskEdit, saveTaskEdit, saveTaskOrder, TaskEditError } = require_task_editor();
 var SESSION_COOKIE = "pm_studio_session";
 var HEARTBEAT_HEADER = "x-project-manager-studio";
 var STUDIO_PROJECT_OPTIONS = { taskErrorsAsWarnings: true };
@@ -26757,6 +26831,18 @@ function editRequest(body) {
   if (unknown.length) throw new ProjectCatalogError("INVALID_REQUEST", `Task request contains unsupported fields: ${unknown.join(", ")}`);
   if (typeof value.projectKey !== "string" || value.projectKey === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "Task request requires a server-issued project key");
   return { projectKey: value.projectKey, edit: { mutationRevision: value.mutationRevision, taskRevision: value.taskRevision, edit: value.edit } };
+}
+function orderRequest(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new ProjectCatalogError("INVALID_REQUEST", "Task order request must be an object");
+  const value = body;
+  const unknown = Object.keys(value).filter((key) => !["projectKey", "mutationRevision", "order"].includes(key));
+  if (unknown.length) throw new ProjectCatalogError("INVALID_REQUEST", `Task order request contains unsupported fields: ${unknown.join(", ")}`);
+  if (typeof value.projectKey !== "string" || value.projectKey === "") throw new ProjectCatalogError("PROJECT_SELECTION_REQUIRED", "Task order request requires a server-issued project key");
+  const order = value.order;
+  if (order !== null && !(Array.isArray(order) && order.every((id) => typeof id === "string" && id !== ""))) {
+    throw new ProjectCatalogError("INVALID_REQUEST", "order must be null or an array of task ids");
+  }
+  return { projectKey: value.projectKey, order: { mutationRevision: value.mutationRevision, order } };
 }
 function createServer(options) {
   const sessionToken = options.sessionToken ?? import_node_crypto2.default.randomBytes(32).toString("hex");
@@ -26896,6 +26982,19 @@ data: ${JSON.stringify({ projectKey: req.query.project })}
       const data = await enqueue(() => {
         const entry = options.catalog.resolve(request.projectKey);
         return options.catalog.decorate(entry.key, saveTaskEdit(entry.root, String(req.params.taskId), request.edit, { projectOptions: STUDIO_PROJECT_OPTIONS }));
+      });
+      res.json({ ok: true, data });
+    } catch (error) {
+      const result = apiError(error);
+      res.status(result.status).json(result.body);
+    }
+  });
+  api.put("/task-order", async (req, res) => {
+    try {
+      const request = orderRequest(req.body);
+      const data = await enqueue(() => {
+        const entry = options.catalog.resolve(request.projectKey);
+        return options.catalog.decorate(entry.key, saveTaskOrder(entry.root, request.order, { projectOptions: STUDIO_PROJECT_OPTIONS }));
       });
       res.json({ ok: true, data });
     } catch (error) {

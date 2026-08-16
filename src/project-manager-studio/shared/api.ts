@@ -17,6 +17,9 @@ export interface KanbanTask {
   execution_issue: boolean; execution_issue_reason: string | null;
   scheduled_start: string | null; scheduled_end: string | null;
   schedule_conflicts: Array<{ dependency_id: string; dependency_end: string; task_start: string }>;
+  // Stored Timeline row order. Null means the project stores none for this task,
+  // and the client generates a default from the derived arrangement.
+  order: number | null;
   updated: string | null; task_revision: string; next_rank: number | null;
   editable: boolean; edit_reason: string | null;
   schedule_editable: boolean; schedule_edit_reason: string | null;
@@ -26,7 +29,7 @@ export interface KanbanTask {
 export interface KanbanLane { id: string; title: string; display_statuses: DisplayStatus[]; tasks: KanbanTask[] }
 export interface KanbanData {
   schema_version: 2; mutation_revision: string; semantic_revision: string;
-  project: { key: string; id: string; name: string; root: string; status: string; owner: string | null; objective: string; start_date: string | null; target_date: string | null; current_milestone: string | null; profile: string; policy: { human_completion: 'lightweight' | 'governed'; delegated_execution: 'governed' } };
+  project: { key: string; id: string; name: string; root: string; status: string; owner: string | null; objective: string; start_date: string | null; target_date: string | null; current_milestone: string | null; profile: string; policy: { human_completion: 'lightweight' | 'governed'; delegated_execution: 'governed' }; task_order_editable: boolean; task_order_edit_reason: string | null };
   summary: { tasks: { total: number; by_status: Record<TaskStatus, number>; by_disposition: Record<TaskDisposition, number>; actionable: number; blocked: number }; success: { total: number; covered: number; verified: number }; coverage: { configured: boolean; total?: number; covered?: number; verified?: number }; risks: { configured: boolean; open?: number; high?: number }; decisions: { configured: boolean; proposed?: number }; owner_gaps: number };
   warnings: Array<{ code: string; message: string; task_id?: string; cause_code?: string; technical_message?: string; path?: string }>;
   milestones: Array<{ id: string; title: string; status: 'planned' | 'active' | 'complete'; target_date: string | null; forecast_date: string | null; forecast_updated: string | null; critical: boolean }>;
@@ -47,4 +50,8 @@ export interface TaskEdit {
   scheduled_start?: string | null; scheduled_end?: string | null;
 }
 export interface TaskEditRequest { projectKey: string; mutationRevision: string; taskRevision: string; edit: TaskEdit }
+// Row order is a whole-project write: it rewrites every task's order, so it
+// carries no per-task revision. `order` is the complete task id sequence, or
+// null to discard stored order and fall back to generated defaults.
+export interface TaskOrderRequest { projectKey: string; mutationRevision: string; order: string[] | null }
 export interface ApiError { code: string; message: string; fields?: string[]; currentRevision?: string; currentTaskRevision?: string }

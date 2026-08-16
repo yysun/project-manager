@@ -9,6 +9,9 @@
  * One id->task index (`taskIndex`) is now built per projection and threaded
  * through the dependency, blocker, and ranking helpers instead of being rebuilt
  * per call, which removes the quadratic cost in task count.
+ * TASKS v4 adds `order`, display-only planning metadata for Studio Timeline row
+ * order. Version gates are cumulative (`>= n`) so v1/v2/v3 keep their exact
+ * normalized shapes and installing v4 support cannot stale an untouched STATUS.
  */
 'use strict';
 
@@ -293,7 +296,8 @@ function parseProject(text, filePath, root) {
 function normalizeTask(record, project, filePath, schemaVersion = 1) {
   const allowed = ['outcome', 'acceptance', 'status', 'priority', 'milestone', 'owner', 'executor', 'depends_on', 'blocks', 'blocked_by', 'sources', 'success_criteria', 'constraints', 'evidence_requirements', 'external_refs', 'critical', 'active_contract', 'last_manifest', 'created', 'updated'];
   if (schemaVersion >= 2) allowed.push('scheduled_start', 'scheduled_end');
-  if (schemaVersion === 3) allowed.push('disposition', 'disposition_changed_at');
+  if (schemaVersion >= 3) allowed.push('disposition', 'disposition_changed_at');
+  if (schemaVersion >= 4) allowed.push('order');
   exactKeys(record.raw, allowed, filePath, `task ${record.id}`, project);
   assert(nonEmpty(record.raw.outcome), 'TASK_OUTCOME', filePath, `Task ${record.id} requires outcome`, project);
   uniqueStrings(record.raw.acceptance, filePath, `task ${record.id} acceptance`, project, { sorted: false, allowEmpty: false });
@@ -318,17 +322,19 @@ function normalizeTask(record, project, filePath, schemaVersion = 1) {
     active_contract: record.raw.active_contract ?? null, last_manifest: record.raw.last_manifest ?? null,
     created: record.raw.created ?? null, updated: record.raw.updated ?? null,
   };
-  // Keep the normalized v1 shape byte-compatible with the original reader so
-  // merely installing schedule support cannot make an untouched STATUS stale.
-  if (schemaVersion === 2) {
+  // Keep each earlier version's normalized shape byte-compatible with the reader
+  // that introduced it, so merely installing a later capability cannot make an
+  // untouched STATUS stale. Each gate is cumulative and adds only its own keys.
+  if (schemaVersion >= 2) {
     task.scheduled_start = record.raw.scheduled_start ?? null;
     task.scheduled_end = record.raw.scheduled_end ?? null;
   }
-  if (schemaVersion === 3) {
-    task.scheduled_start = record.raw.scheduled_start ?? null;
-    task.scheduled_end = record.raw.scheduled_end ?? null;
+  if (schemaVersion >= 3) {
     task.disposition = record.raw.disposition ?? 'active';
     task.disposition_changed_at = record.raw.disposition_changed_at ?? null;
+  }
+  if (schemaVersion >= 4) {
+    task.order = record.raw.order ?? null;
   }
   assert(TASK_STATUSES.includes(task.status), 'TASK_STATUS', filePath, `Task ${task.id} has invalid status`, project);
   assert(PRIORITIES.includes(task.priority), 'TASK_PRIORITY', filePath, `Task ${task.id} has invalid priority`, project);
@@ -346,12 +352,19 @@ function normalizeTask(record, project, filePath, schemaVersion = 1) {
   }
   const dispositionKeys = ['disposition', 'disposition_changed_at'].filter((key) => Object.hasOwn(record.raw, key));
   assert(dispositionKeys.length === 0 || dispositionKeys.length === 2, 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition must contain both disposition and disposition_changed_at`, project);
-  if (schemaVersion === 3 && dispositionKeys.length === 2) {
+  if (schemaVersion >= 3 && dispositionKeys.length === 2) {
     assert(['deferred', 'cancelled'].includes(task.disposition), 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition must be deferred or cancelled when persisted`, project);
     assert(validTimestamp(task.disposition_changed_at), 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition_changed_at must be RFC3339 UTC`, project);
   }
-  if (schemaVersion === 3 && dispositionKeys.length === 0) {
+  if (schemaVersion >= 3 && dispositionKeys.length === 0) {
     assert(task.disposition === 'active' && task.disposition_changed_at === null, 'TASK_DISPOSITION', filePath, `Task ${task.id} active disposition must be implicit`, project);
+  }
+  // Display-only row order. Absent is normal and stays normal: a hand edit or an
+  // agent-appended task must never fail validation for lacking one, and density
+  // and uniqueness are the writer's job, not the reader's, so a hand-edited
+  // duplicate degrades to a deterministic tie-break instead of a broken project.
+  if (schemaVersion >= 4 && Object.hasOwn(record.raw, 'order')) {
+    assert(Number.isInteger(task.order) && task.order > 0, 'TASK_ORDER', filePath, `Task ${task.id} order must be a positive integer`, project);
   }
   assert(TASK_DISPOSITIONS.includes(taskDisposition(task)), 'TASK_DISPOSITION', filePath, `Task ${task.id} disposition is invalid`, project);
   assert(task.created === null || validDate(task.created), 'INVALID_DATE', filePath, `Task ${task.id} created is invalid`, project);
@@ -879,7 +892,7 @@ function loadProject(folder, options = {}) {
   checkOptionalDirectories(root);
   const texts = Object.fromEntries(REQUIRED.filter((name) => name !== 'PROJECT.md').map((name) => [name, readSafe(root, name, true)]));
   for (const name of OPTIONAL_FILES) texts[name] = readSafe(root, name, false);
-  const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2, 3] });
+  const taskRecords = parseCollection(texts['TASKS.md'], path.join(root, 'TASKS.md'), { schemaVersions: [1, 2, 3, 4] });
   const tasks = taskRecords.map((record) => normalizeTask(record, project, path.join(root, 'TASKS.md'), taskRecords.schema_version));
   const warnings = tasks.map((task) => executorRootWarning(task, root)).filter(Boolean);
   function module(name, kind, schemaVersions = [1]) {
@@ -1192,6 +1205,18 @@ function dispositionEditEligibility(state, task) {
 }
 
 /**
+ * Row order is display metadata, not specification, lifecycle, schedule, or
+ * evidence, so it deliberately consults none of the per-task authorities above:
+ * done, cancelled, and evidence-backed tasks stay reorderable. Only a project
+ * that forbids planning changes outright blocks it, and the authority is
+ * project-level because one reorder rewrites every task's order.
+ */
+function taskOrderEditEligibility(state) {
+  if (state.project.status === 'complete') return { editable: false, reason: 'Completed projects cannot be reordered in Studio.' };
+  return { editable: true, reason: null };
+}
+
+/**
  * Exactly the facts the compact MCP summary reports, without building the lane
  * and per-task board projection it would otherwise discard. Shares one task
  * index and the `blockedTaskIds` definition with `kanbanData`, so the two
@@ -1259,6 +1284,7 @@ function kanbanData(state, mutationRevision = null) {
       scheduled_start: task.scheduled_start ?? null,
       scheduled_end: task.scheduled_end ?? null,
       schedule_conflicts: scheduleConflicts,
+      order: task.order ?? null,
       created: task.created,
       updated: task.updated,
       task_revision: task.spec_sha256,
@@ -1272,6 +1298,7 @@ function kanbanData(state, mutationRevision = null) {
     };
   });
   const ownerOptions = [...new Set(tasks.map((task) => task.owner).filter((owner) => owner !== null))].sort();
+  const orderEligibility = taskOrderEditEligibility(state);
   return {
     schema_version: 2,
     mutation_revision: mutationRevision,
@@ -1288,6 +1315,8 @@ function kanbanData(state, mutationRevision = null) {
       current_milestone: state.project.current_milestone,
       profile: state.project.profile,
       policy: profilePolicy(state.project.profile),
+      task_order_editable: orderEligibility.editable,
+      task_order_edit_reason: orderEligibility.reason,
     },
     summary: {
       tasks: status.tasks,
@@ -1336,6 +1365,6 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
 module.exports = {
   ProjectError, blockedTaskIds, summaryData, loadProject, loadProjectIdentity, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData,
   blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility,
-  dispositionEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
+  dispositionEditEligibility, taskOrderEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
   parseAttempt, successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,
 };

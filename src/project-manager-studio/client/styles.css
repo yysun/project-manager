@@ -38,8 +38,20 @@
 .timeline-label { position:sticky; left:0; z-index:5; background:#fff; padding:7px 10px; text-align:left; border-top:0; border-left:0; border-right:2px solid var(--timeline-week); }
 .timeline-label--header { top:0; z-index:8; display:flex; align-items:center; justify-content:space-between; min-height:38px; background:#f7f8f8; text-transform:uppercase; letter-spacing:.08em; font-size:9px; }
 .timeline-label--header span { color:var(--muted); }
-.timeline-task-label { width:100%; cursor:pointer; }
+/* The row label cell holds the reorder grip and the task button side by side.
+   The grip cannot be a sibling grid child: .timeline-grid has exactly two
+   columns and .timeline-row-group is display:contents. */
+.timeline-label--row { display:flex; align-items:stretch; padding:0; }
+.timeline-label--dragging { background:#eef6f9; }
+.timeline-order-grip { flex:none; width:20px; border:0; border-right:1px solid var(--timeline-grid); background:transparent; padding:0; color:#9aa3a6; cursor:grab; touch-action:none; line-height:1; }
+.timeline-order-grip:hover:not(:disabled) { background:#f0f6f8; color:var(--ink); }
+.timeline-order-grip:active:not(:disabled) { cursor:grabbing; }
+.timeline-order-grip:disabled { cursor:not-allowed; }
+.timeline-order-reset { border:1px solid var(--line); border-radius:7px; background:var(--paper); padding:3px 7px; cursor:pointer; text-transform:none; letter-spacing:0; font-size:9px; font-weight:700; }
+.timeline-order-reset:hover:not(:disabled) { background:#fff; border-color:#b8bbb2; }
+.timeline-task-label { flex:1; min-width:0; border:0; background:transparent; padding:7px 10px; text-align:left; cursor:pointer; }
 .timeline-task-label:hover { background:#f7fbfc; }
+.visually-hidden { position:absolute; width:1px; height:1px; margin:-1px; padding:0; border:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .timeline-title-line { display:flex; align-items:baseline; gap:7px; min-width:0; }
 .timeline-title-line>strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; line-height:1.2; }
 .timeline-issue-dot { flex:none; width:7px; height:7px; border-radius:50%; align-self:center; }

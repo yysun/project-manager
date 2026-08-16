@@ -1,5 +1,5 @@
-/* Task-editor contracts: exact revisions, split planning/disposition/schedule authority,
-   v1-v3 migration, protected history, conflicts, copy fidelity, and rollback. */
+/* Task-editor contracts: exact revisions, split planning/disposition/schedule/order
+   authority, v1-v4 migration, protected history, conflicts, copy fidelity, and rollback. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -10,10 +10,121 @@ const { spawnSync } = require('node:child_process');
 const { loadProject, kanbanData, regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
 const { buildTaskContract, formatTaskContract, taskSpecHash, sha256 } = require('../../skills/project-manager/scripts/lib/contracts');
 const { mutationRevision, atomicProjectMutation, UnsupportedProjectEntryError } = require('../../skills/project-manager/scripts/lib/mutations');
-const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../skills/project-manager/scripts/lib/task-editor');
+const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, saveTaskOrder, TaskEditError } = require('../../skills/project-manager/scripts/lib/task-editor');
+const { completeHumanTask } = require('../../skills/project-manager/scripts/lib/human-completion');
 const { makeProject, collection } = require('./_helpers');
 
 function request(root, id, edit) { const snap = loadRevisionedProject(root); const task = snap.state.tasks.find((item) => item.id === id); return { mutationRevision: snap.mutation_revision, taskRevision: task.spec_sha256, edit }; }
+function orderRequest(root, order) { return { mutationRevision: loadRevisionedProject(root).mutation_revision, order }; }
+
+function snapshot(root) {
+  return Object.fromEntries(fs.readdirSync(root).filter((name) => fs.lstatSync(path.join(root, name)).isFile())
+    .map((name) => [name, sha256(fs.readFileSync(path.join(root, name)))]));
+}
+
+test('row order persists as v4 metadata without touching specification identity or updated dates', () => {
+  const root = makeProject();
+  const files = snapshot(root);
+  const before = loadRevisionedProject(root).data.tasks;
+  assert.deepEqual(before.map((task) => task.order), [null, null]);
+  assert.equal(before[0].order, null);
+
+  const data = saveTaskOrder(root, orderRequest(root, ['TASK-VAGUE', 'TASK-PLAN']));
+  assert.deepEqual(data.tasks.map((task) => [task.id, task.order]), [['TASK-PLAN', 2], ['TASK-VAGUE', 1]]);
+  for (const task of data.tasks) {
+    const original = before.find((item) => item.id === task.id);
+    assert.equal(task.task_revision, original.task_revision);
+    assert.equal(task.updated, original.updated);
+    assert.equal(task.status, original.status);
+    assert.equal(task.disposition, original.disposition);
+  }
+  const text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8');
+  assert.match(text, /schema_version: 4/); assert.match(text, /"order":1/); assert.match(text, /Human note stays here\./);
+  assert.equal(loadProject(root).status_stale, false);
+  assert.equal(loadProject(root).tasks.find((task) => task.id === 'TASK-VAGUE').order, 1);
+  // Only TASKS.md and its derived STATUS.md cache may change.
+  assert.deepEqual(Object.entries(files).filter(([name, digest]) => digest !== snapshot(root)[name]).map(([name]) => name).sort(), ['STATUS.md', 'TASKS.md']);
+});
+
+test('clearing row order removes the field, keeps v4, and restores generated defaults', () => {
+  const root = makeProject();
+  saveTaskOrder(root, orderRequest(root, ['TASK-VAGUE', 'TASK-PLAN']));
+  const data = saveTaskOrder(root, orderRequest(root, null));
+  assert.deepEqual(data.tasks.map((task) => task.order), [null, null]);
+  const text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8');
+  assert.doesNotMatch(text, /"order"/); assert.match(text, /schema_version: 4/);
+  assert.equal(loadProject(root).status_stale, false);
+});
+
+test('row order preserves schedule and disposition metadata written at earlier versions', () => {
+  const root = makeProject();
+  saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { scheduled_start: '2026-08-10', scheduled_end: '2026-08-12' }));
+  saveTaskEdit(root, 'TASK-PLAN', request(root, 'TASK-PLAN', { disposition: 'deferred' }));
+  const data = saveTaskOrder(root, orderRequest(root, ['TASK-VAGUE', 'TASK-PLAN']));
+  const task = data.tasks.find((item) => item.id === 'TASK-PLAN');
+  assert.equal(task.scheduled_start, '2026-08-10'); assert.equal(task.disposition, 'deferred'); assert.equal(task.order, 2);
+  const text = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8');
+  assert.match(text, /schema_version: 4/); assert.match(text, /"scheduled_start":"2026-08-10"/); assert.match(text, /"disposition":"deferred"/);
+});
+
+test('done, cancelled, and evidence-backed rows stay reorderable while a complete project does not', () => {
+  const records = [
+    { id: 'TASK-DONE', title: 'Shipped', data: { outcome: 'Shipped.', acceptance: ['Accepted.'], status: 'ready', success_criteria: ['SC-OUTCOME'] } },
+    { id: 'TASK-STOPPED', title: 'Stopped', data: { outcome: 'Stopped.', acceptance: ['Accepted.'], status: 'planned' } },
+  ];
+  const root = makeProject(records, 'ORDER-AUTH');
+  completeHumanTask(root, 'TASK-DONE', { ref: 'owner-signoff', result: 'Owner accepted the delivery.', observed_at: '2026-08-08T01:00:00Z' });
+  saveTaskEdit(root, 'TASK-STOPPED', request(root, 'TASK-STOPPED', { disposition: 'cancelled' }));
+  const before = loadRevisionedProject(root).data.tasks;
+  // Neither row may be edited or rescheduled, and both must still be reorderable:
+  // row order deliberately consults none of the per-task authorities.
+  for (const task of before) { assert.equal(task.editable, false); assert.equal(task.schedule_editable, false); }
+  assert.equal(before.find((task) => task.id === 'TASK-DONE').last_manifest !== null, true);
+
+  const data = saveTaskOrder(root, orderRequest(root, ['TASK-STOPPED', 'TASK-DONE']));
+  assert.deepEqual(data.tasks.map((task) => [task.id, task.order]), [['TASK-DONE', 2], ['TASK-STOPPED', 1]]);
+  assert.equal(data.project.task_order_editable, true);
+  for (const task of data.tasks) assert.equal(task.task_revision, before.find((item) => item.id === task.id).task_revision);
+
+  const project = fs.readFileSync(path.join(root, 'PROJECT.md'), 'utf8').replace('status: "active"', 'status: "complete"');
+  fs.writeFileSync(path.join(root, 'PROJECT.md'), project); regenerateStatus(root, '2026-08-08T02:00:00Z');
+  const complete = loadRevisionedProject(root).data.project;
+  assert.equal(complete.task_order_editable, false); assert.match(complete.task_order_edit_reason, /Completed projects/);
+  const revision = mutationRevision(root);
+  assert.throws(() => saveTaskOrder(root, orderRequest(root, ['TASK-DONE', 'TASK-STOPPED'])), (error) => error.code === 'TASK_ORDER_READ_ONLY');
+  assert.equal(mutationRevision(root), revision);
+});
+
+test('incomplete, unknown, duplicated, stale, and interrupted row orders leave TASKS.md untouched', () => {
+  const root = makeProject(); const before = mutationRevision(root);
+  const bytes = fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8');
+  assert.throws(() => saveTaskOrder(root, orderRequest(root, ['TASK-PLAN'])), (error) => error.code === 'INVALID_REQUEST' && /missing/.test(error.message));
+  assert.throws(() => saveTaskOrder(root, orderRequest(root, ['TASK-PLAN', 'TASK-VAGUE', 'TASK-GHOST'])), (error) => error.code === 'TASK_NOT_FOUND');
+  assert.throws(() => saveTaskOrder(root, orderRequest(root, ['TASK-PLAN', 'TASK-PLAN'])), (error) => error.code === 'INVALID_REQUEST' && /repeat/.test(error.message));
+  assert.throws(() => saveTaskOrder(root, { mutationRevision: 'stale', order: ['TASK-VAGUE', 'TASK-PLAN'] }), (error) => error.code === 'MUTATION_CONFLICT');
+  assert.throws(() => saveTaskOrder(root, { mutationRevision: before, order: ['TASK-VAGUE', 'TASK-PLAN'], edit: {} }), (error) => error.code === 'PROTECTED_FIELD');
+  assert.equal(mutationRevision(root), before);
+  assert.throws(() => saveTaskOrder(root, orderRequest(root, ['TASK-VAGUE', 'TASK-PLAN']), { injectFailureAfterReplace: true }), /Injected failure/);
+  assert.equal(fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'), bytes);
+  assert.equal(mutationRevision(root), before);
+});
+
+test('order is rejected before v4, accepted at v4, and never written by a read', () => {
+  const records = [{ id: 'TASK-ONE', title: 'One', data: { outcome: 'One.', acceptance: ['Accepted.'], status: 'planned', order: 1 } }];
+  for (const version of [1, 2, 3]) {
+    const root = makeProject([{ id: 'TASK-ONE', title: 'One', data: { outcome: 'One.', acceptance: ['Accepted.'], status: 'planned' } }], 'ORDER-VERSION');
+    fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records, version));
+    assert.throws(() => loadProject(root), (error) => /unknown fields: order/.test(error.message), `v${version} must reject order`);
+  }
+  const root = makeProject([{ id: 'TASK-ONE', title: 'One', data: { outcome: 'One.', acceptance: ['Accepted.'], status: 'planned' } }], 'ORDER-VERSION');
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records, 4)); regenerateStatus(root, '2026-08-08T00:00:01Z');
+  assert.equal(loadProject(root).tasks[0].order, 1);
+  const revision = mutationRevision(root);
+  loadRevisionedProject(root); kanbanData(loadProject(root));
+  assert.equal(mutationRevision(root), revision);
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection([{ ...records[0], data: { ...records[0].data, order: 0 } }], 4));
+  assert.throws(() => loadProject(root), (error) => error.code === 'TASK_ORDER');
+});
 
 test('check is byte-invariant and save supports every editable field while preserving narrative', () => {
   const root = makeProject(); const before = mutationRevision(root);

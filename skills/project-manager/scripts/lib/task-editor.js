@@ -6,12 +6,15 @@
  * Also owns `loadStableSnapshot`, the one revision-stable read that Studio, the
  * MCP App, agent execution, and human completion all route through, so the
  * torn-snapshot guard cannot drift between them.
+ * Task row order is a separate whole-project write: it rewrites every task's
+ * `order`, so it carries no per-task revision and never joins the single-task
+ * edit allowlist.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadProject, kanbanData, summaryData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskDisposition } = require('./project-state');
+const { loadProject, kanbanData, summaryData, regenerateStatus, taskEditEligibility, scheduleEditEligibility, dispositionEditEligibility, taskOrderEditEligibility, taskDisposition } = require('./project-state');
 const { atomicProjectMutation, createProjectWork, cleanupProjectWork, mutationRevision, MutationConflictError } = require('./mutations');
 
 const PLANNING_FIELDS = [
@@ -103,6 +106,46 @@ function transformTaskDocument(text, taskId, edit, date, observedAt = null) {
   const hasDisposition = dispositionChanged;
   if (hasDisposition) output = output.replace(/^(schema_version: )[12](\r?)$/m, (_match, prefix, cr) => `${prefix}3${cr}`);
   else if (hasSchedule) output = output.replace(/^(schema_version: )1(\r?)$/m, (_match, prefix, cr) => `${prefix}2${cr}`);
+  return output;
+}
+
+/**
+ * Whole-project row order. `order` is either an exact permutation of the
+ * document's task ids, which becomes a dense 1..N sequence, or null, which
+ * removes the field everywhere. Unlike a task edit this touches no `updated`
+ * date: order is display metadata, and stamping every task on every drag would
+ * churn the file and misreport specification activity.
+ */
+function transformTaskOrderDocument(text, order) {
+  const records = parseTaskRecords(text);
+  let assigned = null;
+  if (order !== null) {
+    if (!Array.isArray(order) || order.some((id) => typeof id !== 'string')) throw new TaskEditError('INVALID_REQUEST', 'order must be an array of task ids or null');
+    const ids = records.map((record) => record.id);
+    const unknown = order.filter((id) => !ids.includes(id));
+    if (unknown.length) throw new TaskEditError('TASK_NOT_FOUND', `Unknown tasks in order: ${unknown.join(', ')}`);
+    if (new Set(order).size !== order.length) throw new TaskEditError('INVALID_REQUEST', 'order must not repeat a task id');
+    const missing = ids.filter((id) => !order.includes(id));
+    if (missing.length) throw new TaskEditError('INVALID_REQUEST', `order must list every task; missing: ${missing.join(', ')}`);
+    assigned = new Map(order.map((id, index) => [id, index + 1]));
+  }
+  let changed = false;
+  for (const record of records) {
+    const before = Object.hasOwn(record.raw, 'order') ? record.raw.order : undefined;
+    if (assigned === null) delete record.raw.order;
+    else record.raw.order = assigned.get(record.id);
+    const after = Object.hasOwn(record.raw, 'order') ? record.raw.order : undefined;
+    record.orderChanged = before !== after;
+    changed ||= record.orderChanged;
+  }
+  if (!changed) return text;
+  let output = text;
+  for (const record of [...records].sort((a, b) => b.start - a.start)) {
+    if (record.orderChanged) output = `${output.slice(0, record.start)}${renderRecord(record)}${output.slice(record.end)}`;
+  }
+  // Clearing never lowers the version: v4 without order fields is valid by
+  // superset, and a downgrade would strip legal schedule or disposition fields.
+  if (assigned !== null) output = output.replace(/^(schema_version: )[123](\r?)$/m, (_match, prefix, cr) => `${prefix}4${cr}`);
   return output;
 }
 
@@ -252,7 +295,37 @@ function saveTaskEdit(root, taskId, request, options = {}) {
   return loadRevisionedProject(canonicalRoot, 3, projectOptions).data;
 }
 
+function saveTaskOrder(root, request, options = {}) {
+  const projectOptions = options.projectOptions ?? {};
+  const loadForMutation = (folder, context = {}) => loadProject(folder, { ...projectOptions, ...context });
+  const snapshot = loadRevisionedProject(root, 3, projectOptions);
+  assertExactKeys(request, ['mutationRevision', 'order'], 'request');
+  if (typeof request.mutationRevision !== 'string') throw new TaskEditError('INVALID_REQUEST', 'mutationRevision is required');
+  if (snapshot.mutation_revision !== request.mutationRevision) throw new TaskEditError('MUTATION_CONFLICT', 'Project changed since this row order was loaded. Refresh and retry.', { currentRevision: snapshot.mutation_revision });
+  const eligibility = taskOrderEditEligibility(snapshot.state);
+  if (!eligibility.editable) throw new TaskEditError('TASK_ORDER_READ_ONLY', eligibility.reason);
+  const canonicalRoot = snapshot.state.root;
+  try {
+    atomicProjectMutation(canonicalRoot, (candidate, context) => {
+      const tasksPath = path.join(candidate, 'TASKS.md');
+      const observedAt = new Date().toISOString();
+      fs.writeFileSync(tasksPath, transformTaskOrderDocument(fs.readFileSync(tasksPath, 'utf8'), request.order));
+      regenerateStatus(candidate, observedAt, { ...projectOptions, logicalRoot: context.logicalRoot });
+    }, loadForMutation, {
+      validateLive: loadForMutation,
+      expectedMutationRevision: request.mutationRevision,
+      injectFailureAfterReplace: options.injectFailureAfterReplace,
+      injectRollbackFailure: options.injectRollbackFailure,
+    });
+  } catch (error) {
+    if (error instanceof MutationConflictError) throw new TaskEditError('MUTATION_CONFLICT', error.message, { currentRevision: error.currentRevision });
+    throw error;
+  }
+  return loadRevisionedProject(canonicalRoot, 3, projectOptions).data;
+}
+
 module.exports = {
   EDITABLE_FIELDS, PLANNING_FIELDS, COORDINATION_FIELDS, SCHEDULE_FIELDS, TaskEditError, parseTaskRecords,
-  renderRecord, transformTaskDocument, loadStableSnapshot, loadRevisionedProject, loadRevisionedSummary, checkTaskEdit, saveTaskEdit,
+  renderRecord, transformTaskDocument, transformTaskOrderDocument, loadStableSnapshot, loadRevisionedProject,
+  loadRevisionedSummary, checkTaskEdit, saveTaskEdit, saveTaskOrder,
 };

@@ -240,6 +240,10 @@ non-completed work, including active evidence-backed tasks, without changing Tas
 Studio does not edit actual execution dates, task IDs, evidence, attempts, or re-verification state.
 Disposition has separate authority: eligible unfinished work may move between active/deferred or to
 terminal cancelled without changing Task Contract identity.
+Timeline row order is a persisted task property: every task has an `order` number, defaulting to the
+derived date arrangement and overridable by dragging a row. It is display metadata only, so any task
+may be reordered — including done, cancelled, and evidence-backed work — and only a complete project
+refuses it. Resetting clears the stored numbers and restores generated defaults.
 “Check changes” is deterministic whole-project validation; “Copy LLM review command” only copies the
 semantic route above and does not call a model.
 

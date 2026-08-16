@@ -163,7 +163,14 @@ rejected. Disposition fields are excluded from the task specification hash. A no
 and every stored manifest must not be newer than its disposition timestamp. V1/v2 reject disposition fields
 and retain their prior normalized shape so unchanged STATUS caches do not become stale.
 
-For both task schemas, `outcome` and `acceptance` are required. Executor is `{provider,root,scope}`:
+`TASKS.md` schema v4 is the strict superset of v3. It permits the same schedule and disposition
+fields plus `order`, a positive integer holding the task's Timeline row order. Absence is normal: a
+task with no `order` takes a default generated from the derived arrangement, and neither density nor
+uniqueness is required of a hand-edited file. Order fields are excluded from the task specification
+hash and Task Contract, and never affect ranking, coverage, or actionability. V1/v2/v3 reject `order`
+and retain their prior normalized shapes so unchanged STATUS caches do not become stale.
+
+For all task schemas, `outcome` and `acceptance` are required. Executor is `{provider,root,scope}`:
 human uses null root/scope; external roots use `scope:"absolute"`; a project-contained executor uses
 `scope:"project"` and a safe relative root. Evidence requirement groups are exactly
 `{stage:"implemented|verification|verified",any_of:[evidence kinds],minimum:positive integer}` in
@@ -172,7 +179,7 @@ cumulative stage order.
 ## Exact optional schemas
 
 Optional record files use collection frontmatter `schema_version: 1`, except `RISKS.md` which also
-accepts `schema_version: 2`; task schemas v2/v3 are valid only for `TASKS.md`.
+accepts `schema_version: 2`; task schemas v2/v3/v4 are valid only for `TASKS.md`.
 
 - Milestone: `{status:"planned|active|complete",target_date:null|date,forecast_date:null|date,forecast_updated:null|date,forecast_evidence:[evidence records],critical:boolean}`. Forecast fields are all absent/null or all populated.
 - Risk v1: `{status:"open|mitigated|accepted|closed",probability:"low|medium|high",impact:"low|medium|high",mitigation:string,owner:null|string,milestone:null|M-ID}`.

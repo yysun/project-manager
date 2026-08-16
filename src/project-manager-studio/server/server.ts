@@ -7,11 +7,11 @@
 // headers are flushed.
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import type { KanbanData, TaskEditRequest } from '../shared/api.js';
+import type { KanbanData, TaskEditRequest, TaskOrderRequest } from '../shared/api.js';
 import { ProjectCatalog, ProjectCatalogError } from './project-catalog.js';
 import { watchProjectChanges, type ProjectWatcherOptions } from './project-watcher.js';
 
-const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, TaskEditError } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
+const { loadRevisionedProject, checkTaskEdit, saveTaskEdit, saveTaskOrder, TaskEditError } = require('../../../skills/project-manager/scripts/lib/task-editor.js');
 const SESSION_COOKIE = 'pm_studio_session';
 const HEARTBEAT_HEADER = 'x-project-manager-studio';
 const STUDIO_PROJECT_OPTIONS = { taskErrorsAsWarnings: true };
@@ -44,6 +44,19 @@ function editRequest(body: unknown): { projectKey: string; edit: Omit<TaskEditRe
   if (unknown.length) throw new ProjectCatalogError('INVALID_REQUEST', `Task request contains unsupported fields: ${unknown.join(', ')}`);
   if (typeof value.projectKey !== 'string' || value.projectKey === '') throw new ProjectCatalogError('PROJECT_SELECTION_REQUIRED', 'Task request requires a server-issued project key');
   return { projectKey: value.projectKey, edit: { mutationRevision: value.mutationRevision, taskRevision: value.taskRevision, edit: value.edit } as Omit<TaskEditRequest, 'projectKey'> };
+}
+
+function orderRequest(body: unknown): { projectKey: string; order: Omit<TaskOrderRequest, 'projectKey'> } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ProjectCatalogError('INVALID_REQUEST', 'Task order request must be an object');
+  const value = body as Record<string, unknown>;
+  const unknown = Object.keys(value).filter((key) => !['projectKey', 'mutationRevision', 'order'].includes(key));
+  if (unknown.length) throw new ProjectCatalogError('INVALID_REQUEST', `Task order request contains unsupported fields: ${unknown.join(', ')}`);
+  if (typeof value.projectKey !== 'string' || value.projectKey === '') throw new ProjectCatalogError('PROJECT_SELECTION_REQUIRED', 'Task order request requires a server-issued project key');
+  const order = value.order;
+  if (order !== null && !(Array.isArray(order) && order.every((id) => typeof id === 'string' && id !== ''))) {
+    throw new ProjectCatalogError('INVALID_REQUEST', 'order must be null or an array of task ids');
+  }
+  return { projectKey: value.projectKey, order: { mutationRevision: value.mutationRevision, order } as Omit<TaskOrderRequest, 'projectKey'> };
 }
 
 type WatchProject = (options: ProjectWatcherOptions) => () => void;
@@ -153,6 +166,19 @@ export function createServer(options: { catalog: ProjectCatalog; clientDistDir: 
       const data = await enqueue(() => {
         const entry = options.catalog.resolve(request.projectKey);
         return options.catalog.decorate(entry.key, saveTaskEdit(entry.root, String(req.params.taskId), request.edit, { projectOptions: STUDIO_PROJECT_OPTIONS }));
+      });
+      res.json({ ok: true, data });
+    } catch (error) { const result = apiError(error); res.status(result.status).json(result.body); }
+  });
+
+  // Shares the save queue with single-task edits: a reorder rewrites every task,
+  // so it must not interleave with an in-flight edit of one of them.
+  api.put('/task-order', async (req, res) => {
+    try {
+      const request = orderRequest(req.body);
+      const data = await enqueue(() => {
+        const entry = options.catalog.resolve(request.projectKey);
+        return options.catalog.decorate(entry.key, saveTaskOrder(entry.root, request.order, { projectOptions: STUDIO_PROJECT_OPTIONS }));
       });
       res.json({ ok: true, data });
     } catch (error) { const result = apiError(error); res.status(result.status).json(result.body); }

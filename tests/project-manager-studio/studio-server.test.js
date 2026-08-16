@@ -207,6 +207,57 @@ test('Studio starts from a catalog with stale task execution state and opens it 
   } finally { await stopStudio(handle); }
 });
 
+test('the order route persists a full sequence, resets it, and refuses stale or malformed requests', async () => {
+  const root = makeProject(); const handle = await startStudio(root);
+  try {
+    const { cookie } = await handshake(handle); const headers = { Cookie: cookie, 'Content-Type': 'application/json' };
+    const key = (await catalog(handle, cookie)).initial_project_key;
+    const snapshot = await getProject(handle, cookie, key);
+    assert.equal(snapshot.project.task_order_editable, true);
+    assert.deepEqual(snapshot.tasks.map((task) => task.order), [null, null]);
+    const order = (body) => fetch(`${handle.origin}/api/task-order`, { method: 'PUT', headers, body: JSON.stringify(body) });
+
+    const saved = await order({ projectKey: key, mutationRevision: snapshot.mutation_revision, order: ['TASK-VAGUE', 'TASK-PLAN'] });
+    assert.equal(saved.status, 200);
+    const savedData = (await saved.json()).data;
+    assert.deepEqual(savedData.tasks.map((task) => [task.id, task.order]), [['TASK-PLAN', 2], ['TASK-VAGUE', 1]]);
+    for (const task of savedData.tasks) assert.equal(task.task_revision, snapshot.tasks.find((item) => item.id === task.id).task_revision);
+    assert.deepEqual((await getProject(handle, cookie, key)).tasks.map((task) => task.order), [2, 1]);
+
+    // A stale snapshot must lose to the write that already landed.
+    const stale = await order({ projectKey: key, mutationRevision: snapshot.mutation_revision, order: ['TASK-PLAN', 'TASK-VAGUE'] });
+    assert.equal(stale.status, 409);
+    const staleError = (await stale.json()).errors[0];
+    assert.equal(staleError.code, 'MUTATION_CONFLICT'); assert.match(staleError.message, /Refresh and retry/);
+
+    let current = await getProject(handle, cookie, key); const before = mutationRevision(root);
+    for (const body of [
+      { projectKey: key, mutationRevision: current.mutation_revision, order: ['TASK-PLAN'] },
+      { projectKey: key, mutationRevision: current.mutation_revision, order: ['TASK-PLAN', 'TASK-GHOST'] },
+      { projectKey: key, mutationRevision: current.mutation_revision, order: ['TASK-PLAN', 'TASK-PLAN'] },
+      { projectKey: key, mutationRevision: current.mutation_revision, order: [42] },
+      { projectKey: key, mutationRevision: current.mutation_revision, order: ['TASK-PLAN', 'TASK-VAGUE'], edit: {} },
+      { mutationRevision: current.mutation_revision, order: null },
+    ]) {
+      const response = await order(body);
+      assert.equal(response.status >= 400 && response.status < 500, true, JSON.stringify(body));
+      assert.equal(mutationRevision(root), before);
+    }
+
+    const reset = await order({ projectKey: key, mutationRevision: current.mutation_revision, order: null });
+    assert.equal(reset.status, 200);
+    assert.deepEqual((await reset.json()).data.tasks.map((task) => task.order), [null, null]);
+    assert.doesNotMatch(fs.readFileSync(path.join(root, 'TASKS.md'), 'utf8'), /"order"/);
+
+    current = await getProject(handle, cookie, key);
+    const concurrent = await Promise.all([
+      order({ projectKey: key, mutationRevision: current.mutation_revision, order: ['TASK-VAGUE', 'TASK-PLAN'] }),
+      order({ projectKey: key, mutationRevision: current.mutation_revision, order: ['TASK-PLAN', 'TASK-VAGUE'] }),
+    ]);
+    assert.deepEqual(concurrent.map((response) => response.status).sort(), [200, 409]);
+  } finally { await stopStudio(handle); }
+});
+
 test('check is read-only, save updates state, conflict does not poison queue, and forbidden routes stay absent', async () => {
   const root = makeProject(); const handle = await startStudio(root);
   try {

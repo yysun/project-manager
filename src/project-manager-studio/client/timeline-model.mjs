@@ -1,7 +1,9 @@
 /* Pure UTC date and display geometry for Project Manager Studio Timeline.
    Ranges are inclusive; long canvases keep a readable weekly minimum width.
    Also owns marker derivation and drag-click suppression, extracted here so
-   both are unit-testable without rendering the component. */
+   both are unit-testable without rendering the component.
+   Row order lives here too: every task has an order number, stored or generated
+   from the derived arrangement, and row moves are pure sequence transforms. */
 export const DAY_MS = 86_400_000;
 
 export function toDay(date) { return Date.parse(`${date}T00:00:00Z`); }
@@ -19,15 +21,57 @@ export function timelineRange(tasks, project, milestones, padding = 3) {
   return { start: addDays(dates[0], -padding), end: addDays(dates.at(-1), padding) };
 }
 
-export function sortTimelineTasks(tasks) {
-  return [...tasks].sort((a, b) => {
-    if (a.scheduled_start === null && b.scheduled_start !== null) return 1;
-    if (a.scheduled_start !== null && b.scheduled_start === null) return -1;
-    return (a.scheduled_start ?? '').localeCompare(b.scheduled_start ?? '')
-      || (a.scheduled_end ?? '').localeCompare(b.scheduled_end ?? '')
-      || (a.milestone ?? '').localeCompare(b.milestone ?? '')
-      || a.id.localeCompare(b.id);
-  });
+/* The derived arrangement: the order every project had before stored row order
+   existed. It is still the default generator and the tie-breaker, so a project
+   that stores nothing renders exactly as it always did. */
+export function compareDerived(a, b) {
+  if (a.scheduled_start === null && b.scheduled_start !== null) return 1;
+  if (a.scheduled_start !== null && b.scheduled_start === null) return -1;
+  return (a.scheduled_start ?? '').localeCompare(b.scheduled_start ?? '')
+    || (a.scheduled_end ?? '').localeCompare(b.scheduled_end ?? '')
+    || (a.milestone ?? '').localeCompare(b.milestone ?? '')
+    || a.id.localeCompare(b.id);
+}
+
+/* Every task has an order number: the stored one, or a default generated from its
+   1-based position in the derived arrangement, so a task added after a reorder
+   lands at its date position instead of being exiled to the end.
+
+   Positions are doubled so the two kinds never collide. A stored order n becomes
+   2n and a generated position n becomes 2n+1, which puts a generated default
+   immediately after the stored row already holding that slot instead of
+   displacing it — an operator's explicit choice outranks a default that merely
+   computed the same number.
+
+   Always build this from the complete task list: a filtered subset would generate
+   different defaults and reshuffle rows the operator only meant to hide. */
+export function timelineOrder(tasks) {
+  const derived = [...tasks].sort(compareDerived);
+  return new Map(derived.map((task, index) => [task.id, typeof task.order === 'number' ? task.order * 2 : (index + 1) * 2 + 1]));
+}
+
+export function sortTimelineTasks(tasks, order = timelineOrder(tasks)) {
+  return [...tasks].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0) || compareDerived(a, b));
+}
+
+/* Pure row move over the complete id sequence. The caller resolves the drop
+   against a visible neighbour, but the move happens in full-project space, so
+   tasks hidden by a filter keep their relative positions. */
+export function moveTaskOrder(sequence, taskId, targetId, side) {
+  if (taskId === targetId || !sequence.includes(taskId) || !sequence.includes(targetId)) return [...sequence];
+  const remaining = sequence.filter((id) => id !== taskId);
+  const index = remaining.indexOf(targetId) + (side === 'after' ? 1 : 0);
+  return [...remaining.slice(0, index), taskId, ...remaining.slice(index)];
+}
+
+/* One step through the visible rows, for keyboard reordering. Moving past a
+   hidden task is meaningless to the operator, so steps are taken against the
+   visible list and then replayed in full-project space. */
+export function stepTaskOrder(sequence, visibleIds, taskId, delta) {
+  const visible = visibleIds.indexOf(taskId);
+  const target = visibleIds[visible + delta];
+  if (visible < 0 || target === undefined) return [...sequence];
+  return moveTaskOrder(sequence, taskId, target, delta > 0 ? 'after' : 'before');
 }
 
 export function rangeDays(range) { return dayDiff(range.start, range.end) + 1; }

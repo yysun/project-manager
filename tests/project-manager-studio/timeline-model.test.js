@@ -35,6 +35,45 @@ test('timeline tasks sort chronologically with unscheduled work last', async () 
   assert.deepEqual(tasks.map((task) => task.id), ['LATE', 'UNSCHEDULED', 'EARLY-LONG', 'EARLY-SHORT']);
 });
 
+test('every task gets an order number, stored winning over the generated default', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const tasks = [
+    { id: 'LATE', milestone: null, scheduled_start: '2026-08-20', scheduled_end: '2026-08-21', order: null },
+    { id: 'UNSCHEDULED', milestone: null, scheduled_start: null, scheduled_end: null, order: null },
+    { id: 'EARLY', milestone: null, scheduled_start: '2026-08-10', scheduled_end: '2026-08-11', order: null },
+  ];
+  // No stored order: generated defaults reproduce the derived arrangement exactly.
+  assert.equal(tasks.every((task) => model.timelineOrder(tasks).has(task.id)), true);
+  assert.deepEqual(model.sortTimelineTasks(tasks).map((task) => task.id), ['EARLY', 'LATE', 'UNSCHEDULED']);
+
+  // Stored order wins its slot: EARLY is first by date, but LATE stores position
+  // 1, so the generated default sits after it rather than displacing it.
+  const mixed = [{ ...tasks[0], order: 1 }, { ...tasks[1], order: 2 }, tasks[2]];
+  assert.deepEqual(model.sortTimelineTasks(mixed).map((task) => task.id), ['LATE', 'EARLY', 'UNSCHEDULED']);
+
+  // A filtered subset keeps the relative order the full list defines.
+  const order = model.timelineOrder(mixed);
+  assert.deepEqual(model.sortTimelineTasks([mixed[2], mixed[0]], order).map((task) => task.id), ['LATE', 'EARLY']);
+});
+
+test('row moves are pure permutations that leave filtered-out tasks in place', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const sequence = ['A', 'HIDDEN', 'B', 'C'];
+  assert.deepEqual(model.moveTaskOrder(sequence, 'C', 'A', 'before'), ['C', 'A', 'HIDDEN', 'B']);
+  assert.deepEqual(model.moveTaskOrder(sequence, 'A', 'C', 'after'), ['HIDDEN', 'B', 'C', 'A']);
+  assert.deepEqual(model.moveTaskOrder(sequence, 'A', 'A', 'before'), sequence);
+  assert.deepEqual(model.moveTaskOrder(sequence, 'A', 'GHOST', 'before'), sequence);
+  assert.deepEqual(sequence, ['A', 'HIDDEN', 'B', 'C']);
+
+  // Keyboard steps move through visible rows but rewrite the full sequence, so a
+  // hidden task never changes position relative to its neighbours.
+  const visible = ['A', 'B', 'C'];
+  assert.deepEqual(model.stepTaskOrder(sequence, visible, 'A', 1), ['HIDDEN', 'B', 'A', 'C']);
+  assert.deepEqual(model.stepTaskOrder(sequence, visible, 'C', -1), ['A', 'HIDDEN', 'C', 'B']);
+  assert.deepEqual(model.stepTaskOrder(sequence, visible, 'A', -1), sequence);
+  assert.deepEqual(model.stepTaskOrder(sequence, visible, 'C', 1), sequence);
+});
+
 test('timeline canvas expands for long ranges instead of compressing weekly labels', async () => {
   const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
   assert.equal(model.timelineContentWidth({ start: '2026-08-10', end: '2026-08-16' }), 1020);
