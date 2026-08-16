@@ -65,19 +65,33 @@ export function moveTaskOrder(sequence, taskId, targetId, side) {
 }
 
 /* Which row a drag should displace, given the pointer position and the visible
-   rows' vertical extents. Hovering a neighbour is not enough: the pointer must
-   cross that row's midpoint in the direction of travel. Committing on mere
-   overlap makes the drag oscillate, because the dragged row moves under the
-   pointer as soon as it swaps and immediately satisfies the overlap test again.
-   Midpoints also handle rows of unequal height, which Timeline has whenever a
-   label carries blocker or schedule-conflict lines. Returns -1 for no move. */
+   rows' vertical extents. Returns -1 for no move.
+
+   A row is displaced once the pointer has passed its midpoint, which is what
+   keeps the drag from oscillating: committing on mere overlap lets a dragged row
+   shorter than its neighbour swap, land under the pointer again, and swap back
+   forever. Midpoints also handle rows of unequal height, which Timeline has
+   whenever a label carries blocker or schedule-conflict lines.
+
+   The answer is the furthest row whose midpoint the pointer has passed, not the
+   one it currently sits over. Pointer events are samples, not a continuous
+   path: a quick drag jumps tens of pixels between events, so testing only the
+   hovered row silently discards every row skipped in between — and if each
+   sample happens to land short of its own row's midpoint, a long drag commits
+   nothing at all. Scanning by midpoint makes the result depend on where the
+   pointer is, not on how often it was sampled on the way there. */
 export function dropTargetIndex(pointerY, rows, fromIndex) {
-  const hovered = rows.findIndex((row) => pointerY >= row.top && pointerY <= row.bottom);
-  if (hovered < 0 || hovered === fromIndex || fromIndex < 0) return -1;
-  const midpoint = rows[hovered].top + (rows[hovered].bottom - rows[hovered].top) / 2;
-  if (hovered > fromIndex && pointerY < midpoint) return -1;
-  if (hovered < fromIndex && pointerY > midpoint) return -1;
-  return hovered;
+  if (fromIndex < 0 || fromIndex >= rows.length) return -1;
+  const midpoint = (row) => row.top + (row.bottom - row.top) / 2;
+  let target = -1;
+  for (let index = fromIndex + 1; index < rows.length; index += 1) {
+    if (pointerY >= midpoint(rows[index])) target = index;
+  }
+  if (target >= 0) return target;
+  for (let index = fromIndex - 1; index >= 0; index -= 1) {
+    if (pointerY <= midpoint(rows[index])) target = index;
+  }
+  return target;
 }
 
 /* One step through the visible rows, for keyboard reordering. Moving past a

@@ -84,8 +84,24 @@ test('a drag displaces a row only after crossing its midpoint, so it cannot osci
   assert.equal(model.dropTargetIndex(115, rows, 2), -1, 'moving up, still below the midpoint');
   assert.equal(model.dropTargetIndex(79, rows, 2), 1, 'moving up past the midpoint commits');
   assert.equal(model.dropTargetIndex(20, rows, 0), -1, 'hovering its own row never moves it');
-  assert.equal(model.dropTargetIndex(400, rows, 0), -1, 'outside every row');
   assert.equal(model.dropTargetIndex(150, [], -1), -1, 'no rows, no target');
+});
+
+test('a drag that jumps between pointer samples still lands where the pointer is', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  // Measured from a real failing drag: 42px rows, pointer sampled only twice and
+  // each sample landing a few pixels short of its own row's midpoint. Testing
+  // just the hovered row returned "no move" for a 340px drag across 8 rows.
+  const rows = Array.from({ length: 12 }, (_, index) => ({ top: 284 + index * 42, bottom: 326 + index * 42 }));
+  assert.equal(model.dropTargetIndex(471, rows, 0), 3, 'passes three midpoints even though it is short of row 4');
+  assert.equal(model.dropTargetIndex(640, rows, 0), 7, 'a bigger jump lands further, not nowhere');
+  assert.equal(model.dropTargetIndex(5000, rows, 0), 11, 'dragging past the end lands on the last row');
+  assert.equal(model.dropTargetIndex(0, rows, 11), 0, 'dragging past the start lands on the first row');
+  // Still oscillation-proof: a swap cannot immediately satisfy the reverse move.
+  const uneven = [{ top: 0, bottom: 42 }, { top: 42, bottom: 142 }];
+  assert.equal(model.dropTargetIndex(92, uneven, 0), 1, 'short row displaces a tall one at its midpoint');
+  const swapped = [{ top: 0, bottom: 100 }, { top: 100, bottom: 142 }];
+  assert.equal(model.dropTargetIndex(92, swapped, 1), -1, 'and does not immediately swap back');
 });
 
 test('timeline canvas expands for long ranges instead of compressing weekly labels', async () => {
