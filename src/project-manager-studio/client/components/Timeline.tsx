@@ -6,7 +6,7 @@
 // drag so it cannot swallow a click on an unrelated bar.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest, TaskOrderRequest } from '../../shared/api';
-import { barGeometry, compareDerived, createDragSuppression, datePercent, dayDiff, moveSchedule, moveTaskOrder, pixelsToDays, rangeDays, resizeSchedule, sortTimelineTasks, stepTaskOrder, timelineContentWidth, timelineMarkers, timelineOrder, timelineRange, timelineScaleTicks, type DateRange, type DragSuppression, type TimelineMarker } from '../timeline-model.mjs';
+import { barGeometry, compareDerived, createDragSuppression, datePercent, dayDiff, dropTargetIndex, moveSchedule, moveTaskOrder, pixelsToDays, rangeDays, resizeSchedule, sortTimelineTasks, stepTaskOrder, timelineContentWidth, timelineMarkers, timelineOrder, timelineRange, timelineScaleTicks, type DateRange, type DragSuppression, type TimelineMarker } from '../timeline-model.mjs';
 import type { SelectionRequest } from '../selection-guard.mjs';
 
 interface Props {
@@ -86,12 +86,13 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
     if (!current) return;
     const visible = ordered.map((task) => task.id);
     const from = visible.indexOf(current.taskId);
-    const target = visible.find((id) => {
+    const extents = visible.map((id) => {
       const rect = rows.current.get(id)?.getBoundingClientRect();
-      return rect ? event.clientY >= rect.top && event.clientY <= rect.bottom : false;
+      return { top: rect?.top ?? Infinity, bottom: rect?.bottom ?? -Infinity };
     });
-    if (target === undefined || target === current.taskId || from < 0) return;
-    current.sequence = moveTaskOrder(sequence, current.taskId, target, visible.indexOf(target) > from ? 'after' : 'before');
+    const to = dropTargetIndex(event.clientY, extents, from);
+    if (to < 0) return;
+    current.sequence = moveTaskOrder(sequence, current.taskId, visible[to], to > from ? 'after' : 'before');
     updateDraft({ kind: 'order', sequence: current.sequence });
   }
 
@@ -185,7 +186,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   const row = (task: KanbanTask) => <TimelineLabel task={task} onOpen={onOpen} orderable={orderable} reason={data.project.task_order_edit_reason} locked={scheduleDraft !== null}
     dragging={dragging === task.id} register={registerRow} onBegin={beginRowDrag} onMove={moveRow} onFinish={finishRow} onNudge={nudgeRow} />;
 
-  return <section className="timeline-panel" aria-label="Task timeline">
+  return <section className={`timeline-panel ${dragging ? 'timeline-panel--reordering' : ''}`} aria-label="Task timeline">
     {draft && <div className="timeline-draft-actions" role="status">
       <span>{draft.kind === 'schedule' ? `${draft.start} → ${draft.end}` : draft.sequence === null ? 'Row order reset to generated defaults' : 'Row order changed'}</span>
       <button className="secondary-button" disabled={busy} onClick={() => { updateDraft(null); setError(null); setAnnouncement(''); }}>Cancel</button>
@@ -206,7 +207,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
             const shown = scheduleDraft?.taskId === task.id ? { start: scheduleDraft.start, end: scheduleDraft.end } : task.scheduled_start && task.scheduled_end ? { start: task.scheduled_start, end: task.scheduled_end } : null;
             return <div className="timeline-row-group" key={task.id}>
               {row(task)}
-              <div className="timeline-track">
+              <div className={`timeline-track ${dragging === task.id ? 'timeline-track--dragging' : ''}`}>
                 <Markers markers={markers} range={range} />
                 {shown ? <ScheduleBar task={task} range={range} start={shown.start} end={shown.end} draft={scheduleDraft?.taskId === task.id} onOpen={onOpen} onBegin={begin} onMove={move} onFinish={finish} onNudge={nudge} suppressClick={suppressClick} /> : <button className="unscheduled-button" onClick={(event) => onOpen(task, event.currentTarget)}>Unscheduled · add dates</button>}
               </div>

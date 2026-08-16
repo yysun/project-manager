@@ -64,6 +64,22 @@ export function moveTaskOrder(sequence, taskId, targetId, side) {
   return [...remaining.slice(0, index), taskId, ...remaining.slice(index)];
 }
 
+/* Which row a drag should displace, given the pointer position and the visible
+   rows' vertical extents. Hovering a neighbour is not enough: the pointer must
+   cross that row's midpoint in the direction of travel. Committing on mere
+   overlap makes the drag oscillate, because the dragged row moves under the
+   pointer as soon as it swaps and immediately satisfies the overlap test again.
+   Midpoints also handle rows of unequal height, which Timeline has whenever a
+   label carries blocker or schedule-conflict lines. Returns -1 for no move. */
+export function dropTargetIndex(pointerY, rows, fromIndex) {
+  const hovered = rows.findIndex((row) => pointerY >= row.top && pointerY <= row.bottom);
+  if (hovered < 0 || hovered === fromIndex || fromIndex < 0) return -1;
+  const midpoint = rows[hovered].top + (rows[hovered].bottom - rows[hovered].top) / 2;
+  if (hovered > fromIndex && pointerY < midpoint) return -1;
+  if (hovered < fromIndex && pointerY > midpoint) return -1;
+  return hovered;
+}
+
 /* One step through the visible rows, for keyboard reordering. Moving past a
    hidden task is meaningless to the operator, so steps are taken against the
    visible list and then replayed in full-project space. */

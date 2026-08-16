@@ -74,6 +74,20 @@ test('row moves are pure permutations that leave filtered-out tasks in place', a
   assert.deepEqual(model.stepTaskOrder(sequence, visible, 'C', 1), sequence);
 });
 
+test('a drag displaces a row only after crossing its midpoint, so it cannot oscillate', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  // Row 1 is twice as tall, as it is whenever a label carries blocker lines.
+  const rows = [{ top: 0, bottom: 40 }, { top: 40, bottom: 120 }, { top: 120, bottom: 160 }];
+  assert.equal(model.dropTargetIndex(45, rows, 0), -1, 'just inside the row below is not enough');
+  assert.equal(model.dropTargetIndex(79, rows, 0), -1, 'still above the tall row midpoint');
+  assert.equal(model.dropTargetIndex(81, rows, 0), 1, 'past the midpoint commits the move');
+  assert.equal(model.dropTargetIndex(115, rows, 2), -1, 'moving up, still below the midpoint');
+  assert.equal(model.dropTargetIndex(79, rows, 2), 1, 'moving up past the midpoint commits');
+  assert.equal(model.dropTargetIndex(20, rows, 0), -1, 'hovering its own row never moves it');
+  assert.equal(model.dropTargetIndex(400, rows, 0), -1, 'outside every row');
+  assert.equal(model.dropTargetIndex(150, [], -1), -1, 'no rows, no target');
+});
+
 test('timeline canvas expands for long ranges instead of compressing weekly labels', async () => {
   const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
   assert.equal(model.timelineContentWidth({ start: '2026-08-10', end: '2026-08-16' }), 1020);

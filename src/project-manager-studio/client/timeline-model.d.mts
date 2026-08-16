@@ -12,6 +12,7 @@ export function timelineOrder(tasks: OrderableTask[]): Map<string, number>;
 export function sortTimelineTasks<T extends OrderableTask>(tasks: T[], order?: Map<string, number>): T[];
 export function moveTaskOrder(sequence: string[], taskId: string, targetId: string, side: 'before' | 'after'): string[];
 export function stepTaskOrder(sequence: string[], visibleIds: string[], taskId: string, delta: number): string[];
+export function dropTargetIndex(pointerY: number, rows: Array<{ top: number; bottom: number }>, fromIndex: number): number;
 export function rangeDays(range: DateRange): number;
 export function timelineContentWidth(range: DateRange, minimum?: number, weekWidth?: number): number;
 export function timelineScaleTicks(range: DateRange, minimumLabelDays?: number): string[];

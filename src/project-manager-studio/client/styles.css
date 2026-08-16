@@ -42,9 +42,9 @@
    The grip cannot be a sibling grid child: .timeline-grid has exactly two
    columns and .timeline-row-group is display:contents. */
 .timeline-label--row { display:flex; align-items:stretch; padding:0; }
-.timeline-label--dragging { background:#eef6f9; }
 .timeline-order-grip { flex:none; width:20px; border:0; border-right:1px solid var(--timeline-grid); background:transparent; padding:0; color:#9aa3a6; cursor:grab; touch-action:none; line-height:1; }
 .timeline-order-grip:hover:not(:disabled) { background:#f0f6f8; color:var(--ink); }
+.timeline-label--row:hover .timeline-order-grip:not(:disabled) { color:#5d676a; }
 .timeline-order-grip:active:not(:disabled) { cursor:grabbing; }
 .timeline-order-grip:disabled { cursor:not-allowed; }
 .timeline-order-reset { border:1px solid var(--line); border-radius:7px; background:var(--paper); padding:3px 7px; cursor:pointer; text-transform:none; letter-spacing:0; font-size:9px; font-weight:700; }
@@ -66,6 +66,19 @@
 .timeline-week { position:absolute; inset-block:0; display:flex; align-items:center; justify-content:center; overflow:hidden; padding:0 4px; border-left:1px solid var(--timeline-week); color:#1f2923; font:750 10px/1 ui-monospace,SFMono-Regular,monospace; white-space:nowrap; text-overflow:ellipsis; }
 .timeline-week--end { transform:translateX(-100%); border-left:0; border-right:1px solid var(--timeline-week); }
 .timeline-track { position:relative; overflow:hidden; background-color:#fff; background-image:linear-gradient(to right,rgba(211,218,221,.34) 1px,transparent 1px),linear-gradient(to right,var(--timeline-week) 1px,transparent 1px); background-size:calc(100% / var(--timeline-days)) 100%,calc(700% / var(--timeline-days)) 100%; }
+/* Drag state, declared after .timeline-track so the lift's background wins over
+   that rule's own background-color. A row is two grid cells, so the lift is
+   painted on both halves or the dragged row reads as half-detached, and both are
+   raised above the sticky label's z-index 5 so the shadow falls over its
+   neighbours rather than under them. */
+.timeline-label,.timeline-track { transition:background-color .12s ease,box-shadow .12s ease; }
+.timeline-label--dragging,.timeline-track--dragging { z-index:6; background-color:#e8f4f8; box-shadow:0 5px 14px rgba(32,42,35,.16); }
+.timeline-label--dragging .timeline-order-grip { background:#d7ebf3; color:var(--ink); }
+/* The pointer is captured by the grip, so it travels over bars, labels and
+   buttons that all declare their own cursor. Only an active drag overrides
+   them, and it ends the moment the class is removed. */
+.timeline-panel--reordering { user-select:none; }
+.timeline-panel--reordering,.timeline-panel--reordering * { cursor:grabbing !important; }
 .timeline-marker { position:absolute; z-index:1; top:0; bottom:0; width:1px; background:#69756d; opacity:.55; }
 .timeline-marker--target { width:2px; background:var(--amber); }
 .timeline-marker--forecast { width:0; border-left:2px dashed var(--red); background:transparent; opacity:.72; }
