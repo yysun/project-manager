@@ -13,6 +13,7 @@ import { startStudioHeartbeat } from './studio-heartbeat.mjs';
 import { startStudioEvents } from './studio-events.mjs';
 import { createAutoRefreshCoordinator, type AutoRefreshCommit } from './auto-refresh.mjs';
 import { fetchProjectSnapshot } from './project-fetch.mjs';
+import { PROJECT_MANAGER_VERSION } from '../../version.js';
 
 type StudioView = 'kanban' | 'timeline';
 function viewFromUrl(): StudioView { return new URLSearchParams(window.location.search).get('view') === 'timeline' ? 'timeline' : 'kanban'; }
@@ -171,7 +172,7 @@ export function App() {
 
   return <main className="app-shell">
     <header className="topbar" ref={topbar}>
-      <div className="brand"><div className="mark">PM</div><div><span>Project Manager</span><strong>Studio</strong></div></div>
+      <div className="brand"><div className="mark">PM</div><div><span>Project Manager</span><strong>Studio <em>{PROJECT_MANAGER_VERSION}</em></strong></div></div>
       <div className="project-heading">
         <div className="project-select-col">
           <ProjectSelect catalog={catalog!} selectedKey={selectedKey} disabled={false} onChange={switchProject} />
