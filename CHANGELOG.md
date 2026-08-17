@@ -12,6 +12,23 @@ project written by an older release keeps loading unchanged; no release has requ
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-08-16
+
+### Added
+
+- `TASKS.md` **schema version 4** manual task order. Timeline rows are reordered by dragging the left
+  task-column grip or by keyboard, and the position is a persisted project fact written through one
+  new `PUT /api/task-order` route, revision-guarded and queued like task edits. A task without an
+  `order` takes a default generated from the derived arrangement, so an unordered project renders as
+  before with no ordering mode; the client sends the whole sequence, so a drop under active filters
+  leaves hidden rows in place. Order changes no specification: it is excluded from the specification
+  hash and Task Contract, leaves `updated` alone, and stays available on done, cancelled, and
+  evidence-backed tasks. Holding a drag at the top or bottom edge auto-scrolls the page, inset by the
+  sticky headers, so a row can reach a target that was off screen when the drag began.
+- The MCP App board renders lanes through a Kanban component with expandable per-task detail —
+  outcome, owner, milestone, schedule, blockers, and acceptance items — plus an explicit loading
+  state instead of a blank frame.
+
 ### Changed
 
 - `execute-rpd` now closes out each repository instead of ending on a retained integration branch. It
@@ -22,6 +39,26 @@ project written by an older release keeps loading unchanged; no release has requ
   are never auto-resolved, and the delivery decision is recorded in the final report so an unmerged
   branch is unambiguous. Conflicts between a task branch and the integration branch are still resolved
   automatically and re-reviewed as before.
+- Board projection builds its id-to-task index once per call instead of once per lookup — 402
+  constructions at 200 tasks became one — `validateGraph` replaces a quadratic scan with a
+  reverse-dependency map, and the compact MCP summary no longer builds the projection it discarded.
+- `TASKS.md` schema versions 1, 2, and 3 keep their exact normalized shapes, so installing v4 support
+  cannot stale an untouched project's `STATUS.md`. Schema 4 is forward-only like v2 and v3 before it,
+  and the version rises only when an operator actually reorders.
+
+### Fixed
+
+- Request-time project containment moved into `ProjectCatalog.register`, judged on the resolved real
+  path so a symlinked ancestor no longer rejects a legitimate child, and decided on the parent before
+  the leaf is touched so out-of-root paths cannot be probed for existence. Omitting the containment
+  decision fails loudly instead of opening. Immutable-history ancestor checks compare path segments
+  instead of string prefixes.
+- A Studio watcher that cannot rebind after a project root is replaced now reports its stream
+  degraded rather than going quietly dead, and the client clears that warning only on an explicit
+  server-stated liveness edge. Timeline drag suppression can no longer swallow a click on an
+  unrelated bar.
+- `.gitattributes` rules match the real artifact paths, and the `.gitignore` `dist/` line that hid
+  tracked Studio assets is gone.
 
 ## [1.8.0] — 2026-08-15
 
@@ -264,6 +301,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.9.0]: https://github.com/yysun/project-manager/releases/tag/v1.9.0
 [1.8.0]: https://github.com/yysun/project-manager/releases/tag/v1.8.0
 [1.7.0]: https://github.com/yysun/project-manager/releases/tag/v1.7.0
 [1.6.0]: https://github.com/yysun/project-manager/releases/tag/v1.6.0
