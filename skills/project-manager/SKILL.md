@@ -178,8 +178,10 @@ For RPD:
 5. Snapshot exact-story RPD artifacts into the project attempt before manifest ingestion.
 
 For dependency-aware multi-task RPD execution, read [execute-rpd.md](references/execute-rpd.md) and
-use its scheduling, worktree, integration, review-capacity, and stopping rules. Do not expand the
-one-line user command into a confirmation ceremony.
+use its scheduling, worktree, integration, delivery, and review-capacity and stopping rules. Do not
+expand the one-line user command into a confirmation ceremony. The single closing delivery question
+is not a ceremony: ask it once when the request did not already state delivery intent, and never
+merge into a base branch or remove a coordinator worktree without that intent.
 
 Never infer executor success from a closed issue, commit, file presence, or confident prose.
 

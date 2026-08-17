@@ -198,8 +198,15 @@ supports each task's acceptance criteria.
 This command does not mean “run the entire backlog at once.” It leaves non-[RPD](https://github.com/yysun/rpd) tasks with their
 assigned executors, preserves blocked attempts, and continues only with unrelated ready work. It
 creates local commits and an integration branch, but does not push, open a pull request, or weaken a
-task to make it pass. The final report identifies the integration branch and retained coordinator
-worktree for inspection.
+task to make it pass.
+
+At the end it closes the work out instead of handing you a branch to figure out. It asks once whether
+to merge the integration branch into your branch and remove its worktree, naming what merging would
+land — including that it lands partial work when some tasks blocked. Say so up front to skip the
+question: *…and merge when done*, or *…and leave it on the branch*. It will not merge into a dirty
+checkout, and it will not resolve a conflict against your own branch; it reports those and leaves the
+branch for you. Either way the final report records what was decided, so an unmerged branch is never
+ambiguous between deliberate and forgotten.
 
 Project Manager resolves `Website Launch` only among validated projects directly inside the selected
 workspace's `.projects` folder. An exact project ID or folder name also works. If the name is missing

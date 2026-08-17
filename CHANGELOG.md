@@ -12,6 +12,17 @@ project written by an older release keeps loading unchanged; no release has requ
 
 ## [Unreleased]
 
+### Changed
+
+- `execute-rpd` now closes out each repository instead of ending on a retained integration branch. It
+  asks once whether to merge the integration branch into its base branch and remove the coordinator
+  worktree, naming the branch, the worktree path, the merge result, and — when tasks blocked — that
+  merging lands partial work. Stating delivery intent in the request skips the question. Merging
+  requires a clean base checkout and a conflict-free merge; conflicts against the user's base branch
+  are never auto-resolved, and the delivery decision is recorded in the final report so an unmerged
+  branch is unambiguous. Conflicts between a task branch and the integration branch are still resolved
+  automatically and re-reviewed as before.
+
 ## [1.8.0] — 2026-08-15
 
 ### Added

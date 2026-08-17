@@ -7,6 +7,11 @@ Git branches and worktrees, RPD execution, tests, reviews, local integration, an
 does not authorize pushes, pull requests, destructive cleanup, executor reassignment, or task-scope
 changes.
 
+Merging an integration branch into its base branch and removing a coordinator worktree need explicit
+delivery intent. Accept that intent from the request when it is stated, as in `execute the RPD work
+and merge when done` or `run the RPD work and leave it on the branch`. Otherwise obtain it at the
+closing Delivery step. Never merge into a base branch or remove a coordinator worktree on assumption.
+
 When the user supplies a project name instead of a folder, resolve it only from the calling context's
 selected workspace `.projects` root. Run:
 
@@ -63,7 +68,11 @@ Repeat until all eligible RPD tasks are done or no further task can run:
 Integrate completed task branches one at a time in project dependency order:
 
 1. In the task worktree, merge the latest repository integration branch into the task branch before
-   integrating the task. Resolve conflicts there, not by editing the coordinator worktree.
+   integrating the task. Resolve conflicts there, not by editing the coordinator worktree. Resolving
+   a conflict between a task branch and the integration branch is in scope: both sides were produced
+   by this run, both have Task Contracts and acceptance criteria, and the review gates below re-run
+   over the resolution. Conflicts between the integration branch and the user's base branch are out
+   of scope; handle them under Delivery.
 2. Any conflict resolution or other material change after a review pass invalidates that pass. Rerun
    the affected RPD verification, CR, and VR stages, then create the required scoped commit.
 3. Merge the refreshed task branch into the integration branch without discarding user changes.
@@ -78,8 +87,39 @@ Integrate completed task branches one at a time in project dependency order:
    from the updated integration branch, never from the original base.
 
 Remove a task worktree only when it is clean, its commits are reachable from the integration branch,
-its evidence is captured, and no retry is active. Never force removal. Retain and report each
-integration branch and coordinator worktree so the user can inspect or publish the result.
+its evidence is captured, and no retry is active. Never force removal. Retain each integration branch
+and coordinator worktree through the last wave so the user can inspect the result, then resolve them
+under Delivery.
+
+## Delivery
+
+Close out every repository explicitly after its last wave. A run must never end leaving an
+unannotated integration branch and coordinator worktree for the user to reconstruct.
+
+1. Establish the terminal state per repository before asking anything: integration branch, coordinator
+   worktree path, base branch and whether it moved during the run, whether the base checkout is clean,
+   which tasks are integrated, and which are blocked, skipped, or assigned to non-RPD executors.
+2. Test the merge without mutating anything, for example with `git merge-tree`, and record whether the
+   integration branch merges into the base branch cleanly or with conflicts, naming the conflicting
+   paths.
+3. When the request stated delivery intent, follow it without asking. Otherwise ask once, in a single
+   question that names the integration branch, the coordinator worktree path, the clean-or-conflicting
+   merge result, and — when any selected task did not integrate — that merging lands partial work and
+   which tasks it omits. A partial integration must be described as partial in the question itself so
+   the answer is informed. Stated intent authorizes the merge; it does not waive the conditions below.
+4. Merge only into a clean base checkout, and only when the merge is conflict-free. The preflight
+   preserved a dirty user checkout; do not undo that at the last step. When the base checkout is dirty,
+   report it, leave the integration branch in place, and let the user land it.
+5. Never auto-resolve a conflict against the base branch. That side is work this run never saw, holds
+   no Task Contract, and has no acceptance criteria to re-verify against. Report the conflicting paths,
+   leave the base branch untouched — abort rather than commit a partial merge — and hand back the
+   integration branch for the user to resolve or to authorize a specific strategy.
+6. Remove a coordinator worktree only after its merge is confirmed and its commits are reachable from
+   the base branch. Never force removal. Retain the worktrees of blocked or retried tasks regardless of
+   the delivery decision, and report their paths.
+7. Record the delivery decision as an explicit outcome. `Left on codex/<name> at user's request` and
+   `left on codex/<name>: base checkout dirty` are results; silence is not. An unmerged branch must
+   never be ambiguous between deliberate and forgotten.
 
 ## Final report
 
@@ -87,7 +127,9 @@ Report:
 
 - tasks completed, blocked, skipped, or assigned to non-RPD executors;
 - dependency waves and material serialization decisions;
-- integration branch and retained coordinator-worktree path for each repository;
+- the delivery decision and terminal Git state for each repository: integration branch, whether it was
+  merged into its base branch or deliberately left, whether the integration is partial and what it
+  omits, and every retained worktree path;
 - exact verification commands and results;
 - Project Manager evidence state and any remaining blockers.
 
