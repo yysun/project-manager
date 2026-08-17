@@ -73,8 +73,8 @@ The minimal project folder contains only:
 Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, `TRACEABILITY.md`, `CHANGES.md`, `ASSUMPTIONS.md`, `ISSUES.md`, `STAKEHOLDERS.md`, `LESSONS.md`, `CLOSURE.md`, `handoffs/`, and `reports/history/`.
 
 Workspace-root initialization also installs workspace support outside the project folder: ignored
-`.projects/.env.local` records this active skill's absolute path, and canonical `studio.sh` plus
-`studio.cmd` launch Studio from the workspace root. Always use `project-init-workspace.js` for that
+`.projects/.env.local` records this active skill's absolute path, and canonical `.projects/studio.sh`
+plus `.projects/studio.cmd` launch Studio for that workspace. Always use `project-init-workspace.js` for that
 multi-path transaction; read [init.md](references/init.md). Standalone target-folder initialization
 retains the three-file-only contract and creates no workspace support.
 
@@ -269,12 +269,15 @@ node <absolute-skill-dir>/scripts/project-manager-studio.js --projects-root <fol
 ```
 
 After workspace-root initialization, operators can use the generated launcher instead. It reads the
-machine-local skill path from ignored `.projects/.env.local`, anchors discovery to the launcher's
-workspace, and forwards any Studio arguments:
+machine-local skill path from the ignored `.projects/.env.local` beside it, anchors discovery to the
+workspace that contains that projects root, and forwards any Studio arguments:
 
 ```bash
-./studio.sh
-studio.cmd
+./.projects/studio.sh
+```
+
+```bash
+.projects\studio.cmd
 ```
 
 The command prints a tokenized loopback URL. Report it to the user. Use `--no-open` only for automated

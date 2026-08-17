@@ -5,9 +5,8 @@
 unset PROJECT_MANAGER_SKILL_PATH
 project_manager_skill_path_count=0
 project_manager_cr=$(printf '\r')
-project_manager_projects=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
-project_manager_workspace=$(CDPATH= cd -- "$project_manager_projects/.." && pwd -P) || exit 1
-project_manager_env="$project_manager_projects/.env.local"
+project_manager_workspace=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
+project_manager_env="$project_manager_workspace/.projects/.env.local"
 
 if [ -L "$project_manager_env" ] || [ ! -f "$project_manager_env" ]; then
   echo "Project Manager Studio: missing $project_manager_env" >&2
@@ -25,7 +24,7 @@ while IFS= read -r project_manager_line || [ -n "$project_manager_line" ]; do
 done < "$project_manager_env"
 
 if [ "$project_manager_skill_path_count" -ne 1 ] || [ -z "$PROJECT_MANAGER_SKILL_PATH" ]; then
-  echo "Project Manager Studio: $project_manager_env must contain exactly one non-empty PROJECT_MANAGER_SKILL_PATH" >&2
+  echo "Project Manager Studio: .projects/.env.local must contain exactly one non-empty PROJECT_MANAGER_SKILL_PATH" >&2
   exit 2
 fi
 

@@ -4,7 +4,7 @@ rem Invariants: never inherit a skill path, never execute configuration, and pre
 setlocal
 set "PROJECT_MANAGER_SKILL_PATH="
 set "PROJECT_MANAGER_SKILL_PATH_COUNT=0"
-set "PROJECT_MANAGER_ENV=%~dp0.env.local"
+set "PROJECT_MANAGER_ENV=%~dp0.projects\.env.local"
 
 if not exist "%PROJECT_MANAGER_ENV%" (
   >&2 echo Project Manager Studio: missing %PROJECT_MANAGER_ENV%
@@ -19,7 +19,7 @@ for /f "usebackq tokens=1,* delims==" %%A in ("%PROJECT_MANAGER_ENV%") do (
 )
 
 if not "%PROJECT_MANAGER_SKILL_PATH_COUNT%"=="1" (
-  >&2 echo Project Manager Studio: %PROJECT_MANAGER_ENV% must contain exactly one PROJECT_MANAGER_SKILL_PATH
+  >&2 echo Project Manager Studio: .projects\.env.local must contain exactly one PROJECT_MANAGER_SKILL_PATH
   exit /b 2
 )
 if not defined PROJECT_MANAGER_SKILL_PATH (
@@ -44,7 +44,7 @@ if exist "%PROJECT_MANAGER_STUDIO%\NUL" (
   exit /b 2
 )
 
-cd /d "%~dp0.." || exit /b 1
+cd /d "%~dp0" || exit /b 1
 node "%PROJECT_MANAGER_STUDIO%" %*
 set "PROJECT_MANAGER_STUDIO_EXIT=%ERRORLEVEL%"
 exit /b %PROJECT_MANAGER_STUDIO_EXIT%

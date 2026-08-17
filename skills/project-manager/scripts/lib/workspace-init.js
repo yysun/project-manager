@@ -1,7 +1,9 @@
 /**
- * Responsibility: install one validated project and canonical Studio launch support as one workspace transaction.
+ * Responsibility: install one validated project and canonical Studio launch support, and retire launchers this skill
+ * published to the workspace root before they moved into the projects root, as one workspace transaction.
  * Invariants: contained real paths only, STATUS is generated internally, every target is revalidated before exposure,
- * and failed writes restore exact prior bytes and modes or preserve an explicit recovery root.
+ * only bytes this skill published are removed, and failed writes restore exact prior bytes and modes or preserve an
+ * explicit recovery root.
  */
 'use strict';
 
@@ -15,6 +17,13 @@ const { createProjectWork, cleanupProjectWork } = require('./mutations');
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 const SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ENV_KEY = 'PROJECT_MANAGER_SKILL_PATH';
+// Frozen sha256 of every launcher this skill ever published to the workspace root, before launchers
+// moved into the projects root. Only these exact bytes are removable; anything else at those names
+// belongs to the operator.
+const RETIRED_ROOT_LAUNCHERS = Object.freeze({
+  'studio.sh': Object.freeze(['2219fc49f038529dd102d1a11510bbbcc9c466bb92f3cba3a18c0da62f9bdefa']),
+  'studio.cmd': Object.freeze(['31892644e39ba8244e0c6d13e58a88ec65040cfa9d0a612833b3173e68de45e6']),
+});
 
 class WorkspaceInitError extends Error {
   constructor(code, message, target = null, kind = 'semantic') {
@@ -128,6 +137,18 @@ function ensureIgnore(before, target) {
 
 function sameBytes(snapshotValue, bytes) { return snapshotValue.type === 'file' && snapshotValue.digest === digest(bytes); }
 
+// A retired root launcher is removable only when it is a regular file carrying bytes this skill
+// published. Anything else at that name — a symlink, a directory, or unrelated operator content — is
+// reported as absent so the transaction leaves it untouched instead of refusing the whole workspace.
+function retiredLauncherSnapshot(target, allowedDigests) {
+  const stat = lstatIfExists(target);
+  if (!stat || !stat.isFile()) return { type: 'absent' };
+  const bytes = fs.readFileSync(target);
+  const value = digest(bytes);
+  if (!allowedDigests.includes(value)) return { type: 'absent' };
+  return { type: 'file', dev: stat.dev, ino: stat.ino, mode: stat.mode & 0o777, size: stat.size, digest: value, bytes };
+}
+
 function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {}) {
   if (!path.isAbsolute(workspaceRoot)) throw new WorkspaceInitError('WORKSPACE_NOT_ABSOLUTE', 'Workspace root must be absolute', workspaceRoot, 'path');
   if (!SAFE_SLUG.test(slug)) throw new WorkspaceInitError('INVALID_PROJECT_SLUG', 'Project slug must be lowercase kebab-case', slug, 'grammar');
@@ -147,22 +168,26 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
   const projectTarget = path.join(projectsRoot, slug);
   const envTarget = path.join(projectsRoot, '.env.local');
   const ignoreTarget = path.join(projectsRoot, '.gitignore');
-  const shTarget = path.join(workspace, 'studio.sh');
-  const cmdTarget = path.join(workspace, 'studio.cmd');
-  for (const target of [projectsRoot, shTarget, cmdTarget]) assertContained(workspace, target);
-  for (const target of [projectTarget, envTarget, ignoreTarget]) assertContained(projectsRoot, target);
+  const shTarget = path.join(projectsRoot, 'studio.sh');
+  const cmdTarget = path.join(projectsRoot, 'studio.cmd');
+  const retiredTargets = Object.keys(RETIRED_ROOT_LAUNCHERS).map((name) => path.join(workspace, name));
+  for (const target of [projectsRoot, ...retiredTargets]) assertContained(workspace, target);
+  for (const target of [projectTarget, envTarget, ignoreTarget, shTarget, cmdTarget]) assertContained(projectsRoot, target);
 
   const projectsSnapshot = snapshot(projectsRoot, ['directory']);
   const projectSnapshot = projectsSnapshot.type === 'absent' ? { type: 'absent' } : snapshot(projectTarget, ['directory'], { deepDirectory: true });
   if (projectSnapshot.type === 'directory' && !projectSnapshot.empty) throw new WorkspaceInitError('PROJECT_NOT_EMPTY', `Initialization target must be nonexistent or empty: ${projectTarget}`, projectTarget);
   const envSnapshot = projectsSnapshot.type === 'absent' ? { type: 'absent' } : snapshot(envTarget, ['file']);
   const ignoreSnapshot = projectsSnapshot.type === 'absent' ? { type: 'absent' } : snapshot(ignoreTarget, ['file']);
-  const shSnapshot = snapshot(shTarget, ['file']);
-  const cmdSnapshot = snapshot(cmdTarget, ['file']);
+  const shSnapshot = projectsSnapshot.type === 'absent' ? { type: 'absent' } : snapshot(shTarget, ['file']);
+  const cmdSnapshot = projectsSnapshot.type === 'absent' ? { type: 'absent' } : snapshot(cmdTarget, ['file']);
   const shAsset = fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'));
   const cmdAsset = fs.readFileSync(path.join(skillRoot, 'assets', 'studio.cmd'));
   if (shSnapshot.type === 'file' && !sameBytes(shSnapshot, shAsset)) throw new WorkspaceInitError('LAUNCHER_CONFLICT', `Existing launcher is not managed by Project Manager: ${shTarget}`, shTarget);
   if (cmdSnapshot.type === 'file' && !sameBytes(cmdSnapshot, cmdAsset)) throw new WorkspaceInitError('LAUNCHER_CONFLICT', `Existing launcher is not managed by Project Manager: ${cmdTarget}`, cmdTarget);
+  const retired = Object.entries(RETIRED_ROOT_LAUNCHERS).map(([name, digests], index) => ({
+    name: `retired-${name}`, target: retiredTargets[index], before: retiredLauncherSnapshot(retiredTargets[index], digests), allowed: ['file'], remove: true,
+  }));
 
   const envBytes = Buffer.from(updateManagedLine(envSnapshot.type === 'file' ? envSnapshot : null, ENV_KEY, skillRoot, envTarget));
   const ignoreBytes = Buffer.from(ensureIgnore(ignoreSnapshot.type === 'file' ? ignoreSnapshot : null, ignoreTarget));
@@ -187,6 +212,7 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
       { name: 'sh', target: shTarget, before: shSnapshot, allowed: ['file'], bytes: shAsset, mode: 0o755 },
       { name: 'cmd', target: cmdTarget, before: cmdSnapshot, allowed: ['file'], bytes: cmdAsset, mode: cmdSnapshot.mode ?? 0o644 },
       { name: 'project', target: projectTarget, before: projectSnapshot, allowed: ['directory'], candidate: projectCandidate },
+      ...retired,
     ];
     for (const entry of entries) {
       if (entry.bytes) {
@@ -194,8 +220,9 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
         fs.writeFileSync(entry.candidate, entry.bytes, { mode: entry.mode });
         fs.chmodSync(entry.candidate, entry.mode);
       }
-      entry.changed = entry.before.type === 'absent' || entry.before.type === 'directory'
-        || !sameBytes(entry.before, entry.bytes) || (entry.mode !== undefined && entry.before.mode !== entry.mode);
+      entry.changed = entry.remove ? entry.before.type !== 'absent'
+        : entry.before.type === 'absent' || entry.before.type === 'directory'
+          || !sameBytes(entry.before, entry.bytes) || (entry.mode !== undefined && entry.before.mode !== entry.mode);
       entry.backup = path.join(backupRoot, entry.name);
     }
   } catch (error) {
@@ -224,8 +251,10 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
         assertUnchanged(entry.backup, entry.before, entry.allowed, snapshotOptions);
         assertUnchanged(entry.target, { type: 'absent' }, entry.allowed, snapshotOptions);
       }
-      fs.renameSync(entry.candidate, entry.target); operation.candidateMoved = true;
-      operation.installed = snapshot(entry.target, entry.allowed, snapshotOptions);
+      if (!entry.remove) {
+        fs.renameSync(entry.candidate, entry.target); operation.candidateMoved = true;
+        operation.installed = snapshot(entry.target, entry.allowed, snapshotOptions);
+      }
       exposureIndex += 1;
       if (options.injectFailureAfterExposure === exposureIndex) throw new Error(`Injected failure after exposure ${exposureIndex}`);
     }
@@ -248,7 +277,10 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
     }
     return {
       project: { id: live.project.id, root: projectTarget },
-      data: { workspace_root: workspace, projects_root: projectsRoot, launchers: [shTarget, cmdTarget], env_file: envTarget },
+      data: {
+        workspace_root: workspace, projects_root: projectsRoot, launchers: [shTarget, cmdTarget], env_file: envTarget,
+        removed_retired_launchers: retired.filter((entry) => entry.changed).map((entry) => entry.target),
+      },
     };
   } catch (error) {
     if (committed) throw error;
@@ -286,4 +318,4 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
   }
 }
 
-module.exports = { MAX_PAYLOAD_BYTES, WorkspaceInitError, initializeWorkspaceProject, validatePayload };
+module.exports = { MAX_PAYLOAD_BYTES, RETIRED_ROOT_LAUNCHERS, WorkspaceInitError, initializeWorkspaceProject, validatePayload };

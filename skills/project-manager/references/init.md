@@ -42,15 +42,15 @@ and atomically establishes this workspace layout:
 
 ```text
 <workspace>/
-├── .projects/
-│   ├── .env.local
-│   ├── .gitignore
-│   └── <safe-project-slug>/
-│       ├── PROJECT.md
-│       ├── TASKS.md
-│       └── STATUS.md
-├── studio.sh
-└── studio.cmd
+└── .projects/
+    ├── .env.local
+    ├── .gitignore
+    ├── studio.sh
+    ├── studio.cmd
+    └── <safe-project-slug>/
+        ├── PROJECT.md
+        ├── TASKS.md
+        └── STATUS.md
 ```
 
 `.projects/.env.local` contains exactly one managed entry:
@@ -64,15 +64,22 @@ only the single managed entry, and rejects duplicate managed entries. `.projects
 unrelated rules and contains the exact `/.env.local` rule. Git is not required; the local ignore file
 only prevents accidental tracking when the workspace is inside a repository.
 
-The root launchers are exact copies of `assets/studio.sh` and `assets/studio.cmd`. They clear inherited
-`PROJECT_MANAGER_SKILL_PATH`, parse rather than execute `.projects/.env.local`, require exactly one
-non-empty absolute value and an existing configured `scripts/project-manager-studio.js`, change to the
-launcher workspace, forward every caller argument, and return Studio's exit status. The shell launcher
-is mode `0755`. Operators launch Studio with `./studio.sh` on POSIX or `studio.cmd` on Windows.
+The projects-root launchers are exact copies of `assets/studio.sh` and `assets/studio.cmd`. They clear
+inherited `PROJECT_MANAGER_SKILL_PATH`, parse rather than execute the `.env.local` beside them, require
+exactly one non-empty absolute value and an existing configured `scripts/project-manager-studio.js`,
+change to the workspace that contains the projects root, forward every caller argument, and return
+Studio's exit status. The shell launcher is mode `0755`. Operators launch Studio with
+`./.projects/studio.sh` on POSIX or `.projects\studio.cmd` on Windows.
+
+Earlier releases installed the launchers at the workspace root. Initialization retires those copies in
+the same transaction: it removes a root `studio.sh` or `studio.cmd` only when it is a regular file whose
+bytes are exactly what a published release wrote, and reports every removal in
+`data.removed_retired_launchers`. Any other root file, directory, or symlink at those names belongs to
+the operator and is left untouched rather than refused.
 
 Preflight the complete write set before exposure. Refuse a symlinked, escaping, special-file, or
 non-empty project target. Reuse only byte-identical launchers; repair mode drift on the canonical shell
-launcher, but refuse to overwrite different `studio.sh` or `studio.cmd` content. The built-in command
+launcher, but refuse to overwrite different `.projects/studio.sh` or `.projects/studio.cmd` content. The built-in command
 revalidates each target before replacement, rolls its own changes back in reverse order on failure, and
 revalidates its installed candidate before removing anything during rollback. A changed exposed target
 is preserved with the original backup in the recovery root. Otherwise rollback restores prior bytes,
@@ -94,7 +101,8 @@ preserving existing projects and unrelated local configuration.
 When the user explicitly selects a standalone target project folder rather than a workspace root,
 prepare and validate a same-filesystem candidate, regenerate `STATUS.md`, then rename it into place
 atomically under the ordinary mutation rules. Create only the three project files. Do not create
-`.projects/.env.local`, `.projects/.gitignore`, `studio.sh`, or `studio.cmd` beside a standalone target.
+`.projects/.env.local`, `.projects/.gitignore`, `.projects/studio.sh`, or `.projects/studio.cmd` beside a
+standalone target.
 Never initialize sibling project folders or add unrelated Git files.
 
 `PROJECT.md` uses JSON-valued frontmatter and Markdown sections:

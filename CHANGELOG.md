@@ -12,6 +12,19 @@ project written by an older release keeps loading unchanged; no release has requ
 
 ## [Unreleased]
 
+### Changed
+
+- Workspace-root initialization now installs `studio.sh` and `studio.cmd` inside the workspace's
+  `.projects` folder instead of the workspace root, so all Project Manager support files live in one
+  place and the workspace root stays untouched. Each launcher resolves the projects root from its own
+  location, reads the `.env.local` beside it, and still changes to the containing workspace before
+  starting Studio, so catalog discovery and forwarded arguments are unchanged. Run
+  `./.projects/studio.sh` on POSIX or `.projects\studio.cmd` on Windows. A workspace initialized by an
+  earlier release is migrated on the next initialization: the same transaction removes a root
+  `studio.sh` or `studio.cmd` whose bytes are exactly what a published release wrote, and reports the
+  removals in `data.removed_retired_launchers`. Any other root file, directory, or symlink at those
+  names is the operator's and is left untouched.
+
 ### Added
 
 - Estimation rules for task schedules in [plan.md](skills/project-manager/references/plan.md).

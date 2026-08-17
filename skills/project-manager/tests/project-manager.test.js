@@ -11,6 +11,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -26,7 +27,7 @@ const { atomicProjectMutation, createProjectWork, cleanupProjectWork } = require
 const { completeHumanTask, loadStableProject } = require('../scripts/lib/human-completion');
 const { startAgentTask, ingestAgentManifest } = require('../scripts/lib/agent-execution');
 const { parseTaskRecords, renderRecord } = require('../scripts/lib/task-editor');
-const { MAX_PAYLOAD_BYTES, initializeWorkspaceProject } = require('../scripts/lib/workspace-init');
+const { MAX_PAYLOAD_BYTES, RETIRED_ROOT_LAUNCHERS, initializeWorkspaceProject } = require('../scripts/lib/workspace-init');
 
 const SCRIPT_ROOT = path.join(__dirname, '..', 'scripts');
 const SKILL_ROOT = path.join(__dirname, '..');
@@ -107,6 +108,14 @@ function fakeSkill(base) {
   fs.chmodSync(path.join(root, 'assets', 'studio.sh'), 0o755);
   fs.writeFileSync(path.join(root, 'scripts', 'project-manager-studio.js'), `/** Test fixture: record launcher cwd and arguments, then return the requested status. */\n'use strict';\nrequire('node:fs').writeFileSync(process.env.PM_LAUNCH_RECORD, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2) }));\nprocess.exitCode = Number(process.env.PM_LAUNCH_EXIT ?? 0);\n`);
   return fs.realpathSync(root);
+}
+
+// Byte-exact copies of the launchers this skill published to the workspace root before launchers moved
+// into the projects root. The digest assertion keeps the fixtures pinned to what initialization retires.
+function retiredRootLauncher(name) {
+  const bytes = fs.readFileSync(path.join(__dirname, 'fixtures', `retired-root-${name}`));
+  assert.equal(RETIRED_ROOT_LAUNCHERS[name].includes(crypto.createHash('sha256').update(bytes).digest('hex')), true, name);
+  return bytes;
 }
 
 function run(script, args, input = undefined) {
@@ -1275,25 +1284,58 @@ test('workspace initialization writes current project state and portable launch 
   assert.deepEqual(fs.readdirSync(first.project.root).sort(), ['PROJECT.md', 'STATUS.md', 'TASKS.md']);
   assert.equal(fs.readFileSync(path.join(workspace, '.projects', '.env.local'), 'utf8'), `PROJECT_MANAGER_SKILL_PATH=${skillRoot}\n`);
   assert.equal(fs.readFileSync(path.join(workspace, '.projects', '.gitignore'), 'utf8'), '/.env.local\n');
-  assert.equal(fs.statSync(path.join(workspace, 'studio.sh')).mode & 0o777, 0o755);
-  assert.equal(fs.readFileSync(path.join(workspace, 'studio.sh')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'))), true);
-  assert.equal(fs.readFileSync(path.join(workspace, 'studio.cmd')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.cmd'))), true);
+  assert.deepEqual(fs.readdirSync(workspace).sort(), ['.projects']);
+  assert.equal(fs.statSync(path.join(workspace, '.projects', 'studio.sh')).mode & 0o777, 0o755);
+  assert.equal(fs.readFileSync(path.join(workspace, '.projects', 'studio.sh')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'))), true);
+  assert.equal(fs.readFileSync(path.join(workspace, '.projects', 'studio.cmd')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.cmd'))), true);
+  assert.deepEqual(first.data.launchers, [path.join(workspace, '.projects', 'studio.sh'), path.join(workspace, '.projects', 'studio.cmd')]);
+  assert.deepEqual(first.data.removed_retired_launchers, []);
 
   const envFile = path.join(workspace, '.projects', '.env.local'); const ignoreFile = path.join(workspace, '.projects', '.gitignore');
   fs.writeFileSync(envFile, `OTHER_SETTING=keep=this value\nPROJECT_MANAGER_SKILL_PATH=/stale/path\n`);
-  fs.writeFileSync(ignoreFile, `reports/\n/.env.local\n`); fs.chmodSync(path.join(workspace, 'studio.sh'), 0o644);
+  fs.writeFileSync(ignoreFile, `reports/\n/.env.local\n`); fs.chmodSync(path.join(workspace, '.projects', 'studio.sh'), 0o644);
   initializeWorkspaceProject(workspace, 'second-project', initPayload('SECOND-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:01:00Z' });
   assert.equal(fs.readFileSync(envFile, 'utf8'), `OTHER_SETTING=keep=this value\nPROJECT_MANAGER_SKILL_PATH=${skillRoot}\n`);
   assert.equal(fs.readFileSync(ignoreFile, 'utf8'), `reports/\n/.env.local\n`);
-  assert.equal(fs.statSync(path.join(workspace, 'studio.sh')).mode & 0o777, 0o755);
-  assert.deepEqual(fs.readdirSync(path.join(workspace, '.projects')).filter((name) => !name.startsWith('.')).sort(), ['first-project', 'second-project']);
+  assert.equal(fs.statSync(path.join(workspace, '.projects', 'studio.sh')).mode & 0o777, 0o755);
+  assert.deepEqual(fs.readdirSync(path.join(workspace, '.projects')).filter((name) => !name.startsWith('.') && !name.startsWith('studio.')).sort(), ['first-project', 'second-project']);
+});
+
+test('workspace initialization retires its own root launchers and never touches operator root files', () => {
+  const base = temp(); const skillRoot = fakeSkill(base);
+  const workspace = fs.realpathSync(temp());
+  fs.writeFileSync(path.join(workspace, 'studio.sh'), retiredRootLauncher('studio.sh'), { mode: 0o755 });
+  fs.writeFileSync(path.join(workspace, 'studio.cmd'), retiredRootLauncher('studio.cmd'), { mode: 0o644 });
+  const migrated = initializeWorkspaceProject(workspace, 'migrated-project', initPayload('MIGRATED-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:00:00Z' });
+  assert.deepEqual(migrated.data.removed_retired_launchers, [path.join(workspace, 'studio.sh'), path.join(workspace, 'studio.cmd')]);
+  assert.deepEqual(fs.readdirSync(workspace).sort(), ['.projects']);
+  assert.equal(fs.readFileSync(path.join(workspace, '.projects', 'studio.sh')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'))), true);
+  assert.equal(loadProject(migrated.project.root).status_stale, false);
+  const again = initializeWorkspaceProject(workspace, 'later-project', initPayload('LATER-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:01:00Z' });
+  assert.deepEqual(again.data.removed_retired_launchers, []);
+
+  const foreign = fs.realpathSync(temp());
+  fs.writeFileSync(path.join(foreign, 'studio.sh'), 'operator-owned launcher\n', { mode: 0o755 });
+  fs.mkdirSync(path.join(foreign, 'studio.cmd'));
+  const kept = initializeWorkspaceProject(foreign, 'kept-project', initPayload('KEPT-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:00:00Z' });
+  assert.deepEqual(kept.data.removed_retired_launchers, []);
+  assert.deepEqual(fs.readdirSync(foreign).sort(), ['.projects', 'studio.cmd', 'studio.sh']);
+  assert.equal(fs.readFileSync(path.join(foreign, 'studio.sh'), 'utf8'), 'operator-owned launcher\n');
+
+  const rollback = fs.realpathSync(temp());
+  fs.writeFileSync(path.join(rollback, 'studio.sh'), retiredRootLauncher('studio.sh'), { mode: 0o755 });
+  const rollbackBefore = treeState(rollback);
+  assert.throws(() => initializeWorkspaceProject(rollback, 'rollback-project', initPayload('ROLLBACK-PROJECT'), {
+    skillRoot, generatedAt: '2026-08-15T12:00:00Z', injectFailureAfterExposure: 6,
+  }), /Injected failure after exposure 6/);
+  assert.deepEqual(treeState(rollback), rollbackBefore);
 });
 
 test('POSIX Studio launcher uses only local config and preserves cwd, arguments, and exit status', () => {
   const base = temp(); const workspacePath = path.join(base, 'launch workspace with spaces'); fs.mkdirSync(workspacePath);
   const workspace = fs.realpathSync(workspacePath); const skillRoot = fakeSkill(base);
   initializeWorkspaceProject(workspace, 'launch-project', initPayload('LAUNCH-PROJECT'), { skillRoot, generatedAt: '2026-08-15T12:00:00Z' });
-  const launcher = path.join(workspace, 'studio.sh'); const record = path.join(base, 'launch.json');
+  const launcher = path.join(workspace, '.projects', 'studio.sh'); const record = path.join(base, 'launch.json');
   const launched = spawnSync(launcher, ['--no-open', '--port', '43123', 'argument with spaces'], {
     cwd: path.dirname(workspace), encoding: 'utf8', env: { ...process.env, PROJECT_MANAGER_SKILL_PATH: '/inherited/wrong/path', PM_LAUNCH_RECORD: record, PM_LAUNCH_EXIT: '7' },
   });
@@ -1324,7 +1366,7 @@ test('Windows Studio launcher encodes the local-config and process contract with
   const text = fs.readFileSync(path.join(SKILL_ROOT, 'assets', 'studio.cmd'), 'utf8');
   assert.match(text, /^@echo off\r?\n/); assert.match(text, /setlocal/); assert.match(text, /set "PROJECT_MANAGER_SKILL_PATH="/);
   assert.match(text, /tokens=1,\* delims==/); assert.match(text, /PROJECT_MANAGER_SKILL_PATH_COUNT\+=1/);
-  assert.doesNotMatch(text, /EnableDelayedExpansion/i); assert.match(text, /cd \/d "%~dp0"/);
+  assert.doesNotMatch(text, /EnableDelayedExpansion/i); assert.match(text, /cd \/d "%~dp0\.\."/); assert.match(text, /set "PROJECT_MANAGER_ENV=%~dp0\.env\.local"/);
   assert.match(text, /node "%PROJECT_MANAGER_STUDIO%" %\*/); assert.match(text, /exit \/b %PROJECT_MANAGER_STUDIO_EXIT%/);
   assert.match(text, /PROJECT_MANAGER_SKILL_PATH:~0,2/); assert.match(text, /scripts\\project-manager-studio\.js/); assert.match(text, /PROJECT_MANAGER_STUDIO%\\NUL/);
 });
@@ -1332,7 +1374,7 @@ test('Windows Studio launcher encodes the local-config and process contract with
 test('initialization instructions expose the deterministic workspace and standalone contracts', () => {
   const init = fs.readFileSync(path.join(SKILL_ROOT, 'references', 'init.md'), 'utf8');
   for (const required of [
-    'scripts/project-init-workspace.js', '.projects/.env.local', '.projects/.gitignore', 'studio.sh', 'studio.cmd',
+    'scripts/project-init-workspace.js', '.projects/.env.local', '.projects/.gitignore', '.projects/studio.sh', '.projects/studio.cmd',
     'PROJECT_MANAGER_SKILL_PATH', 'assets/studio.sh', 'assets/studio.cmd', 'mode `0755`', 'preserved recovery root',
     'Standalone target-folder initialization', 'Create only the three project files',
   ]) assert.match(init, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -1412,9 +1454,9 @@ test('workspace initialization refuses unsafe targets and preserves concurrent e
   assert.throws(() => initializeWorkspaceProject(symlinkWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'SYMLINK_TARGET');
   assert.equal(fs.readFileSync(outside, 'utf8'), 'secret\n');
 
-  const specialWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(specialWorkspace, 'studio.sh'));
+  const specialWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(specialWorkspace, '.projects')); fs.mkdirSync(path.join(specialWorkspace, '.projects', 'studio.sh'));
   assert.throws(() => initializeWorkspaceProject(specialWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'UNSUPPORTED_TARGET');
-  const conflictWorkspace = fs.realpathSync(temp()); fs.writeFileSync(path.join(conflictWorkspace, 'studio.cmd'), 'operator launcher\n'); const conflictBefore = treeState(conflictWorkspace);
+  const conflictWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(conflictWorkspace, '.projects')); fs.writeFileSync(path.join(conflictWorkspace, '.projects', 'studio.cmd'), 'operator launcher\n'); const conflictBefore = treeState(conflictWorkspace);
   assert.throws(() => initializeWorkspaceProject(conflictWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'LAUNCHER_CONFLICT');
   assert.deepEqual(treeState(conflictWorkspace), conflictBefore);
 
@@ -1425,13 +1467,14 @@ test('workspace initialization refuses unsafe targets and preserves concurrent e
   const linkedRootWorkspace = fs.realpathSync(temp()); const linkedOutside = fs.realpathSync(temp()); fs.symlinkSync(linkedOutside, path.join(linkedRootWorkspace, '.projects'));
   assert.throws(() => initializeWorkspaceProject(linkedRootWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), { skillRoot }), (error) => error.code === 'SYMLINK_TARGET');
 
-  const concurrentWorkspace = fs.realpathSync(temp()); const externalLauncher = path.join(concurrentWorkspace, 'studio.sh');
+  const concurrentWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(concurrentWorkspace, '.projects'));
+  const externalLauncher = path.join(concurrentWorkspace, '.projects', 'studio.sh');
   assert.throws(() => initializeWorkspaceProject(concurrentWorkspace, 'safe-project', initPayload('SAFE-PROJECT'), {
     skillRoot, generatedAt: '2026-08-15T12:00:00Z',
     beforeExposure(index) { if (index === 2) fs.writeFileSync(externalLauncher, 'external concurrent change\n'); },
   }), (error) => error.code === 'TARGET_CHANGED');
   assert.equal(fs.readFileSync(externalLauncher, 'utf8'), 'external concurrent change\n');
-  assert.equal(fs.existsSync(path.join(concurrentWorkspace, '.projects')), false);
+  assert.deepEqual(fs.readdirSync(path.join(concurrentWorkspace, '.projects')), ['studio.sh']);
 
   const exposedWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(exposedWorkspace, '.projects')); const exposedEnv = path.join(exposedWorkspace, '.projects', '.env.local'); const originalEnv = 'OTHER=original\nPROJECT_MANAGER_SKILL_PATH=/old/path\n';
   fs.writeFileSync(exposedEnv, originalEnv); let exposedError;
@@ -1517,7 +1560,7 @@ test('workspace initialization CLI enforces exact arguments, payload framing, an
   const workspace = fs.realpathSync(temp()); const success = cli([workspace, 'cli-project', '--json']);
   assert.equal(success.status, 0); const envelope = JSON.parse(success.stdout); assert.equal(envelope.ok, true); assert.equal(envelope.command, 'init-workspace'); assert.equal(envelope.project.id, 'CLI-PROJECT');
   assert.equal(loadProject(envelope.project.root).status_stale, false); assert.equal(fs.readFileSync(path.join(envelope.project.root, 'STATUS.md'), 'utf8').includes('PENDING'), false);
-  const conflictWorkspace = fs.realpathSync(temp()); fs.writeFileSync(path.join(conflictWorkspace, 'studio.sh'), 'operator-owned\n'); const conflict = cli([conflictWorkspace, 'cli-project', '--json']);
+  const conflictWorkspace = fs.realpathSync(temp()); fs.mkdirSync(path.join(conflictWorkspace, '.projects')); fs.writeFileSync(path.join(conflictWorkspace, '.projects', 'studio.sh'), 'operator-owned\n'); const conflict = cli([conflictWorkspace, 'cli-project', '--json']);
   assert.equal(conflict.status, 1); assert.equal(JSON.parse(conflict.stderr).errors[0].code, 'LAUNCHER_CONFLICT');
   assert.throws(() => initializeWorkspaceProject(fs.realpathSync(temp()), 'large-project', { project_md: 'x'.repeat(MAX_PAYLOAD_BYTES), tasks_md: 'y' }, { skillRoot: fs.realpathSync(SKILL_ROOT) }), (error) => error.code === 'PAYLOAD_TOO_LARGE');
 
