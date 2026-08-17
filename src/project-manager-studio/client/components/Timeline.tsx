@@ -4,9 +4,13 @@
 // Markers and the scale formatter are derived once per render rather than per
 // task row, and drag-click suppression is a pure helper that clears on each new
 // drag so it cannot swallow a click on an unrelated bar.
+// Row reordering drags the whole task cell, is bound to the window so DOM
+// reordering cannot strand the gesture, keeps the row under the cursor with a
+// direct transform, and auto-scrolls the document near the viewport edges so a
+// row can reach an off-screen position in one gesture.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type UIEvent } from 'react';
 import type { ApiError, KanbanData, KanbanTask, TaskEditRequest, TaskOrderRequest } from '../../shared/api';
-import { barGeometry, compareDerived, createDragSuppression, datePercent, dayDiff, dropTargetIndex, moveSchedule, moveTaskOrder, pixelsToDays, rangeDays, resizeSchedule, sortTimelineTasks, stepTaskOrder, timelineContentWidth, timelineMarkers, timelineOrder, timelineRange, timelineScaleTicks, type DateRange, type DragSuppression, type TimelineMarker } from '../timeline-model.mjs';
+import { barGeometry, compareDerived, createDragSuppression, datePercent, dayDiff, dropTargetIndex, edgeScrollVelocity, moveSchedule, moveTaskOrder, pixelsToDays, rangeDays, resizeSchedule, sortTimelineTasks, stepTaskOrder, timelineContentWidth, timelineMarkers, timelineOrder, timelineRange, timelineScaleTicks, type DateRange, type DragSuppression, type TimelineMarker } from '../timeline-model.mjs';
 import type { SelectionRequest } from '../selection-guard.mjs';
 
 interface Props {
@@ -40,7 +44,10 @@ interface Drag { task: KanbanTask; mode: 'move' | 'start' | 'end'; originX: numb
 // currently applied, so the row can be kept exactly under the cursor across the
 // relayouts that each committed move causes. `pointerY` lets a commit re-derive
 // that offset without waiting for another pointer event.
-interface RowDrag { taskId: string; sequence: string[] | null; grab: number; offset: number; pointerY: number }
+// `frame` is the pending edge-scroll animation frame. It lives on the drag rather
+// than in an effect because the window-listener effect re-subscribes on every
+// render, and a drag re-renders on every committed move.
+interface RowDrag { taskId: string; sequence: string[] | null; grab: number; offset: number; pointerY: number; frame: number | null }
 
 export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginMutation, finishMutation, onSaved }: Props) {
   const range = useMemo(() => timelineRange(data.tasks, data.project, data.milestones), [data]);
@@ -55,6 +62,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   const rowDrag = useRef<RowDrag | null>(null);
   const rows = useRef(new Map<string, HTMLElement>());
   const headerScroll = useRef<HTMLDivElement | null>(null);
+  const stickyHeader = useRef<HTMLDivElement | null>(null);
   // Lazy initializer: constructed once for the component's lifetime, not
   // rebuilt on every pointer-frequency re-render during a drag. Rows get their
   // own instance: sharing one with the bars would let a row drag that ended over
@@ -74,12 +82,15 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   const ordered = useMemo(() => [...tasks].sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)), [tasks, rank]);
   const markers = useMemo(() => timelineMarkers(data.project, data.milestones), [data.project, data.milestones]);
   useEffect(() => () => onDraftChange(false), [onDraftChange]);
+  // Mount-scoped, so it cannot fire on the re-renders a drag causes: a frame left
+  // pending past unmount would keep scrolling a page this component no longer owns.
+  useEffect(() => () => { if (rowDrag.current) cancelEdgeScroll(rowDrag.current); }, []);
 
   // Bound to the window, not the grip, so the gesture survives the DOM reordering
   // each committed move performs, and so a release anywhere still ends the drag.
   useEffect(() => {
     if (dragging === null) return;
-    const move = (event: globalThis.PointerEvent) => moveRowTo(event.clientY);
+    const move = (event: globalThis.PointerEvent) => { moveRowTo(event.clientY); armEdgeScroll(); };
     const finish = () => finishRow();
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
@@ -152,9 +163,59 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
     if (grip instanceof HTMLElement) grip.focus();
     const [label] = rowCells(task.id);
     const top = label?.getBoundingClientRect().top ?? event.clientY;
-    rowDrag.current = { taskId: task.id, sequence: null, grab: event.clientY - top, offset: 0, pointerY: event.clientY };
+    rowDrag.current = { taskId: task.id, sequence: null, grab: event.clientY - top, offset: 0, pointerY: event.clientY, frame: null };
     setDragging(task.id); setError(null);
   }
+
+  /* Edge auto-scroll. The document is the vertical scroll surface — the Timeline
+     has no inner vertical scroller by design — so this scrolls the window.
+
+     Armed from the pointer path rather than at pick-up, because a drag starts
+     mid-viewport and only reaches an edge later. The step re-runs the ordinary
+     move with an unchanged pointer position, so a row held still while the page
+     moves displaces rows by exactly the rule that applies to pointer movement,
+     and `trackPointer` re-derives the offset from the live rect each frame, so
+     scrolling cannot make the row drift out from under the cursor. */
+  function armEdgeScroll() {
+    const current = rowDrag.current;
+    if (!current || current.frame !== null) return;
+    const step = () => {
+      const drag = rowDrag.current;
+      if (!drag) return;
+      drag.frame = null;
+      const velocity = edgeScrollVelocity(drag.pointerY, window.innerHeight, { top: scrollInset() });
+      if (velocity === 0) return;
+      const before = window.scrollY;
+      window.scrollBy(0, velocity);
+      // Stopping at the document limit keeps a held pointer from spinning a frame
+      // loop forever once there is nothing left to scroll.
+      if (window.scrollY === before) return;
+      // Through the ref, never this closure: the loop outlives the render that
+      // armed it, and each frame may commit a move, so a captured `moveRowTo`
+      // would keep reordering against the sequence and row order as they were
+      // when the drag first reached the edge.
+      moveRow.current(drag.pointerY);
+      drag.frame = requestAnimationFrame(step);
+    };
+    current.frame = requestAnimationFrame(step);
+  }
+
+  function cancelEdgeScroll(current: RowDrag) {
+    if (current.frame !== null) cancelAnimationFrame(current.frame);
+    current.frame = null;
+  }
+
+  // Usable top: the sticky application bar plus the Timeline's own sticky header,
+  // so the upward trigger sits where rows are visible rather than under a header.
+  function scrollInset() {
+    const header = stickyHeader.current?.getBoundingClientRect();
+    return header ? Math.max(header.bottom, stickyTop) : stickyTop;
+  }
+
+  // Refreshed every render so the animation-frame loop always calls the current
+  // closure rather than the one captured when it was armed.
+  const moveRow = useRef(moveRowTo);
+  moveRow.current = moveRowTo;
 
   function moveRowTo(pointerY: number) {
     const current = rowDrag.current;
@@ -176,6 +237,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
   function finishRow() {
     const current = rowDrag.current;
     if (!current) return;
+    cancelEdgeScroll(current);
     for (const cell of rowCells(current.taskId)) cell.style.transform = '';
     // A press that reordered must not also open the task it landed on; a press
     // that never moved is an ordinary click and opens it.
@@ -276,7 +338,7 @@ export function Timeline({ data, tasks, stickyTop, onOpen, onDraftChange, beginM
     {error && <div className="error-banner" role="alert">{draft?.kind === 'order' ? 'Row order save failed' : 'Schedule save failed'}: {error}</div>}
     <p className="visually-hidden" role="status" aria-live="polite">{announcement}</p>
     {!range ? <div className="timeline-no-range"><strong>No dated work yet</strong><p>Open a task to add its scheduled start and end. No dates are inferred.</p>{ordered.map((task) => <div className="timeline-row-group timeline-row-group--flat" key={task.id}>{row(task)}</div>)}</div> : <>
-      <div className="timeline-sticky-header" style={{ '--timeline-content-width': `${timelineContentWidth(range)}px`, top: stickyTop } as React.CSSProperties}>
+      <div className="timeline-sticky-header" ref={stickyHeader} style={{ '--timeline-content-width': `${timelineContentWidth(range)}px`, top: stickyTop } as React.CSSProperties}>
         <div className="timeline-label timeline-label--header"><strong>Task</strong><span>{ordered.length} shown</span>
           {stored && orderable && <button type="button" className="timeline-order-reset" disabled={busy || scheduleDraft !== null} onClick={resetOrder}>Reset order</button>}
         </div>

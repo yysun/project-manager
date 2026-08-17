@@ -104,6 +104,44 @@ test('a drag that jumps between pointer samples still lands where the pointer is
   assert.equal(model.dropTargetIndex(92, swapped, 1), -1, 'and does not immediately swap back');
 });
 
+test('edge auto-scroll is still in the middle, ramps into the zones, and stays bounded', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const viewport = 800;
+  const options = { top: 0, zone: 100, maxSpeed: 20 };
+  assert.equal(model.edgeScrollVelocity(400, viewport, options), 0, 'middle of the viewport holds');
+  assert.equal(model.edgeScrollVelocity(100, viewport, options), 0, 'the top zone boundary holds');
+  assert.equal(model.edgeScrollVelocity(700, viewport, options), 0, 'the bottom zone boundary holds');
+
+  // Negative scrolls up, positive down, and depth decides the magnitude.
+  assert.equal(model.edgeScrollVelocity(50, viewport, options) < 0, true, 'the top zone scrolls up');
+  assert.equal(model.edgeScrollVelocity(750, viewport, options) > 0, true, 'the bottom zone scrolls down');
+  assert.equal(Math.abs(model.edgeScrollVelocity(20, viewport, options)) > Math.abs(model.edgeScrollVelocity(80, viewport, options)), true, 'deeper is faster');
+  assert.equal(model.edgeScrollVelocity(780, viewport, options) > model.edgeScrollVelocity(720, viewport, options), true, 'deeper is faster downward too');
+
+  // Bounded: past the edge and far past it cannot exceed the cap.
+  assert.equal(model.edgeScrollVelocity(0, viewport, options), -20);
+  assert.equal(model.edgeScrollVelocity(-500, viewport, options), -20, 'above the viewport is clamped');
+  assert.equal(model.edgeScrollVelocity(viewport, viewport, options), 20);
+  assert.equal(model.edgeScrollVelocity(5000, viewport, options), 20, 'below the viewport is clamped');
+});
+
+test('edge auto-scroll measures its top zone from below the sticky headers', async () => {
+  const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
+  const viewport = 800;
+  const inset = { top: 200, zone: 100, maxSpeed: 20 };
+  // 250 sits inside the zone once it starts below a 200px header stack, but would
+  // be far outside a zone measured from viewport zero.
+  assert.equal(model.edgeScrollVelocity(250, viewport, inset) < 0, true, 'just below the headers scrolls up');
+  assert.equal(model.edgeScrollVelocity(250, viewport, { ...inset, top: 0 }), 0, 'and would not without the inset');
+  assert.equal(model.edgeScrollVelocity(350, viewport, inset), 0, 'past the inset zone holds');
+  assert.equal(model.edgeScrollVelocity(200, viewport, inset), -20, 'the header edge itself is the fastest point');
+  assert.equal(model.edgeScrollVelocity(120, 150, inset), 0, 'headers taller than the viewport leave nothing to scroll toward');
+  assert.equal(model.edgeScrollVelocity(400, viewport, { ...inset, zone: 0 }), 0, 'a zero zone disables auto-scroll');
+  // When headers leave a usable band narrower than two zones the two overlap; the
+  // upward zone wins, which is degenerate but deterministic rather than jittery.
+  assert.equal(model.edgeScrollVelocity(260, 320, inset) < 0, true, 'overlapping zones resolve upward');
+});
+
 test('timeline canvas expands for long ranges instead of compressing weekly labels', async () => {
   const model = await import('../../src/project-manager-studio/client/timeline-model.mjs');
   assert.equal(model.timelineContentWidth({ start: '2026-08-10', end: '2026-08-16' }), 1020);

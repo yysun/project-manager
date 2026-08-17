@@ -94,6 +94,31 @@ export function dropTargetIndex(pointerY, rows, fromIndex) {
   return target;
 }
 
+/* How fast the page should scroll while a row is dragged near a viewport edge,
+   in signed pixels per frame: negative scrolls up, positive down, zero holds.
+
+   `top` is where usable space begins rather than viewport zero, because the
+   application and Timeline headers are sticky and cover the top of the screen.
+   Measuring the zone from below them keeps the trigger where rows are actually
+   visible instead of under a header.
+
+   Speed ramps with depth into the zone so a small overshoot creeps and a firm
+   push runs, and is clamped so a fast board cannot outrun the drop logic. */
+export function edgeScrollVelocity(pointerY, viewport, { top = 0, zone = 64, maxSpeed = 18 } = {}) {
+  if (zone <= 0 || viewport <= top) return 0;
+  const upper = top + zone;
+  if (pointerY < upper) {
+    const depth = Math.min(upper - pointerY, zone);
+    return -Math.ceil((depth / zone) * maxSpeed);
+  }
+  const lower = viewport - zone;
+  if (pointerY > lower) {
+    const depth = Math.min(pointerY - lower, zone);
+    return Math.ceil((depth / zone) * maxSpeed);
+  }
+  return 0;
+}
+
 /* One step through the visible rows, for keyboard reordering. Moving past a
    hidden task is meaningless to the operator, so steps are taken against the
    visible list and then replayed in full-project space. */
