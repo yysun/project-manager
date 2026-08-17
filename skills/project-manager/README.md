@@ -332,7 +332,9 @@ Pushback is part of the product. Project Manager should challenge:
 - completion with no acceptance evidence;
 - work marked ready while a dependency is unfinished;
 - a plan that does not cover the success criteria;
-- a requested combination of scope, capacity, and date that cannot all hold; and
+- a requested combination of scope, capacity, and date that cannot all hold;
+- a task date estimated without saying who executes it, since a person, an agent, and a pipeline do not
+  share a unit of throughput; and
 - a change that would rewrite immutable execution history.
 
 The useful response is the conflict and the decision needed—not a superficially successful update.

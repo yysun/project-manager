@@ -103,6 +103,9 @@ omission a recorded decision, which is what PMI tailoring actually requires.
   take from requirement through verified commit. State observable behavior and boundaries; do not
   create separate project tasks for RPD stages, files, implementation layers, tests, reviews, docs,
   or commits. RPD's AP owns that internal decomposition. Read [plan.md](references/plan.md).
+- Write task schedules as recorded judgment, never as engine output. Fix the executor's throughput unit
+  before estimating, size the cost of proving the outcome rather than producing it, carry uncertainty in
+  the span, and keep assumptions and estimation risk explicit.
 - Treat “add this task” as `project update`; do not add another route.
 - Use stable project-owned IDs. External tracker IDs are display-only mappings.
 - Resolve dependencies within the selected project only.
@@ -300,6 +303,8 @@ Initialization accepts only a nonexistent folder or a directory proven empty imm
 
 - Make project status evidence-backed, not optimistic.
 - Separate facts, unknowns, judgments, and recommendations.
+- Verify before asserting: the intended revision, the decision record behind an apparent gap, and the
+  difference between absent and unreachable. Read [review.md](references/review.md).
 - Challenge missing ownership, circular dependencies, stale sources, unsupported completion, and fake forecasts.
 - Keep generic projects free of software ceremony.
 - Keep software execution out of Project Manager; coordinate it through the contract boundary.

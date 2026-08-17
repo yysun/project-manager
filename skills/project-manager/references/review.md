@@ -30,3 +30,24 @@
 9. Return three short sections — `Blocking defects`, `Recommendations`, and `Strong properties` — using
    `None` where a section has no items. This mirrors the output contract `project validate-task` uses
    for one task in [tasks.md](tasks.md), applied here to the whole project.
+
+## Judgment discipline
+
+These bind any assessment of project state: `project review`, `project validate-task`, impact analysis,
+and every status claim made in narrative.
+
+1. Confirm you are reading the intended revision before assessing anything. Where several repositories,
+   worktrees, or branches are in play, check each checked-out ref individually. A diverged branch turns
+   completed work into a false report silently, and reading the code never surfaces that class of error.
+2. Read the decision record before naming a gap. Cancelled is not forgotten and deliberately excluded is
+   not missing; `DECISIONS.md`, task disposition, and tailoring rationales carry that context. Gap
+   analysis without it reports design judgment as a defect.
+3. Never assert state from memory. Re-read the files and re-run the fact scripts immediately before
+   asserting; facts established earlier in the same conversation may already be stale.
+4. Distinguish "does not exist" from "cannot be reached". Code can exist and be dead, data can exist with
+   no read path, work can be committed and unmerged. The three carry different conclusions and different
+   dispositions, and a dead-code finding requires confirming callers rather than absence of a definition.
+5. Mark which findings were verified and which were inferred, and name what could not be executed. If a
+   build or test suite would not run, state that once and clearly as a limit on every conclusion drawn.
+6. Demand evidence for completion, never artifacts. A present file, a closed ticket, a confident commit
+   message, and tidy documentation prove nothing on their own; only a validated Evidence Manifest does.

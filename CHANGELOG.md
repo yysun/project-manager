@@ -12,6 +12,27 @@ project written by an older release keeps loading unchanged; no release has requ
 
 ## [Unreleased]
 
+### Added
+
+- Estimation rules for task schedules in [plan.md](skills/project-manager/references/plan.md).
+  `scheduled_start`/`scheduled_end` have always been free-form judgment — the engine derives no
+  duration and checks only that the pair is well-formed and ordered — so the skill now states how that
+  judgment is formed: fix the executor's throughput unit first (person-days, agent-hours, and CI
+  minutes are not one ruler), estimate the cost of proving an outcome rather than producing it, carry
+  uncertainty in the width of the span, leave explicit rework allowance, recalibrate against first
+  actuals, and record estimation risk with magnitude and trigger. Assumptions behind a date belong in
+  `ASSUMPTIONS.md` with `impact_if_false`, trigger conditions in the `RISKS.md` v2 `trigger` field, and
+  estimation error after the fact in `LESSONS.md` under `estimation`. No schema or script behavior
+  changes; the rules are LLM-facing guidance over the existing schedule fields.
+- A judgment-discipline section in [review.md](skills/project-manager/references/review.md) binding
+  review, `validate-task`, impact analysis, and status narrative: confirm the checked-out revision
+  before assessing, read the decision record before calling something a gap, re-read rather than
+  asserting state from memory, separate "does not exist" from "cannot be reached", mark verified apart
+  from inferred and name what could not be executed, and require evidence rather than artifacts for a
+  completion claim.
+- Both READMEs list an undeclared executor behind a task date as something Project Manager pushes back
+  on.
+
 ## [1.9.0] — 2026-08-16
 
 ### Added

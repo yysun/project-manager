@@ -37,3 +37,30 @@ Do not create schedule precision from task counts. A milestone forecast is valid
 Project completion requires every task evidence-backed done or terminally cancelled, every configured
 milestone complete, and every project success criterion mapped to at least one non-cancelled done task.
 Cancellation never satisfies a dependency or success criterion.
+
+## Estimate schedules
+
+`scheduled_start` and `scheduled_end` are written by judgment; the engine derives no duration and
+validates only that the pair is well-formed and ordered. A schedule is therefore exactly as honest as
+the reasoning recorded beside it.
+
+1. Fix the executor and its throughput unit before estimating. Person-days, agent-hours, and CI minutes
+   are different units, and a `human` task and an `rpd` task covering the same behavior do not share a
+   ruler. Ask which unit applies; do not assume one.
+2. Estimate the cost of proving the outcome, not of producing it. Where acceptance items and evidence
+   requirements exist, verification scaffolding routinely exceeds the change itself: one behavior change
+   that must be shown consistent across many entry points costs more than a large mechanical edit.
+3. Prefer a range to a point. The schema holds one inclusive span, so carry uncertainty in the width of
+   that span and record what would narrow it. A single date claims precision no estimate has.
+4. Leave explicit rework allowance. Some fraction of first attempts fail; blocked manifests and retry
+   contracts are ordinary, not exceptional. Measure that fraction where attempt history exists, and
+   assume it is non-zero where it does not.
+5. Treat estimates as decaying. Recalibrate against the first actuals rather than committing a long
+   horizon at once, and move `forecast_date`, `forecast_updated`, and `forecast_evidence` together
+   whenever the basis changes.
+6. Record estimation risk with magnitude and trigger, not sentiment. "May be off" is not a risk; "if
+   this span is exceeded by more than 30%, M-2 and M-3 re-sequence" is, and `RISKS.md` schema v2 has
+   `trigger` for exactly that. Post-hoc estimation error belongs in `LESSONS.md` under `estimation`.
+7. Separate declared assumptions from derived facts in every artifact. Team size, parallelism, and the
+   working calendar are assumptions until confirmed; record them in `ASSUMPTIONS.md` with
+   `impact_if_false` instead of burying them inside a date.
