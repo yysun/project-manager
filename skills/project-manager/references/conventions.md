@@ -6,11 +6,28 @@ malformed records, escaping paths, and inconsistent lifecycle.
 
 ## Project boundary
 
-Every ordinary project command requires an explicit project folder. Resolve it with `realpath`; known state entries must be regular, non-symlink descendants. Never search for a repository or read siblings. Studio and `execute-rpd` are the selection exceptions. Studio validates selectable direct-child projects under `--projects-root` or the default `<launch-working-directory>/.projects`. `execute-rpd` may use `project-resolve.js` to resolve one exact case-insensitive name, ID, or direct-child folder from the calling context's validated `.projects` root. Zero or multiple matches fail; neither route scans recursively or falls back to `projects`.
+Every ordinary project command requires an explicit project folder:
 
-Atomic updates and Studio checks allocate unique marker-bound `.project-manager-work-<24-hex>` siblings on the same filesystem. These recovery roots are not projects, never reuse a selected project path, and are removed independently after successful work. A valid project remains selectable even if its basename resembles the work-root pattern.
+- Resolve it with `realpath`.
+- Known state entries must be regular, non-symlink descendants of that root.
+- Searching for a repository or reading siblings is out of bounds.
 
-Minimal files are `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Optional modules are additive.
+Two commands select rather than receive a folder:
+
+- **Studio** validates selectable direct-child projects under `--projects-root`, or the default
+  `<launch-working-directory>/.projects`.
+- **`execute-rpd`** may use `project-resolve.js` to resolve one exact case-insensitive name, ID, or
+  direct-child folder from the calling context's validated `.projects` root.
+
+Both fail on zero matches and on multiple matches. Neither scans recursively, and neither falls back
+to a bare `projects` directory.
+
+**Work roots.** Atomic updates and Studio checks allocate unique marker-bound
+`.project-manager-work-<24-hex>` siblings on the same filesystem. These recovery roots are not
+projects, never reuse a selected project path, and are removed independently after successful work.
+A valid project stays selectable even when its basename resembles the work-root pattern.
+
+**Files.** `PROJECT.md`, `TASKS.md`, and `STATUS.md` are required. Optional modules are additive.
 
 ## PMI tailoring
 
@@ -34,9 +51,13 @@ explicit unknown rather than implying an area is applied.
 
 ## Markdown grammar
 
-Frontmatter keys match `[a-z][a-z0-9_]*`; values are complete single-line JSON. Collection records use `## ID - title` immediately followed by one fenced `json` object. Narrative after the metadata block is ignored until the next level-two heading.
-
-Project and task IDs match `^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$` (2–64 characters, no trailing hyphen). Namespaced IDs use the same bound with `SC-`, `M-`, `RISK-`, `DEC-`, `SRC-`, `CHG-`, `ASM-`, `ISS-`, `STK-`, `LES-`, and `CLO-`.
+- Frontmatter keys match `[a-z][a-z0-9_]*`. Values are complete single-line JSON.
+- Collection records use `## ID - title` immediately followed by one fenced `json` object.
+- Narrative after the metadata block is ignored until the next level-two heading.
+- Project and task IDs match `^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$` — 2–64 characters, no trailing
+  hyphen.
+- Namespaced IDs use the same bound with `SC-`, `M-`, `RISK-`, `DEC-`, `SRC-`, `CHG-`, `ASM-`,
+  `ISS-`, `STK-`, `LES-`, and `CLO-`.
 
 ## Task defaults
 
@@ -48,29 +69,60 @@ Defaults: planned, P2, human executor, null owner/milestone/schedule/audit dates
 
 `planned`, `ready`, `in_progress`, `implemented`, `verification`, `verified`, `done`.
 
-Ready requires finished dependencies and no explicit blockers. Contract issuance is the only evidence-free transition and starts work. Later transitions require the latest valid manifest. Done additionally requires completed dependencies and no blockers.
+- `ready` requires finished dependencies and no explicit blockers.
+- Contract issuance is the only evidence-free transition, and it starts work.
+- Every later transition requires the latest valid manifest.
+- `done` additionally requires completed dependencies and no blockers.
 
-Profiles select the human completion policy: minimal/standard allow atomic lightweight completion for
-eligible never-started human tasks; controlled requires governed human execution. Agent, external, and
-RPD execution is governed in every profile. Lightweight completion still creates the exact existing Task
-Contract and first verified Evidence Manifest; it never permits an evidence-free done state.
+**Profiles** select the human completion policy:
 
-Disposition is orthogonal to lifecycle. Absence means active. Deferred and cancelled tasks are not
-actionable; cancelled tasks are closed for milestone/project completion but do not satisfy dependencies
-or success. Cancelled mappings are removed before success/traceability calculation. A criterion needs at
-least one remaining mapping and every remaining mapping evidence-backed done to be verified.
+- `minimal` and `standard` allow atomic lightweight completion for eligible never-started human tasks.
+- `controlled` requires governed human execution.
+- Agent, external, and RPD execution is governed in every profile.
+- Lightweight completion still creates the exact existing Task Contract and first verified Evidence
+  Manifest. An evidence-free `done` state is never reachable.
+
+**Disposition** is orthogonal to lifecycle. Absence means active.
+
+- Deferred and cancelled tasks are not actionable.
+- A cancelled task is closed for milestone and project completion, but it satisfies no dependency and
+  no success criterion.
+- Cancelled mappings are removed before success and traceability calculation.
+- A criterion is verified when it keeps at least one mapping and every remaining mapping is
+  evidence-backed done.
 
 ## Evidence boundary
 
-Contracts and manifests use canonical compact JSON with recursively sorted object keys. IDs are SHA-256 hashes of canonical payloads. Attempt files are immutable.
-
-Evidence records are exact `{kind,ref,result,sha256}` objects. File and artifact evidence require a hash. Provider requirements are cumulative staged any-of groups. Acceptance mappings must reuse records from the main evidence array exactly.
-
-Replay fingerprint is SHA-256 of canonical `{evidence,acceptance_evidence,sources}`. Time, notes, status, and sequence cannot disguise reused evidence.
+- Contracts and manifests use canonical compact JSON with recursively sorted object keys.
+- IDs are SHA-256 hashes of canonical payloads.
+- Attempt files are immutable.
+- Evidence records are exact `{kind,ref,result,sha256}` objects.
+- File and artifact evidence require a hash.
+- Provider requirements are cumulative staged any-of groups.
+- Acceptance mappings reuse records from the main evidence array exactly.
+- The replay fingerprint is SHA-256 of canonical `{evidence,acceptance_evidence,sources}`. Time,
+  notes, status, and sequence cannot disguise reused evidence.
 
 ## Deterministic outputs
 
-All six reporting/validation scripts are read-only and support `node <script> <project-folder> [--json] [--help]`. Exit 0 is success, 1 is semantic invalidity, and 2 is selector/path/I/O/grammar failure. JSON failures never contain `data`; success never contains `errors`. Status and report data use schema version 3 to expose the tailoring declaration and the assumption, issue, stakeholder, lesson, and closure modules alongside profile policy, disposition counts, and detailed lifecycle counts. Report data records one explicit unknown per tailored-out area carrying its rationale, and one for undeclared tailoring on a schema-version-1 project.
+All six reporting and validation scripts are read-only and accept
+`node <script> <project-folder> [--json] [--help]`.
+
+Exit codes:
+
+- `0` — success.
+- `1` — semantic invalidity.
+- `2` — selector, path, I/O, or grammar failure.
+
+Envelopes:
+
+- A JSON failure carries `errors` and no `data`.
+- A success carries `data` and no `errors`.
+- Status and report data use schema version 3, exposing the tailoring declaration and the assumption,
+  issue, stakeholder, lesson, and closure modules alongside profile policy, disposition counts, and
+  detailed lifecycle counts.
+- Report data records one explicit unknown per tailored-out area carrying its rationale, and one for
+  undeclared tailoring on a schema-version-1 project.
 
 See each script's output and `--help` for the locked envelope. Optional modules report `{configured:false}` rather than invented zeroes.
 

@@ -10,7 +10,8 @@ A task record is a level-two heading followed immediately by one fenced JSON obj
 ```
 ````
 
-Only `outcome` and `acceptance` are required. The engine supplies generic defaults. Keep acceptance strings unique because they are exact Evidence Manifest keys.
+- Only `outcome` and `acceptance` are required; the engine supplies generic defaults.
+- Keep acceptance strings unique — they are exact Evidence Manifest keys.
 
 Providers:
 
@@ -19,20 +20,26 @@ Providers:
 - `agent`: artifact and review evidence; root may be null, absolute-scoped, or project-scoped.
 - `external`: artifact-or-approval evidence; root may be null, absolute-scoped, or project-scoped.
 
-`blocked_by` stores explicit non-empty blocker descriptions. `depends_on` stores task IDs. Never mix them.
+Fields that are easy to confuse:
 
-External tracker identifiers belong in `external_refs`. They are display-only and cannot participate in dependencies, lifecycle, or identity.
+- `blocked_by` stores explicit non-empty blocker **descriptions**.
+- `depends_on` stores task **IDs**. Keep the two separate.
+- `external_refs` stores external tracker identifiers. They are display-only, and they take no part in
+  dependencies, lifecycle, or identity.
 
 ## Profiles and disposition
 
 - `minimal` and `standard` allow one-step reported completion for eligible never-started human work.
 - `controlled` requires governed execution for humans. Non-human executors are always governed.
 
-Task disposition is independent from lifecycle. Absence means `active`. TASKS schema v3 stores only
-non-active dispositions as the exact pair `disposition:"deferred|cancelled"` and
-`disposition_changed_at:"RFC3339 UTC"`. Deferred work is not actionable but may reactivate. Cancellation
-is terminal. Neither state satisfies a dependency or proves success; cancelled mappings are ignored by
-coverage. Evidence observed after the disposition timestamp cannot advance the task.
+Task disposition is independent from lifecycle. Absence means `active`.
+
+- Schema v3 stores only non-active dispositions, as the exact pair
+  `disposition:"deferred|cancelled"` and `disposition_changed_at:"RFC3339 UTC"`.
+- Deferred work is not actionable but may reactivate.
+- Cancellation is terminal.
+- Neither state satisfies a dependency or proves success, and coverage ignores cancelled mappings.
+- Evidence observed after the disposition timestamp cannot advance the task.
 
 ## Scheduling
 
@@ -42,17 +49,26 @@ Task schedules are optional planning metadata in `TASKS.md` schema v2 or v3:
 {"outcome":"All move-day vendors are confirmed.","acceptance":["Every vendor has acknowledged the schedule."],"scheduled_start":"2026-09-01","scheduled_end":"2026-09-03"}
 ```
 
-Both schedule keys must be absent or both must contain valid date-only values, with start no later
-than end. Ranges are inclusive. Clearing a schedule deletes both keys. Schedule is not actual
-execution time, effort, progress, evidence, or forecast, and is excluded from the task specification
-hash and immutable Task Contract.
+- Both schedule keys are absent, or both hold valid date-only values with start no later than end.
+- Ranges are inclusive.
+- Clearing a schedule deletes both keys.
+- Schedule is planning intent only: it is not execution time, effort, progress, evidence, or
+  forecast, and it stays out of the task specification hash and the immutable Task Contract.
 
-The first persisted schedule upgrades `TASKS.md` from schema v1 to v2. The first disposition change
-upgrades v1/v2 to v3 and preserves schedules. V1 remains exact and rejects schedule/disposition keys;
-v2 rejects disposition keys. Versions are not silently downgraded after fields are cleared. To use an older v1 reader,
-reactivate every deferred task (cancelled tasks cannot be downgraded), clear every schedule with the current reader,
-verify no schedule or disposition keys remain, change only the `TASKS.md` frontmatter version to 1, validate the
-project, and regenerate `STATUS.md`.
+**Schema upgrades** happen on first use and are never silently reversed:
+
+- The first persisted schedule upgrades `TASKS.md` from v1 to v2.
+- The first disposition change upgrades v1 or v2 to v3, preserving schedules.
+- V1 is exact and rejects schedule and disposition keys. V2 rejects disposition keys.
+- Clearing the fields does not downgrade the version.
+
+**To return to a v1 reader**, in this order:
+
+1. Reactivate every deferred task. Cancelled tasks cannot be downgraded.
+2. Clear every schedule with the current reader.
+3. Verify no schedule or disposition keys remain.
+4. Change only the `TASKS.md` frontmatter version to 1.
+5. Validate the project, then regenerate `STATUS.md`.
 
 ## Row order
 
@@ -69,20 +85,23 @@ reordered reads exactly as it always did, and a task added later lands at its da
 than at the end. Defaults are generated for display only: reading a project never writes order back
 to it. Where a stored number and a generated default would collide, the stored one keeps the slot.
 
-Order is display metadata. It is excluded from the task specification hash and the immutable Task
-Contract, it never affects ranking, dependencies, coverage, or actionability, and reordering leaves
-every task's `updated` date alone. There is no ordering mode or toggle: order is simply a task
-property.
+Order is display metadata:
 
-Studio writes the complete sequence for every task at once, so one reorder renumbers the project
-`1..N`. Clearing the order removes the field from every task and restores generated defaults without
-lowering the schema version. V1/v2/v3 reject `order`.
+- It stays out of the task specification hash and the immutable Task Contract.
+- It never affects ranking, dependencies, coverage, or actionability.
+- Reordering leaves every task's `updated` date alone.
+- There is no ordering mode or toggle — order is simply a task property.
+- Studio writes the complete sequence at once, so one reorder renumbers the project `1..N`.
+- Clearing the order removes the field from every task and restores generated defaults, keeping the
+  schema version. V1, v2, and v3 reject `order`.
 
-Studio may reschedule non-completed work unless the project or assigned milestone is complete.
-Row order has its own authority: any task may be reordered, including done, cancelled, and
-evidence-backed work, and only a complete project refuses it.
-Specification and status authority remains separate: only genuinely never-started tasks may edit
-execution-defining fields or switch between `planned` and `ready`.
+**Three separate authorities**, which is why one edit can be allowed while another is refused:
+
+| Authority | What it may change | Refused when |
+|---|---|---|
+| Row order | Any task, including done, cancelled, and evidence-backed work | The project is complete |
+| Rescheduling | Non-completed work | The project or the assigned milestone is complete |
+| Specification and status | Execution-defining fields, and `planned` ↔ `ready` | The task is not genuinely never-started |
 
 ## LLM task-quality validation
 

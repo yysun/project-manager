@@ -1,25 +1,48 @@
 # Initialize a Project
 
-Require an objective or source plus either an explicit target project folder or an explicitly
-selected workspace root. A project is the resulting project folder, not its repository. When the
-workspace root is selected and the user does not name a project path, derive a safe slug and use
-`<workspace>/.projects/<safe-project-slug>`; never default to `<workspace>/projects`.
+**Required input:** an objective or source, plus either an explicit target project folder or an
+explicitly selected workspace root. A project is the resulting project *folder*, not its repository.
 
-Inside the initialized project folder, create only `PROJECT.md`, `TASKS.md`, and `STATUS.md`. Derive a safe stable project ID, state an objective, write at least one measurable success criterion, and start with no tasks unless decomposition is already supported. Include `human` in adapters; add other providers only when requested and usable.
+**Target folder.** When a workspace root is selected and the user names no project path, derive a
+safe slug and use `<workspace>/.projects/<safe-project-slug>`. The path `<workspace>/projects` is
+never the default.
 
-Choose `minimal` for ordinary lightweight work, `standard` when delegated executors or regular reporting
-are expected, and `controlled` when even human work requires explicit pre-issued contracts and staged
-evidence. Minimal and standard share the safe one-step human completion path; delegated executors remain
+**Accept** a nonexistent target, or an existing directory proven empty. **Refuse** a non-empty
+target.
+
+## What to create
+
+Inside the initialized project folder, create exactly `PROJECT.md`, `TASKS.md`, and `STATUS.md`, and:
+
+1. Derive a safe stable project ID.
+2. State an objective.
+3. Write at least one measurable success criterion.
+4. Start with no tasks, unless decomposition is already supported.
+5. Include `human` in adapters. Add other providers only when requested and usable.
+
+## Choosing a profile
+
+| Profile | Use when |
+|---|---|
+| `minimal` | Ordinary lightweight work |
+| `standard` | Delegated executors or regular reporting are expected |
+| `controlled` | Even human work requires explicit pre-issued contracts and staged evidence |
+
+`minimal` and `standard` share the safe one-step human completion path. Delegated executors stay
 governed in every profile.
 
-Choose the project schema version next. Version 1 is the ordinary default and stays exactly as it is.
-Choose version 2 when the project must show PMI-aligned tailoring; it requires a `tailoring` block
-declaring all ten PMBOK 6 knowledge areas as applied or tailored out. Ask the user which areas genuinely
-apply rather than guessing, and record a real reason for each area tailored out — the rationale is the
-part that makes the omission a decision instead of an oversight. Never fabricate a rationale, and never
-add a tailoring block to a version 1 project.
+## Choosing a schema version
 
-Accept a nonexistent target or an existing directory proven empty. Refuse a non-empty target.
+- **Version 1** is the ordinary default and stays exactly as it is.
+- **Version 2** is for a project that must show PMI-aligned tailoring. It requires a `tailoring`
+  block declaring all ten PMBOK 6 knowledge areas as applied or tailored out.
+
+For version 2:
+
+1. Ask the user which areas genuinely apply rather than guessing.
+2. Record a real reason for each area tailored out. The rationale is what makes the omission a
+   decision instead of an oversight, so a fabricated one defeats the entire mechanism.
+3. Keep the tailoring block out of any version 1 project.
 
 ## Workspace-root initialization
 

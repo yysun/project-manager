@@ -40,7 +40,7 @@ intents and explicit escape hatches, not the product interaction model:
 6. `project report <folder> <operator|project-manager|executive|board>` — calculate report facts, then write the audience narrative. Read [report.md](references/report.md).
 7. `project review <folder>` — validate state, challenge plan quality, blockers, risks, evidence, and success coverage. Read [review.md](references/review.md).
 8. `project validate-task <folder> <task-id>` — validate the folder, then use LLM judgment to review task quality. Read [tasks.md](references/tasks.md).
-9. `project execute-rpd <folder|project-name>` — execute every eligible RPD task in dependency-ready waves using isolated Git worktrees and subagents, then ingest verified evidence. Natural-language equivalents in English and Chinese are preferred. Read [execute-rpd.md](references/execute-rpd.md).
+9. `project execute-rpd <folder|project-name>` — execute every eligible RPD task from a dependency-ready queue using isolated Git worktrees and subagents, then ingest verified evidence. Natural-language equivalents in English and Chinese are preferred. Read [execute-rpd.md](references/execute-rpd.md).
 10. `project studio [folder]` — launch local Project Manager Studio with Kanban and Timeline views;
    an explicit folder is isolated, while no folder uses selectable direct children of `.projects`.
 
@@ -114,65 +114,98 @@ omission a recorded decision, which is what PMI tailoring actually requires.
 
 ## Coordinate
 
-Choose an enabled executor per task. Require active disposition before issuing a contract or ingesting a manifest. Starting governed work means issuing one immutable Task Contract bound to the selected project, current task specification, current sources, and provider evidence requirements. Contract issuance alone authorizes `ready → in_progress`.
+Choose an enabled executor per task. A task needs active disposition before you issue a contract or
+ingest a manifest.
 
-For agent work, the main agent is the coordinator, not the task worker. It owns project validation,
-capacity and isolation preflight, contract issuance, dependency-wave scheduling, returned-payload checks,
-manifest ingestion, and final reporting. For each dependency-ready `agent` task:
+Starting governed work means issuing **one immutable Task Contract** bound to the selected project,
+the current task specification, the current sources, and the provider's evidence requirements.
+Contract issuance alone authorizes `ready → in_progress`.
 
-1. Before issuing a contract, prove that a subagent can be spawned, retain the coordinator's own
-   capacity slot, and confirm a safe execution target. No available slot means the task waits without
-   project mutation.
-2. Start or explicitly retry the task only through the installed built-in command; never generate
-   `.pm-agent-exec.js` or any other project-local or executor-local execution helper.
-3. Spawn one bounded worker for that project task with clean or minimal context. Pass only the
-   readable absolute Task Contract path, the resolved executor root when present, a task-local
-   instruction to satisfy that contract, and the exact return protocol. Never pass the coordinator's
-   accumulated conversation when clean/minimal-context spawning is available.
-4. Require the worker to return exactly one concise canonical Evidence Manifest payload JSON object with
-   terminal status `verified` or `blocked`. The serialized worker return may be at most 65,536 UTF-8
-   bytes and no individual JSON string may exceed 8,192 UTF-8 bytes. Reject prose, transcripts,
-   malformed JSON, non-object JSON, nonterminal status, or over-limit output; these are worker-protocol
-   limits and do not narrow direct use of the manifest-ingestion CLI.
-5. The worker may create executor artifacts but must never edit `PROJECT.md`, `TASKS.md`, `STATUS.md`,
-   `CHANGES.md`, or `handoffs/`. The coordinator alone validates and ingests the returned payload.
+Executor success comes from validated evidence. A closed issue, a commit, a file's presence, and
+confident prose are not evidence.
 
-Run dependency- and mutation-independent agent tasks in capacity-bounded parallel waves. Distinct
-dependency chains are not enough: resolved executor roots, artifact paths, and external write surfaces
-must also be proven non-overlapping. Shared roots, shared targets, or uncertain mutation surfaces
-serialize. A null executor root permits only filesystem-read-only work or an explicitly identified
-non-filesystem artifact/write target, with no local write authority. If local mutation is required or
-the target is uncertain, stop before contract issuance until a safe project-scoped or absolute root is
-assigned.
+### Agent tasks: the coordinator role
 
-A concrete spawn failure after issuance becomes an exact blocked manifest naming that runtime blocker.
-If the post-issuance failure cannot be classified truthfully, leave the attempt visibly `in_progress`,
-ingest nothing, and stop that task. The same immutable contract may be dispatched again only after the
-runtime proves the earlier worker is terminated and project validation proves no manifest was ingested;
-otherwise require explicit operator resolution and never start a concurrent second worker for the
-attempt.
+The main agent is the **coordinator**, not the task worker. It owns project validation, capacity and
+isolation preflight, contract issuance, scheduling, returned-payload checks, manifest ingestion, and
+final reporting.
 
-Human tasks remain human-owned. A human task whose explicit outcome is approval is a dependency gate:
-keep dependent `agent` and `rpd` tasks `planned` until specific approval evidence makes that task `done`
-under the project profile. Human completion does not automatically promote dependents. Revalidate all
-blockers and dependencies, then use an ordinary coordination update to move each eligible dependent
-`planned → ready` before its execution route starts. Do not infer that every human task is approval-only;
-human-authored or custom-evidence work follows its applicable human execution policy and remains a gate
-until evidence-backed done.
+For each dependency-ready `agent` task:
 
-The built-in agent state commands are:
+1. Before issuing a contract, prove a subagent can be spawned, retain the coordinator's own capacity
+   slot, and confirm a safe execution target. With no available slot the task waits, and the project
+   is not mutated.
+2. Start or explicitly retry only through the installed built-in command. Generating
+   `.pm-agent-exec.js`, or any other project-local or executor-local execution helper, is out of
+   bounds.
+3. Spawn one bounded worker with clean or minimal context. Pass only: the readable absolute Task
+   Contract path, the resolved executor root when present, a task-local instruction to satisfy that
+   contract, and the exact return protocol. When clean or minimal-context spawning is available, the
+   coordinator's accumulated conversation stays out of the worker.
+4. Require exactly one concise canonical Evidence Manifest payload JSON object in return, with
+   terminal status `verified` or `blocked`.
+5. Let the worker create executor artifacts, and keep `PROJECT.md`, `TASKS.md`, `STATUS.md`,
+   `CHANGES.md`, and `handoffs/` out of its reach. The coordinator alone validates and ingests the
+   returned payload.
+
+**Worker return limits.** At most 65,536 UTF-8 bytes serialized, and at most 8,192 UTF-8 bytes per
+JSON string. Reject prose, transcripts, malformed JSON, non-object JSON, nonterminal status, and
+over-limit output. These are worker-protocol limits; they do not narrow direct use of the
+manifest-ingestion CLI.
+
+### Agent tasks: what may run in parallel
+
+Run dependency- and mutation-independent agent tasks in capacity-bounded parallel. Distinct
+dependency chains alone are not sufficient — prove all three of these are non-overlapping:
+
+- resolved executor roots;
+- artifact paths;
+- external write surfaces.
+
+Serialize on shared roots, shared targets, or uncertain mutation surfaces.
+
+A null executor root carries **no local write authority**. It permits filesystem-read-only work, or
+an explicitly identified non-filesystem artifact or write target. When local mutation is required or
+the target is uncertain, stop before contract issuance until a safe project-scoped or absolute root
+is assigned.
+
+### Agent tasks: failure after issuance
+
+- A concrete spawn failure becomes an exact blocked manifest naming that runtime blocker.
+- A failure you cannot classify truthfully leaves the attempt visibly `in_progress`. Ingest nothing
+  and stop that task.
+- Redispatch the same immutable contract only after the runtime proves the earlier worker is
+  terminated **and** project validation proves no manifest was ingested. Otherwise require explicit
+  operator resolution. A concurrent second worker for one attempt is never correct.
+
+### Human tasks are gates
+
+Human tasks remain human-owned.
+
+- A human task whose explicit outcome is approval is a dependency gate: dependent `agent` and `rpd`
+  tasks stay `planned` until specific approval evidence makes that task `done` under the project
+  profile.
+- Human completion does not automatically promote dependents. Revalidate all blockers and
+  dependencies, then use an ordinary coordination update to move each eligible dependent
+  `planned → ready` before its execution route starts.
+- Not every human task is approval-only. Human-authored or custom-evidence work follows its
+  applicable human execution policy and remains a gate until evidence-backed done.
+
+### Built-in agent state commands
 
 ```bash
 node <absolute-skill-dir>/scripts/project-start-agent.js <project-folder> <task-id> [--created-at <RFC3339-UTC>] [--retry-blocker <exact-blocker>|--retry-blocker=<exact-blocker>] --json
 node <absolute-skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task-id> --json
 ```
 
-Supply exactly one Evidence Manifest payload JSON object, followed only by whitespace, to the ingest
-command on standard input. Start returns the immutable contract ID and absolute contract path. Ingest
-persists only the next gap-free manifest and advances only the lifecycle that validated evidence
-supports. Read [track.md](references/track.md) for the complete eligibility and failure rules.
+- Supply exactly one Evidence Manifest payload JSON object to ingest on standard input, followed only
+  by whitespace.
+- Start returns the immutable contract ID and absolute contract path.
+- Ingest persists only the next gap-free manifest, and advances only the lifecycle that validated
+  evidence supports.
+- Read [track.md](references/track.md) for the complete eligibility and failure rules.
 
-For RPD:
+### RPD tasks
 
 1. Confirm the task selects provider `rpd` and an existing absolute execution root.
 2. Create an attempt-qualified story and immutable Task Contract.
@@ -181,12 +214,12 @@ For RPD:
 5. Snapshot exact-story RPD artifacts into the project attempt before manifest ingestion.
 
 For dependency-aware multi-task RPD execution, read [execute-rpd.md](references/execute-rpd.md) and
-use its scheduling, worktree, integration, delivery, and review-capacity and stopping rules. Do not
-expand the one-line user command into a confirmation ceremony. The single closing delivery question
-is not a ceremony: ask it once when the request did not already state delivery intent, and never
-merge into a base branch or remove a coordinator worktree without that intent.
+use its scheduling, worktree, integration, delivery, and review-capacity and stopping rules.
 
-Never infer executor success from a closed issue, commit, file presence, or confident prose.
+Keep the one-line user command a one-line command rather than a confirmation ceremony. The single
+closing delivery question is not a ceremony: ask it once when the request did not already state
+delivery intent, and obtain that intent before merging into a base branch or removing a coordinator
+worktree.
 
 ## Track
 
@@ -238,19 +271,26 @@ revisions.
 
 ## Studio
 
-Studio is one local operating surface with sibling Kanban and Timeline views. Specification and
-`planned|ready` status edits remain limited to genuinely never-started tasks. Timeline schedules use
-explicit `scheduled_start`/`scheduled_end` planning metadata and may be edited for eligible
-non-completed work, including active evidence-backed tasks, without changing Task Contract identity.
-Studio does not edit actual execution dates, task IDs, evidence, attempts, or re-verification state.
-Disposition has separate authority: eligible unfinished work may move between active/deferred or to
-terminal cancelled without changing Task Contract identity.
-Timeline row order is a persisted task property: every task has an `order` number, defaulting to the
-derived date arrangement and overridable by dragging a row. It is display metadata only, so any task
-may be reordered — including done, cancelled, and evidence-backed work — and only a complete project
-refuses it. Resetting clears the stored numbers and restores generated defaults.
-“Check changes” is deterministic whole-project validation; “Copy LLM review command” only copies the
-semantic route above and does not call a model.
+Studio is one local operating surface with sibling Kanban and Timeline views.
+
+**Studio never edits** actual execution dates, task IDs, evidence, attempts, or re-verification
+state.
+
+**What it may edit**, each under its own authority:
+
+| Edit | Allowed for | Changes contract identity? |
+|---|---|---|
+| Specification, and `planned` ↔ `ready` | Genuinely never-started tasks only | — |
+| Timeline schedule (`scheduled_start`/`scheduled_end`) | Eligible non-completed work, including active evidence-backed tasks | No |
+| Disposition — active ↔ deferred, or to terminal cancelled | Eligible unfinished work | No |
+| Timeline row order | Any task, including done, cancelled, and evidence-backed work; refused only on a complete project | No |
+
+**Row order** is a persisted task property. Every task has an `order` number, defaulting to the
+derived date arrangement and overridable by dragging a row. It is display metadata only. Resetting
+clears the stored numbers and restores generated defaults.
+
+**Two buttons worth distinguishing:** “Check changes” is deterministic whole-project validation.
+“Copy LLM review command” only copies the semantic route above — it calls no model.
 
 Resolve this skill's absolute directory. With no selector, Studio discovers valid direct-child projects
 under `.projects` in the launch working directory and lets the operator switch between them:

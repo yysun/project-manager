@@ -9,9 +9,16 @@ Accepted audiences:
 - `executive`: outcome confidence, material variance, major risk, decisions required, and immediate recommendation.
 - `board`: strategic outcome, material exposure, governance decisions, and confidence limits.
 
-Reject any other audience before constructing a filename. Saved reports use collision-safe timestamps and never overwrite history.
+Reject any other audience before constructing a filename. Saved reports use collision-safe timestamps
+and leave history intact.
 
-Keep unknowns visible. Do not turn absent milestones into “on track,” absent traceability into zero coverage, or unsupported forecasts into dates.
+**Keep unknowns visible.** Each of these substitutions is wrong:
+
+| Absent | Never report as |
+|---|---|
+| Milestones | “on track” |
+| Traceability | zero coverage |
+| A supported forecast | a date |
 
 ## Tailored-out areas
 

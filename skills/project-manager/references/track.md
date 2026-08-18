@@ -8,7 +8,16 @@ Starting a task is an explicit coordination act:
 4. Move the task to `in_progress` and record the active contract atomically.
 5. Give the contract to the selected executor.
 
-Returned evidence must be normalized into the exact Evidence Manifest schema. Ingest manifests in a gap-free sequence. Reject unsupported versions, unknown fields, task/source hash mismatch, invalid progression, insufficient stage evidence, missing acceptance mappings, and replayed evidence fingerprints without changing project state.
+Returned evidence is normalized into the exact Evidence Manifest schema and ingested in a gap-free
+sequence. Reject each of the following **without changing project state**:
+
+- unsupported schema versions;
+- unknown fields;
+- task or source hash mismatch;
+- invalid lifecycle progression;
+- insufficient stage evidence;
+- missing acceptance mappings;
+- replayed evidence fingerprints.
 
 ## Agent execution
 
@@ -20,40 +29,55 @@ node <absolute-skill-dir>/scripts/project-start-agent.js <project-folder> <task-
 node <absolute-skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task-id> --json
 ```
 
-The ingest command reads exactly one Evidence Manifest payload JSON object from standard input,
-followed only by whitespace. Empty input, malformed or non-object JSON, multiple values, and trailing
-non-whitespace fail without mutation. `--help` must be the sole argument. Both commands write stable
-JSON errors to standard error; semantic eligibility/evidence/conflict failures exit 1, while command,
-selector, path, grammar, and unexpected I/O failures exit 2.
+**Input.** The ingest command reads exactly one Evidence Manifest payload JSON object from standard
+input, followed only by whitespace. These fail without mutation: empty input, malformed or non-object
+JSON, multiple values, and trailing non-whitespace. `--help` must be the sole argument.
 
-Normal start requires an active project and one active, unblocked, dependency-complete `ready` task
-whose provider is `agent` and whose current specification has no active contract or manifest pointer.
-It atomically creates a collision-free immutable Task Contract, records its pointer, changes lifecycle
-to `in_progress`, refreshes `STATUS.md`, and returns the contract ID and absolute path. Older inactive
-attempt history is allowed and never changed.
+**Errors.** Both commands write stable JSON to standard error. Semantic eligibility, evidence, and
+conflict failures exit 1. Command, selector, path, grammar, and unexpected I/O failures exit 2.
 
-Retry is explicit. `--retry-blocker` must exactly name the sole cleared blocker from the active
-attempt's terminal blocked manifest. Remove only that blocker, preserve the old attempt byte for byte,
-issue a distinct contract created strictly after the blocked manifest, clear `last_manifest`, and keep
-the task `in_progress`. Reject ordinary start as an implicit retry, and reject planned, active
-non-blocked, later-stage, done, deferred, cancelled, dependency-incomplete, pointer-inconsistent, or
-otherwise ineligible tasks before mutation.
+**Normal start** requires an active project and one task that is:
+
+- `ready`, active disposition, unblocked, and dependency-complete;
+- provider `agent`;
+- carrying no active contract or manifest pointer.
+
+It then atomically creates a collision-free immutable Task Contract, records its pointer, moves
+lifecycle to `in_progress`, refreshes `STATUS.md`, and returns the contract ID and absolute path.
+Older inactive attempt history is allowed and is left byte for byte as it was.
+
+**Retry is explicit.** `--retry-blocker` must exactly name the sole cleared blocker from the active
+attempt's terminal blocked manifest. Then:
+
+1. Remove only that blocker.
+2. Preserve the old attempt byte for byte.
+3. Issue a distinct contract created strictly after the blocked manifest.
+4. Clear `last_manifest` and keep the task `in_progress`.
+
+Ordinary start is never an implicit retry. Reject these before any mutation: planned, active
+non-blocked, later-stage, done, deferred, cancelled, dependency-incomplete, and pointer-inconsistent
+tasks.
+
 When the exact blocker begins with `--`, pass it as `--retry-blocker=<exact-blocker>` so it cannot be
 misread as another flag.
 
-Manifest ingestion requires the active contract and current task/source bindings to match exactly.
-The caller stages every referenced project-relative regular evidence file with its declared SHA-256;
-the command validates but never copies executor artifacts. It persists only the next gap-free immutable
-manifest. `implemented`, `verification`, and `verified` advance to their supported lifecycle; `blocked`
-keeps the task `in_progress` and adds its exact blocker without discarding or duplicating existing
-coordination blockers. A verified manifest advances to `done` only while dependencies remain complete
-and `blocked_by` is empty; otherwise it remains `verified`.
+**Manifest ingestion** requires the active contract and current task and source bindings to match
+exactly.
+
+- The **caller** stages every referenced project-relative regular evidence file with its declared
+  SHA-256. The command validates those files; it never copies executor artifacts.
+- The command persists only the next gap-free immutable manifest.
+- `implemented`, `verification`, and `verified` advance to their supported lifecycle state.
+- `blocked` keeps the task `in_progress` and adds its exact blocker, leaving existing coordination
+  blockers neither discarded nor duplicated.
+- A verified manifest advances to `done` only while dependencies remain complete and `blocked_by` is
+  empty. Otherwise the task stays `verified`.
 
 The main agent coordinates execution and owns all project-state mutation. Before issuing any contract,
 confirm callable subagent support, available capacity after retaining the coordinator slot, and safe
 execution isolation. One clean/minimal-context bounded worker owns one dependency-ready agent task and
 receives only its absolute contract path, resolved executor root when present, task-local instruction,
-and return protocol. Independent tasks may share a capacity-bounded wave only when executor roots,
+and return protocol. Independent tasks may run concurrently within the capacity bound only when executor roots,
 artifact targets, and external write surfaces are also proven independent. Shared or uncertain roots
 or targets serialize.
 
