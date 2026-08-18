@@ -25,3 +25,31 @@ An area is only tailored out when the project declares it so. On a schema versio
 is undeclared: say so plainly rather than implying every area is applied or that any area was skipped.
 Never present a tailored-out area as a finding against the project, and never invent a rationale the
 project did not record.
+
+## Execution telemetry
+
+`project-report-data.js` returns an `execution` projection alongside the other report data: per task
+the number of attempts, elapsed seconds, and totals for LLM calls, tool calls, and input and output
+tokens; and the same totals per recorded run.
+
+Each metric is `{reported, unreported}`. `reported` is the sum of the counts executors actually
+supplied; `unreported` counts the manifests that supplied none. Report an unreported count as
+unreported. Never present it as zero, never estimate it, and never present a partial `reported`
+total as complete when `unreported` is non-zero. When `configured` is false the project has no
+recorded attempts, which is not the same as a project that consumed nothing.
+
+Telemetry is observational. It never explains why work is ready, blocked, or done, and it must not
+be offered as evidence that acceptance criteria were met.
+
+## Concurrency ceiling
+
+`project-status.js` returns a `concurrency` projection describing what the remaining plan's
+dependency graph permits: `critical_path`, `widest_level`, `serial_prefix`, and
+`concurrency_ceiling`. It is derived from `depends_on` alone and measured in task counts, not
+durations.
+
+Report elapsed wall time against the ceiling, never against serial execution. A run that finishes at
+`1.0x` on a plan whose ceiling is `1.12x` performed near-optimally; reporting it as a scheduling
+loss is wrong and sends the reader after the wrong fix. When the ceiling is low, say that the limit
+was set at planning time.
+

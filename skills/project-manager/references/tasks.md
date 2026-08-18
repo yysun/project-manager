@@ -111,3 +111,25 @@ For an `rpd` task, also judge:
 
 Return three short sections: `Blocking defects`, `Recommendations`, and `Strong properties`. Use
 `None` when a section has no items. Do not rewrite or save the task unless explicitly authorized.
+
+## Ready-work ranking
+
+`project-next.js` ranks dependency-ready work by declared criticality, then **downstream depth**,
+then immediate unlocks, priority, current milestone, and identifier.
+
+`depth` is the longest remaining dependency chain a task unblocks: a sink has depth `0`, and a task
+whose longest path to a leaf crosses three further tasks has depth `3`. It differs from `unlocks`,
+which counts only immediate dependents. A task with one dependent that heads a long chain outranks a
+task with several dependents that are all leaves, because the long chain is what determines how
+early the remaining work can finish. Where two chains reconverge on one task, that task is counted
+once. Tasks with a non-active disposition are skipped: cancelled work is not remaining work.
+
+Depth is derived from `depends_on` and its validated reverse link `blocks`; it is never stored, so
+it cannot go stale. Because ranking is dependency-based, a task that no other task depends on always
+ranks last — see the sink-task rule in `execute-rpd.md` for why a value-concentrating final task
+must still be dispatched early.
+
+Ranking decides the order of work; it cannot create concurrency that the dependency graph forbids.
+The plan-level `concurrency` projection reports what the graph permits — see the dependency-density
+guidance in `plan.md`.
+

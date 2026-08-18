@@ -21,7 +21,7 @@ const { DEFAULT_EVIDENCE, canonicalJson, sha256, sourceBindings, taskSpecHash, v
 const { PROJECT_WORK_NAME, PROJECT_WORK_MARKER, PROJECT_WORK_MARKER_TEXT } = require('./work-area');
 
 const REQUIRED = ['PROJECT.md', 'TASKS.md', 'STATUS.md'];
-const OPTIONAL_FILES = ['MILESTONES.md', 'RISKS.md', 'DECISIONS.md', 'SOURCES.md', 'TRACEABILITY.md', 'CHANGES.md', 'ASSUMPTIONS.md', 'ISSUES.md', 'STAKEHOLDERS.md', 'LESSONS.md', 'CLOSURE.md'];
+const OPTIONAL_FILES = ['MILESTONES.md', 'RISKS.md', 'DECISIONS.md', 'SOURCES.md', 'TRACEABILITY.md', 'CHANGES.md', 'ASSUMPTIONS.md', 'ISSUES.md', 'STAKEHOLDERS.md', 'LESSONS.md', 'CLOSURE.md', 'RUNS.md'];
 const OPTIONAL_DIRS = ['handoffs', path.join('reports', 'history')];
 const TASK_STATUSES = ['planned', 'ready', 'in_progress', 'implemented', 'verification', 'verified', 'done'];
 const TASK_DISPOSITIONS = ['active', 'deferred', 'cancelled'];
@@ -40,6 +40,7 @@ const OPPORTUNITY_STRATEGIES = ['exploit', 'share', 'enhance', 'accept', 'escala
 const TYPED_REFERENCE_KINDS = ['project', 'task', 'milestone', 'risk', 'source', 'success'];
 const ID = /^[A-Z](?:[A-Z0-9-]{0,62}[A-Z0-9])$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const RUN_STATUSES = ['active', 'blocked', 'complete', 'abandoned'];
 const HASH = /^[a-f0-9]{64}$/;
 
 class ProjectError extends Error {
@@ -521,6 +522,33 @@ function normalizeSimple(record, kind, project, filePath, schemaVersion = 1) {
     assert(item.archive_ref === null || nonEmpty(item.archive_ref), 'CLOSURE_ARCHIVE', filePath, `Closure ${record.id} archive_ref must be null or non-empty`, project);
     return item;
   }
+  if (kind === 'runs') {
+    assert(namespacedId(record.id, 'RUN-'), 'RUN_ID', filePath, `Invalid run ID ${record.id}`, project);
+    exactKeys(raw, ['status', 'started', 'updated', 'repositories', 'tasks'], filePath, `run ${record.id}`, project);
+    const item = { id: record.id, title: record.title, status: raw.status, started: raw.started, updated: raw.updated, repositories: raw.repositories ?? [], tasks: raw.tasks ?? {} };
+    assert(RUN_STATUSES.includes(item.status), 'RUN_STATUS', filePath, `Run ${record.id} status must be one of ${RUN_STATUSES.join(', ')}`, project);
+    for (const key of ['started', 'updated']) assert(validTimestamp(item[key]), 'RUN_TIMESTAMP', filePath, `Run ${record.id} ${key} must be RFC3339 UTC`, project);
+    assert(Date.parse(item.updated) >= Date.parse(item.started), 'RUN_TIMESTAMP', filePath, `Run ${record.id} cannot advance before it started`, project);
+    assert(Array.isArray(item.repositories), 'RUN_REPOSITORIES', filePath, `Run ${record.id} repositories must be an array`, project);
+    item.repositories.forEach((repository, index) => {
+      const label = `run ${record.id} repositories[${index}]`;
+      exactKeys(repository, ['name', 'integration_branch', 'base_branch', 'base_commit', 'coordinator_worktree'], filePath, label, project);
+      for (const key of ['name', 'integration_branch', 'base_branch', 'coordinator_worktree']) assert(nonEmpty(repository[key]), 'RUN_REPOSITORIES', filePath, `${label} requires ${key}`, project);
+      assert(/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(repository.base_commit), 'RUN_REPOSITORIES', filePath, `${label} base_commit must be a full Git object ID`, project);
+    });
+    uniqueStrings(item.repositories.map((repository) => repository.name), filePath, `run ${record.id} repository names`, project, { sorted: false });
+    assert(item.tasks !== null && typeof item.tasks === 'object' && !Array.isArray(item.tasks), 'RUN_TASKS', filePath, `Run ${record.id} tasks must be an object keyed by task ID`, project);
+    // A task-ID-keyed object gives uniqueness for free, matching the CHANGES reverification shape.
+    for (const [taskId, binding] of Object.entries(item.tasks)) {
+      const label = `run ${record.id} tasks[${taskId}]`;
+      assert(ID.test(taskId), 'RUN_TASKS', filePath, `${label} is not a valid task ID`, project);
+      exactKeys(binding, ['branch', 'executor_root', 'integrated'], filePath, label, project);
+      assert(nonEmpty(binding.branch), 'RUN_TASKS', filePath, `${label} requires a branch`, project);
+      assert(nonEmpty(binding.executor_root) && path.isAbsolute(binding.executor_root), 'RUN_TASKS', filePath, `${label} executor_root must be an absolute path`, project);
+      assert(typeof binding.integrated === 'boolean', 'RUN_TASKS', filePath, `${label} integrated must be boolean`, project);
+    }
+    return item;
+  }
   if (kind === 'decisions') {
     assert(namespacedId(record.id, 'DEC-'), 'DECISION_ID', filePath, `Invalid decision ID ${record.id}`, project);
     exactKeys(raw, ['status', 'decision', 'owner', 'due_date', 'date', 'affects'], filePath, `decision ${record.id}`, project);
@@ -681,6 +709,16 @@ function validateGraph(state, options = {}) {
     } catch (error) {
       if (!options.taskErrorsAsWarnings || !(error instanceof ProjectError)) throw error;
       recordTaskExecutionWarning(state, id, error);
+    }
+  }
+  const unfinishedRuns = state.runs.items.filter((run) => run.status === 'active');
+  assert(unfinishedRuns.length <= 1, 'RUN_CONCURRENT', 'RUNS.md', `Only one run may be active at a time; found ${unfinishedRuns.map((run) => run.id).join(', ')}`, state.project);
+  for (const run of state.runs.items) {
+    for (const [id, binding] of Object.entries(run.tasks)) {
+      assert(byId.has(id), 'RUN_TASK_REF', 'RUNS.md', `Run ${run.id} names unknown task ${id}`, state.project);
+      // Integration is a claim that the task's work reached the integration branch,
+      // so it cannot be asserted for a task that never produced verified evidence.
+      if (binding.integrated) assert(['verified', 'done'].includes(byId.get(id).status), 'RUN_TASK_INTEGRATED', 'RUNS.md', `Run ${run.id} marks task ${id} integrated while the task is ${byId.get(id).status}`, state.project);
     }
   }
   if (state.project.status === 'complete') {
@@ -909,6 +947,7 @@ function loadProject(folder, options = {}) {
     changes: module('CHANGES.md', 'changes'), assumptions: module('ASSUMPTIONS.md', 'assumptions'),
     issues: module('ISSUES.md', 'issues'), stakeholders: module('STAKEHOLDERS.md', 'stakeholders'),
     lessons: module('LESSONS.md', 'lessons'), closure: module('CLOSURE.md', 'closure'),
+    runs: module('RUNS.md', 'runs'),
   };
   state.traceability = loadTraceability(texts['TRACEABILITY.md'], path.join(root, 'TRACEABILITY.md'), project, tasks, state.sources.items);
   validateGraph(state, options);
@@ -920,6 +959,7 @@ function loadProject(folder, options = {}) {
     decisions: state.decisions.items, sources: state.sources.items, traceability: state.traceability, changes: state.changes.items,
     assumptions: whenConfigured(state.assumptions), issues: whenConfigured(state.issues),
     stakeholders: whenConfigured(state.stakeholders), lessons: whenConfigured(state.lessons), closure: whenConfigured(state.closure),
+    runs: whenConfigured(state.runs),
   });
   const statusParsed = parseFrontmatter(texts['STATUS.md'], path.join(root, 'STATUS.md'));
   exactKeys(statusParsed.data, ['schema_version', 'project_id', 'generated_at', 'source_sha256'], path.join(root, 'STATUS.md'), 'STATUS frontmatter', project);
@@ -1097,8 +1137,36 @@ function coverageData(state) {
   return { schema_version: 1, configured: true, criteria: { total: items.length, covered: items.filter((item) => item.covered).length, verified: items.filter((item) => item.verified).length, uncovered: items.filter((item) => !item.covered).length }, items };
 }
 
+/**
+ * Longest remaining dependency chain each task unblocks, memoized so one call
+ * costs a single traversal of the graph rather than one per candidate. A task
+ * where two chains reconverge is counted once. Non-active dispositions are
+ * skipped: cancelled work is not remaining work. The graph is validated acyclic
+ * before this runs, and the pre-seeded memo entry keeps a malformed graph from
+ * recursing without end.
+ */
+function downstreamDepths(state, byId) {
+  const memo = new Map();
+  function depth(id) {
+    if (memo.has(id)) return memo.get(id);
+    memo.set(id, 0);
+    let best = 0;
+    for (const next of byId.get(id).blocks) {
+      const dependent = byId.get(next);
+      if (taskDisposition(dependent) !== 'active') continue;
+      const candidate = 1 + depth(next);
+      if (candidate > best) best = candidate;
+    }
+    memo.set(id, best);
+    return best;
+  }
+  for (const task of state.tasks) depth(task.id);
+  return memo;
+}
+
 function nextData(state, byId = taskIndex(state)) {
   if (state.project.status !== 'active') return { schema_version: 1, tasks: [] };
+  const depths = downstreamDepths(state, byId);
   const candidates = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status === 'ready' && !task.blocked_by.length && !unfinishedDependencies(task, state, byId).length && !taskExecutionWarning(state, task.id));
   const rows = candidates.map((task) => {
     const unlocks = state.tasks.filter((candidate) => taskDisposition(candidate) === 'active' && candidate.status === 'planned' && candidate.blocked_by.length === 0 && candidate.depends_on.includes(task.id) && candidate.depends_on.every((id) => id === task.id || byId.get(id).status === 'done')).length;
@@ -1107,9 +1175,9 @@ function nextData(state, byId = taskIndex(state)) {
     if (unlocks) reasons.push(`unlocks ${unlocks}`);
     reasons.push(task.priority);
     if (task.milestone === state.project.current_milestone && task.milestone !== null) reasons.push('current milestone');
-    return { id: task.id, title: task.title, critical: task.critical, unlocks, priority: task.priority, milestone: task.milestone, reasons };
+    return { id: task.id, title: task.title, critical: task.critical, depth: depths.get(task.id), unlocks, priority: task.priority, milestone: task.milestone, reasons };
   });
-  rows.sort((a, b) => Number(b.critical) - Number(a.critical) || b.unlocks - a.unlocks || PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) || Number(b.milestone !== null && b.milestone === state.project.current_milestone) - Number(a.milestone !== null && a.milestone === state.project.current_milestone) || a.id.localeCompare(b.id));
+  rows.sort((a, b) => Number(b.critical) - Number(a.critical) || b.depth - a.depth || b.unlocks - a.unlocks || PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) || Number(b.milestone !== null && b.milestone === state.project.current_milestone) - Number(a.milestone !== null && a.milestone === state.project.current_milestone) || a.id.localeCompare(b.id));
   return { schema_version: 1, tasks: rows };
 }
 
@@ -1136,6 +1204,16 @@ function statusData(state, asOf = new Date().toISOString().slice(0, 10), byId = 
     success: successCounts(state),
     milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== 'complete' })) } : { configured: false },
     coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
+    concurrency: concurrencyData(state, byId),
+    runs: state.runs.configured ? {
+      configured: true,
+      active: (() => {
+        const run = state.runs.items.find((item) => item.status === 'active') ?? null;
+        if (!run) return null;
+        const bindings = Object.values(run.tasks);
+        return { run_id: run.id, started: run.started, updated: run.updated, tasks_bound: bindings.length, tasks_integrated: bindings.filter((binding) => binding.integrated).length };
+      })(),
+    } : { configured: false },
     risks: state.risks.configured ? { configured: true, open: state.risks.items.filter((item) => item.status === 'open').length, high: state.risks.items.filter((item) => item.status === 'open' && (item.probability === 'high' || item.impact === 'high')).length } : { configured: false },
     decisions: state.decisions.configured ? { configured: true, proposed: state.decisions.items.filter((item) => item.status === 'proposed').length } : { configured: false },
     assumptions: state.assumptions.configured ? { configured: true, total: state.assumptions.items.length, open: state.assumptions.items.filter((item) => item.status === 'open').length, invalidated: state.assumptions.items.filter((item) => item.status === 'invalidated').length } : { configured: false },
@@ -1146,10 +1224,168 @@ function statusData(state, asOf = new Date().toISOString().slice(0, 10), byId = 
   };
 }
 
+/**
+ * Read-only execution telemetry projection.
+ *
+ * Deliberately isolated: no readiness, ranking, gating, or completion path calls
+ * this, and nothing here feeds a decision. Telemetry is observational only.
+ *
+ * Counts are incremental per manifest — each manifest reports what its own
+ * segment of work consumed — so one summation rule composes at every level:
+ * attempt sums its manifests, task sums its attempts, run sums its tasks.
+ * A `null` count means the executor did not report it and is carried as an
+ * explicit unreported tally, never coerced to zero.
+ */
+const EXECUTION_METRICS = ['llm_calls', 'tool_calls', 'input_tokens', 'output_tokens'];
+
+function emptyMetrics() {
+  return Object.fromEntries(EXECUTION_METRICS.map((key) => [key, { reported: null, unreported: 0 }]));
+}
+
+function foldMetric(target, key, value) {
+  const slot = target[key];
+  if (value === null || value === undefined) { slot.unreported += 1; return; }
+  slot.reported = (slot.reported ?? 0) + value;
+}
+
+function mergeMetrics(target, source) {
+  for (const key of EXECUTION_METRICS) {
+    if (source[key].reported !== null) target[key].reported = (target[key].reported ?? 0) + source[key].reported;
+    target[key].unreported += source[key].unreported;
+  }
+}
+
+/**
+ * Read one attempt's telemetry. Superseded attempts are not covered by
+ * validateAttempt, which only inspects a task's active contract, so this reads
+ * defensively: it refuses symlinks itself rather than trusting prior validation.
+ */
+function readAttemptFile(attemptRoot, name) {
+  const target = path.join(attemptRoot, name);
+  const stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Attempt telemetry paths must be regular files');
+  return fs.readFileSync(target, 'utf8');
+}
+
+function attemptTelemetry(attemptRoot) {
+  let contract;
+  try {
+    if (fs.lstatSync(attemptRoot).isSymbolicLink()) return null;
+    contract = parseAttempt(readAttemptFile(attemptRoot, 'TASK-CONTRACT.md'), attemptRoot, 'contract');
+  } catch { return null; }
+  const names = fs.readdirSync(attemptRoot).filter((name) => /^EVIDENCE-\d{3}\.md$/.test(name)).sort();
+  const metrics = emptyMetrics();
+  let observedAt = null;
+  let manifests = 0;
+  for (const name of names) {
+    let payload;
+    try { payload = parseAttempt(readAttemptFile(attemptRoot, name), path.join(attemptRoot, name), 'manifest').payload; } catch { continue; }
+    manifests += 1;
+    observedAt = payload.observed_at;
+    for (const key of EXECUTION_METRICS) foldMetric(metrics, key, payload.execution ? payload.execution[key] : null);
+  }
+  const startedAt = contract.payload.created_at;
+  // Elapsed comes from timestamps the skill owns, so it survives an executor
+  // that reports no counts at all.
+  const elapsedSeconds = observedAt === null ? null : Math.max(0, Math.round((Date.parse(observedAt) - Date.parse(startedAt)) / 1000));
+  return {
+    contract_id: contract.envelope.contract_id, started_at: startedAt, observed_at: observedAt,
+    elapsed_seconds: elapsedSeconds, manifests, metrics,
+  };
+}
+
+function executionData(state) {
+  const tasks = [];
+  for (const task of state.tasks) {
+    const taskRoot = path.join(state.root, 'handoffs', task.id);
+    let contractIds = [];
+    try { contractIds = fs.readdirSync(taskRoot).sort(); } catch { continue; }
+    const attempts = [];
+    for (const contractId of contractIds) {
+      const attempt = attemptTelemetry(path.join(taskRoot, contractId));
+      if (attempt) attempts.push(attempt);
+    }
+    if (attempts.length === 0) continue;
+    const metrics = emptyMetrics();
+    let elapsed = null;
+    for (const attempt of attempts) {
+      mergeMetrics(metrics, attempt.metrics);
+      if (attempt.elapsed_seconds !== null) elapsed = (elapsed ?? 0) + attempt.elapsed_seconds;
+    }
+    tasks.push({ task_id: task.id, attempts: attempts.length, elapsed_seconds: elapsed, metrics, attempt_detail: attempts });
+  }
+  const byTask = new Map(tasks.map((entry) => [entry.task_id, entry]));
+  const runs = state.runs.items.map((run) => {
+    const metrics = emptyMetrics();
+    let elapsed = null;
+    let counted = 0;
+    for (const id of Object.keys(run.tasks)) {
+      const entry = byTask.get(id);
+      if (!entry) continue;
+      counted += 1;
+      mergeMetrics(metrics, entry.metrics);
+      if (entry.elapsed_seconds !== null) elapsed = (elapsed ?? 0) + entry.elapsed_seconds;
+    }
+    return { run_id: run.id, status: run.status, tasks_measured: counted, elapsed_seconds: elapsed, metrics };
+  });
+  return { schema_version: 1, configured: tasks.length > 0, tasks, runs };
+}
+
+/**
+ * What the remaining plan's dependency graph permits, independent of any
+ * scheduler. No orchestrator can finish faster than the critical path, so a
+ * plan that declares many dependencies caps its own wall-time however wide the
+ * runtime runs. Measured over remaining active work in task counts, not
+ * durations: the project has no duration field, and the shape of the graph is
+ * the part a planner controls.
+ */
+function concurrencyData(state, byId = taskIndex(state)) {
+  const remaining = state.tasks.filter((task) => taskDisposition(task) === 'active' && task.status !== 'done');
+  if (remaining.length === 0) return { schema_version: 1, configured: false };
+  const ids = new Set(remaining.map((task) => task.id));
+  // Only a done dependency is satisfied. An edge to a cancelled or deferred task
+  // is unsatisfied and must still count as a dependency, even though it forms no
+  // chain among runnable work — blockerItems reports that task as blocked.
+  const unsatisfied = (task) => task.depends_on.filter((id) => byId.get(id)?.status !== 'done');
+  const deps = new Map(remaining.map((task) => [task.id, unsatisfied(task).filter((id) => ids.has(id))]));
+  const memo = new Map();
+  function level(id) {
+    if (memo.has(id)) return memo.get(id);
+    memo.set(id, 0);
+    const parents = deps.get(id);
+    const value = parents.length === 0 ? 0 : 1 + Math.max(...parents.map(level));
+    memo.set(id, value);
+    return value;
+  }
+  for (const id of ids) level(id);
+  const widths = [];
+  for (const id of ids) {
+    const at = memo.get(id);
+    widths[at] = (widths[at] ?? 0) + 1;
+  }
+  for (let index = 0; index < widths.length; index += 1) if (widths[index] === undefined) widths[index] = 0;
+  const criticalPath = widths.length;
+  // Leading single-task levels are strictly serial: nothing can overlap them.
+  let serialPrefix = 0;
+  while (serialPrefix < widths.length && widths[serialPrefix] === 1) serialPrefix += 1;
+  const dependent = remaining.filter((task) => unsatisfied(task).length > 0).length;
+  return {
+    schema_version: 1, configured: true,
+    remaining_tasks: remaining.length,
+    dependent_tasks: dependent,
+    critical_path: criticalPath,
+    widest_level: Math.max(...widths),
+    serial_prefix: serialPrefix,
+    // Best possible speedup over serial execution, with unlimited workers.
+    concurrency_ceiling: Math.round((remaining.length / criticalPath) * 100) / 100,
+    level_widths: widths,
+  };
+}
+
 function validateData(state) {
   const warnings = [...state.warnings];
   if (state.status_stale) warnings.push({ code: 'STATUS_STALE', path: 'STATUS.md', message: 'Derived STATUS cache does not match current source state' });
-  return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, handoffs: fs.existsSync(path.join(state.root, 'handoffs')), reports: fs.existsSync(path.join(state.root, 'reports', 'history')) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length } };
+  return { schema_version: 1, valid: true, warnings, modules: { milestones: state.milestones.configured, risks: state.risks.configured, decisions: state.decisions.configured, sources: state.sources.configured, traceability: state.traceability.configured, changes: state.changes.configured, assumptions: state.assumptions.configured, issues: state.issues.configured, stakeholders: state.stakeholders.configured, lessons: state.lessons.configured, closure: state.closure.configured, runs: state.runs.configured, handoffs: fs.existsSync(path.join(state.root, 'handoffs')), reports: fs.existsSync(path.join(state.root, 'reports', 'history')) }, counts: { tasks: state.tasks.length, milestones: state.milestones.items.length, risks: state.risks.items.length, decisions: state.decisions.items.length, sources: state.sources.items.length, changes: state.changes.items.length, assumptions: state.assumptions.items.length, issues: state.issues.items.length, stakeholders: state.stakeholders.items.length, lessons: state.lessons.items.length, closure: state.closure.items.length, runs: state.runs.items.length } };
 }
 
 function reportData(state) {
@@ -1165,7 +1401,7 @@ function reportData(state) {
   for (const milestone of state.milestones.items.filter((item) => item.forecast_date === null)) unknowns.push({ field: `milestones.${milestone.id}.forecast_date`, reason: 'Forecast is unknown' });
   const configuredItems = (module) => module.configured ? { configured: true, items: module.items } : { configured: false };
   const ownership = state.tasks.map((task) => ({ task_id: task.id, owner: task.owner })).sort((a, b) => a.task_id.localeCompare(b.task_id));
-  return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state, reportIndex), next: nextData(state, reportIndex).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
+  return { schema_version: 3, status, risks: configuredItems(state.risks), decisions: configuredItems(state.decisions), sources: configuredItems(state.sources), changes: configuredItems(state.changes), assumptions: configuredItems(state.assumptions), issues: configuredItems(state.issues), stakeholders: configuredItems(state.stakeholders), lessons: configuredItems(state.lessons), closure: configuredItems(state.closure), ownership, blockers: blockerItems(state, reportIndex), execution: executionData(state), next: nextData(state, reportIndex).tasks, forecasts: state.milestones.items.filter((item) => item.forecast_date).map((item) => ({ milestone_id: item.id, date: item.forecast_date, updated: item.forecast_updated, evidence: item.forecast_evidence })).sort((a, b) => a.milestone_id.localeCompare(b.milestone_id)), unknowns: unknowns.sort((a, b) => a.field.localeCompare(b.field)) };
 }
 
 const KANBAN_LANES = [
@@ -1353,7 +1589,10 @@ function kanbanData(state, mutationRevision = null) {
 function renderStatus(state, generatedAt = new Date().toISOString()) {
   if (!validTimestamp(generatedAt)) throw new Error('STATUS generated_at must be RFC3339 UTC');
   const data = statusData(state, generatedAt.slice(0, 10));
-  return `---\nschema_version: 1\nproject_id: ${JSON.stringify(state.project.id)}\ngenerated_at: ${JSON.stringify(generatedAt)}\nsource_sha256: ${JSON.stringify(state.source_sha256)}\n---\n\n## Snapshot\n\n${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blocked} blocked.\n`;
+  const run = data.runs.configured && data.runs.active
+    ? ` Run ${data.runs.active.run_id}: ${data.runs.active.tasks_integrated}/${data.runs.active.tasks_bound} tasks integrated.`
+    : '';
+  return `---\nschema_version: 1\nproject_id: ${JSON.stringify(state.project.id)}\ngenerated_at: ${JSON.stringify(generatedAt)}\nsource_sha256: ${JSON.stringify(state.source_sha256)}\n---\n\n## Snapshot\n\n${data.tasks.total} tasks; ${data.tasks.actionable} actionable; ${data.tasks.blocked} blocked.${run}\n`;
 }
 
 function regenerateStatus(folder, generatedAt = new Date().toISOString(), options = {}) {
@@ -1364,7 +1603,7 @@ function regenerateStatus(folder, generatedAt = new Date().toISOString(), option
 
 module.exports = {
   ProjectError, blockedTaskIds, summaryData, loadProject, loadProjectIdentity, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData,
-  blockerItems, coverageData, reportData, kanbanData, taskEditEligibility, scheduleEditEligibility,
+  blockerItems, coverageData, reportData, executionData, concurrencyData, kanbanData, taskEditEligibility, scheduleEditEligibility,
   dispositionEditEligibility, taskOrderEditEligibility, renderStatus, regenerateStatus, parseFrontmatter, parseCollection,
   parseAttempt, successCounts, profilePolicy, taskDisposition, displayStatus, taskClosed,
 };

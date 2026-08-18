@@ -51,3 +51,21 @@ and every status claim made in narrative.
    build or test suite would not run, state that once and clearly as a limit on every conclusion drawn.
 6. Demand evidence for completion, never artifacts. A present file, a closed ticket, a confident commit
    message, and tidy documentation prove nothing on their own; only a validated Evidence Manifest does.
+
+## Judge the dependency graph, not only the tasks
+
+Read `concurrency` from `project-status.js` and challenge the shape it reports:
+
+- A `concurrency_ceiling` near `1.0` means the plan is serial by construction. Confirm that is a
+  property of the work and not of over-declared dependencies, and record which.
+- A `serial_prefix` of more than one or two levels concentrates the run's idle capacity at the
+  start. Ask whether those leading tasks are genuinely separate stories or one story split into
+  stages that cannot be verified apart.
+- For each declared dependency, ask whether the dependent could **start** without it. If it could,
+  the edge is a preference about ordering and belongs in priority, not `depends_on`.
+- Flag dependencies restated transitively. They inflate apparent coupling without changing the
+  critical path, and they make a plan look less parallel than it is.
+
+Report the ceiling with the review. A plan whose ceiling was never stated will have its eventual
+wall time attributed to execution rather than to the decomposition that fixed it.
+

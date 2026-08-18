@@ -17,7 +17,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
-  loadProject, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts, parseAttempt,
+  loadProject, loadProjectIndex, loadProjectsRoot, loadProjectCatalogRoot, resolveProjectInRoot, validateData, statusData, nextData, blockerItems, coverageData, reportData, executionData, concurrencyData, kanbanData, scheduleEditEligibility, dispositionEditEligibility, regenerateStatus, profilePolicy, successCounts, parseAttempt,
 } = require('../scripts/lib/project-state');
 const {
   DEFAULT_EVIDENCE, canonicalJson, sha256, taskSpecHash, buildTaskContract, deriveStory,
@@ -26,6 +26,7 @@ const {
 const { atomicProjectMutation, createProjectWork, cleanupProjectWork } = require('../scripts/lib/mutations');
 const { completeHumanTask, loadStableProject } = require('../scripts/lib/human-completion');
 const { startAgentTask, ingestAgentManifest } = require('../scripts/lib/agent-execution');
+const { startRun, advanceRun, resumeRun } = require('../scripts/lib/run-execution');
 const { parseTaskRecords, renderRecord } = require('../scripts/lib/task-editor');
 const { MAX_PAYLOAD_BYTES, RETIRED_ROOT_LAUNCHERS, initializeWorkspaceProject } = require('../scripts/lib/workspace-init');
 
@@ -127,7 +128,7 @@ test('minimal generic project validates without Git, milestones, traceability, o
   const root = createProject(base, 'ROLLOUT', [task('TASK-LAUNCH', 'Launch', 'Launch safely.', ['Stakeholders approve launch.'], { status: 'ready', success_criteria: ['SC-OUTCOME'] })]);
   const state = loadProject(root);
   assert.equal(state.project.id, 'ROLLOUT');
-  assert.deepEqual(validateData(state).modules, { milestones: false, risks: false, decisions: false, sources: false, traceability: false, changes: false, assumptions: false, issues: false, stakeholders: false, lessons: false, closure: false, handoffs: false, reports: false });
+  assert.deepEqual(validateData(state).modules, { milestones: false, risks: false, decisions: false, sources: false, traceability: false, changes: false, assumptions: false, issues: false, stakeholders: false, lessons: false, closure: false, runs: false, handoffs: false, reports: false });
   assert.deepEqual(statusData(state).milestones, { configured: false });
   assert.deepEqual(coverageData(state), { schema_version: 1, configured: false });
   assert.equal(nextData(state).tasks[0].id, 'TASK-LAUNCH');
@@ -359,10 +360,10 @@ test('every CLI requires one selector and emits exact selected identity without 
     assert.equal(Object.hasOwn(envelope, 'errors'), false);
     const expected = {
       'project-validate.js': ['schema_version', 'valid', 'warnings', 'modules', 'counts'],
-      'project-status.js': ['schema_version', 'as_of_date', 'project', 'tailoring', 'tasks', 'success', 'milestones', 'coverage', 'risks', 'decisions', 'assumptions', 'issues', 'stakeholders', 'lessons', 'closure'],
+      'project-status.js': ['schema_version', 'as_of_date', 'project', 'tailoring', 'tasks', 'success', 'milestones', 'coverage', 'concurrency', 'runs', 'risks', 'decisions', 'assumptions', 'issues', 'stakeholders', 'lessons', 'closure'],
       'project-next.js': ['schema_version', 'tasks'], 'project-blocked.js': ['schema_version', 'tasks'],
       'project-coverage.js': ['schema_version', 'configured'],
-      'project-report-data.js': ['schema_version', 'status', 'risks', 'decisions', 'sources', 'changes', 'assumptions', 'issues', 'stakeholders', 'lessons', 'closure', 'ownership', 'blockers', 'next', 'forecasts', 'unknowns'],
+      'project-report-data.js': ['schema_version', 'status', 'risks', 'decisions', 'sources', 'changes', 'assumptions', 'issues', 'stakeholders', 'lessons', 'closure', 'ownership', 'blockers', 'execution', 'next', 'forecasts', 'unknowns'],
     };
     assert.deepEqual(Object.keys(envelope.data), expected[script]);
   }
@@ -1806,4 +1807,389 @@ test('closure records bind acceptance to real project and milestone completion',
   const unknownMilestone = createProject(base, 'GHOSTMS', [task('TASK-A', 'A', 'Done.', ['Accepted.'])]);
   writeModule(unknownMilestone, 'CLOSURE.md', [{ id: 'CLO-ONE', title: 'Closure', data: { scope: 'milestone', milestone: 'M-GHOST', status: 'pending', accepted_by: null, accepted_date: null, acceptance_evidence: [], outstanding_items: [], archive_ref: null } }]);
   assert.match(loadError(unknownMilestone).message, /unknown milestone/);
+});
+
+test('the run record is optional and installing it cannot stale an existing STATUS cache', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const records = [
+    task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready', blocks: ['TASK-B'] }),
+    task('TASK-B', 'Beta', 'B.', ['B accepted.'], { depends_on: ['TASK-A'] }),
+  ];
+  // A project with no RUNS.md must hash exactly as it did before runs existed,
+  // or every existing project's cached STATUS.md goes stale on upgrade.
+  const without = createProject(base, 'NORUNS', records);
+  const bare = loadProject(without);
+  assert.equal(bare.runs.configured, false);
+  assert.deepEqual(bare.runs.items, []);
+
+  // Baseline derived by loading this exact fixture with the pre-change module at
+  // commit 1f139a1, before RUNS.md existed. Adding an unconfigured module must not
+  // move this hash, or every project's cached STATUS.md goes stale on upgrade.
+  assert.equal(bare.source_sha256, '567b6942d9898cea095a8ac2ef3bb4fdb9846edabd7b62b423c7125c76f0a5a1');
+
+  const withRuns = createProject(base, 'NORUNS2', records);
+  const hashBefore = loadProject(withRuns).source_sha256;
+  writeModule(withRuns, 'RUNS.md', [{
+    id: 'RUN-A1B2C3D4',
+    title: 'First run',
+    data: {
+      status: 'active', started: '2026-08-18T00:00:00Z', updated: '2026-08-18T01:00:00Z',
+      repositories: [{ name: 'app', integration_branch: 'pm/x-a1b2c3d4', base_branch: 'main', base_commit: 'a'.repeat(40), coordinator_worktree: '/tmp/wt/app-integration' }],
+      tasks: { 'TASK-A': { branch: 'pm/x-a1b2c3d4-task-a', executor_root: '/tmp/wt/task-a', integrated: false } },
+    },
+  }]);
+  const loaded = loadProject(withRuns);
+  assert.equal(loaded.runs.configured, true);
+  assert.equal(loaded.runs.items[0].id, 'RUN-A1B2C3D4');
+  assert.equal(loaded.runs.items[0].repositories[0].base_branch, 'main');
+  assert.equal(loaded.runs.items[0].tasks['TASK-A'].integrated, false);
+  assert.notEqual(loaded.source_sha256, hashBefore, 'a configured run record must participate in the hash');
+  assert.equal(validateData(loaded).modules.runs, true);
+});
+
+test('run records fail closed on schema and cross-record reference errors', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const records = [
+    task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready' }),
+  ];
+  const run = (data, over = {}) => ({
+    id: 'RUN-ONE',
+    title: 'Run',
+    data: {
+      status: 'active', started: '2026-08-18T00:00:00Z', updated: '2026-08-18T01:00:00Z',
+      repositories: [], tasks: {}, ...data, ...over,
+    },
+  });
+  const check = (name, data, pattern) => {
+    const root = createProject(base, name, records);
+    writeModule(root, 'RUNS.md', [run(data)]);
+    assert.match(loadError(root).message, pattern, name);
+  };
+  check('BADSTATUS', { status: 'running' }, /status must be one of/);
+  check('BADTIME', { started: '2026-08-18' }, /must be RFC3339 UTC/);
+  check('BACKWARDS', { started: '2026-08-18T02:00:00Z', updated: '2026-08-18T01:00:00Z' }, /cannot advance before it started/);
+  check('BADCOMMIT', { repositories: [{ name: 'app', integration_branch: 'b', base_branch: 'main', base_commit: 'abc', coordinator_worktree: '/tmp/w' }] }, /base_commit must be a full Git object ID/);
+  check('RELROOT', { tasks: { 'TASK-A': { branch: 'b', executor_root: 'relative/path', integrated: false } } }, /executor_root must be an absolute path/);
+  check('GHOSTTASK', { tasks: { 'TASK-Z': { branch: 'b', executor_root: '/tmp/w', integrated: false } } }, /names unknown task TASK-Z/);
+  // A task cannot be claimed as integrated while its own status contradicts that.
+  check('LYINGRUN', { tasks: { 'TASK-A': { branch: 'b', executor_root: '/tmp/w', integrated: true } } }, /marks task TASK-A integrated while the task is ready/);
+
+  const twoActive = createProject(base, 'TWORUNS', records);
+  writeModule(twoActive, 'RUNS.md', [run({}), { ...run({}), id: 'RUN-TWO' }]);
+  assert.match(loadError(twoActive).message, /Only one run may be active at a time/);
+});
+
+test('a run opens once, records progress, and resumes from recorded state alone', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = createProject(base, 'RUNLIFE', [
+    task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready' }),
+    task('TASK-B', 'Beta', 'B.', ['B accepted.'], { status: 'ready' }),
+  ]);
+  const repositories = [{ name: 'app', integration_branch: 'pm/runlife-a1b2c3d4', base_branch: 'main', base_commit: 'b'.repeat(40), coordinator_worktree: '/tmp/wt/app-integration' }];
+
+  const opened = startRun(root, { run_id: 'RUN-A1B2C3D4', title: 'First run', repositories }, '2026-08-18T00:00:00Z');
+  assert.equal(opened.data.run_id, 'RUN-A1B2C3D4');
+  assert.equal(opened.data.status, 'active');
+
+  // A second run must not silently fork beside an unfinished one.
+  assert.throws(
+    () => startRun(root, { run_id: 'RUN-E5F6A7B8', title: 'Second run', repositories }, '2026-08-18T00:10:00Z'),
+    (error) => error.code === 'RUN_ACTIVE' && /RUN-A1B2C3D4 is still active/.test(error.message),
+  );
+
+  advanceRun(root, { bind_task: { task_id: 'TASK-A', branch: 'pm/runlife-a1b2c3d4-task-a', executor_root: '/tmp/wt/task-a' } }, '2026-08-18T00:20:00Z');
+  advanceRun(root, { bind_task: { task_id: 'TASK-B', branch: 'pm/runlife-a1b2c3d4-task-b', executor_root: '/tmp/wt/task-b' } }, '2026-08-18T00:30:00Z');
+  assert.throws(
+    () => advanceRun(root, { bind_task: { task_id: 'TASK-Z', branch: 'b', executor_root: '/tmp/w' } }, '2026-08-18T00:40:00Z'),
+    (error) => error.code === 'RUN_TASK_UNKNOWN',
+  );
+
+  const resumed = resumeRun(root);
+  assert.equal(resumed.data.resumable, true);
+  assert.equal(resumed.data.run.run_id, 'RUN-A1B2C3D4');
+  assert.deepEqual(resumed.data.run.repositories, repositories);
+  assert.deepEqual(resumed.data.run.integrated_tasks, []);
+  assert.deepEqual(resumed.data.run.pending_tasks, ['TASK-A', 'TASK-B']);
+  assert.equal(resumed.data.run.tasks['TASK-A'].branch, 'pm/runlife-a1b2c3d4-task-a');
+
+  // Resume must answer from RUNS.md alone — no branch or worktree on disk exists here.
+  assert.equal(fs.existsSync('/tmp/wt/task-a'), false);
+
+  const fresh = loadProject(root);
+  assert.equal(fresh.runs.items.length, 1);
+  assert.equal(fresh.runs.items[0].updated, '2026-08-18T00:30:00Z');
+});
+
+test('a run with no active record reports not resumable rather than inventing one', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = createProject(base, 'NORUN', [task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready' })]);
+  const resumed = resumeRun(root);
+  assert.equal(resumed.data.resumable, false);
+  assert.equal(resumed.data.run, null);
+  assert.throws(() => advanceRun(root, { status: 'complete' }, '2026-08-18T00:00:00Z'), (error) => error.code === 'RUN_MISSING');
+});
+
+test('ready work ranks by longest downstream chain, not immediate fan-out', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  // CHAIN heads a chain of three; LEAVES has more immediate successors, all leaves.
+  const root = createProject(base, 'CRITPATH', [
+    task('TASK-CHAIN', 'Chain head', 'C.', ['C accepted.'], { status: 'ready', blocks: ['TASK-C1'] }),
+    task('TASK-C1', 'Chain 1', 'C1.', ['C1 accepted.'], { depends_on: ['TASK-CHAIN'], blocks: ['TASK-C2'] }),
+    task('TASK-C2', 'Chain 2', 'C2.', ['C2 accepted.'], { depends_on: ['TASK-C1'], blocks: ['TASK-C3'] }),
+    task('TASK-C3', 'Chain 3', 'C3.', ['C3 accepted.'], { depends_on: ['TASK-C2'] }),
+    task('TASK-LEAVES', 'Fan out', 'L.', ['L accepted.'], { status: 'ready', blocks: ['TASK-L1', 'TASK-L2', 'TASK-L3'] }),
+    task('TASK-L1', 'Leaf 1', 'L1.', ['L1 accepted.'], { depends_on: ['TASK-LEAVES'] }),
+    task('TASK-L2', 'Leaf 2', 'L2.', ['L2 accepted.'], { depends_on: ['TASK-LEAVES'] }),
+    task('TASK-L3', 'Leaf 3', 'L3.', ['L3 accepted.'], { depends_on: ['TASK-LEAVES'] }),
+  ]);
+  const rows = nextData(loadProject(root)).tasks;
+  assert.deepEqual(rows.map((row) => row.id), ['TASK-CHAIN', 'TASK-LEAVES']);
+  assert.equal(rows[0].depth, 3, 'chain head sees three remaining links');
+  assert.equal(rows[1].depth, 1, 'fan-out to leaves is one link deep');
+  // Immediate fan-out alone would have ranked LEAVES first.
+  assert.ok(rows[1].unlocks > rows[0].unlocks);
+});
+
+test('critical-path depth counts a reconverging task once and is deterministic', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  // A DAG, not a tree: both branches reconverge on TASK-JOIN.
+  const root = createProject(base, 'DIAMOND', [
+    task('TASK-ROOT', 'Root', 'R.', ['R accepted.'], { status: 'ready', blocks: ['TASK-LEFT', 'TASK-RIGHT'] }),
+    task('TASK-LEFT', 'Left', 'L.', ['L accepted.'], { depends_on: ['TASK-ROOT'], blocks: ['TASK-JOIN'] }),
+    task('TASK-RIGHT', 'Right', 'R2.', ['R2 accepted.'], { depends_on: ['TASK-ROOT'], blocks: ['TASK-JOIN'] }),
+    task('TASK-JOIN', 'Join', 'J.', ['J accepted.'], { depends_on: ['TASK-LEFT', 'TASK-RIGHT'], blocks: ['TASK-TAIL'] }),
+    task('TASK-TAIL', 'Tail', 'T.', ['T accepted.'], { depends_on: ['TASK-JOIN'] }),
+  ]);
+  const state = loadProject(root);
+  const rows = nextData(state).tasks;
+  assert.equal(rows.length, 1);
+  // ROOT -> LEFT -> JOIN -> TAIL is four nodes, so three remaining links, not five.
+  assert.equal(rows[0].depth, 3);
+  assert.deepEqual(nextData(state).tasks, rows, 'ranking is deterministic across calls');
+});
+
+test('ranking is unchanged when every ready task has the same downstream depth', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = createProject(base, 'FLATDEPTH', [
+    task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready', priority: 'P2' }),
+    task('TASK-B', 'Beta', 'B.', ['B accepted.'], { status: 'ready', priority: 'P0' }),
+    task('TASK-C', 'Gamma', 'C.', ['C accepted.'], { status: 'ready', priority: 'P1' }),
+  ]);
+  const rows = nextData(loadProject(root)).tasks;
+  assert.ok(rows.every((row) => row.depth === 0));
+  // With depth tied, the pre-existing priority tie-break decides, exactly as before.
+  assert.deepEqual(rows.map((row) => row.id), ['TASK-B', 'TASK-C', 'TASK-A']);
+});
+
+test('execution telemetry is version-gated, additive, and never invents a zero', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const { root, contract } = activeAgentFixture('TELEM');
+  const artifact = evidence('artifact', 'build');
+
+  // A stored schema_version 1 manifest must keep validating: readAttempt
+  // re-validates every stored manifest on every read.
+  const v1 = manifest(contract, 'implemented', 1, [artifact], [], { observed_at: '2026-08-08T00:00:31Z' });
+  assert.doesNotThrow(() => validateManifest(v1, contract, []));
+
+  const review = evidence('review', 'cr');
+  const v2 = (sequence, status, execution, observedAt) => manifest(
+    contract, status, sequence,
+    status === 'verified' ? [artifact, review] : [artifact],
+    status === 'verified' ? [review] : [],
+    { schema_version: 2, execution, observed_at: observedAt },
+  );
+
+  // Version 1 must reject the new field; version 2 must require it.
+  assert.throws(() => validateManifest({ ...v1, execution: { llm_calls: 1, tool_calls: 1, input_tokens: 1, output_tokens: 1 } }, contract, []), /manifest payload/);
+  assert.throws(() => validateManifest({ ...v1, schema_version: 2 }, contract, []), /manifest payload/);
+  assert.throws(() => validateManifest({ ...v1, schema_version: 3 }, contract, []), /Unsupported manifest schema version/);
+
+  const bad = (execution) => () => validateManifest(v2(1, 'implemented', execution, '2026-08-08T00:00:31Z'), contract, []);
+  assert.throws(bad({ llm_calls: -1, tool_calls: 0, input_tokens: 0, output_tokens: 0 }), /non-negative integer or null/);
+  assert.throws(bad({ llm_calls: 1.5, tool_calls: 0, input_tokens: 0, output_tokens: 0 }), /non-negative integer or null/);
+  assert.throws(bad({ llm_calls: '4', tool_calls: 0, input_tokens: 0, output_tokens: 0 }), /non-negative integer or null/);
+  assert.throws(bad({ llm_calls: 1, tool_calls: 0, input_tokens: 0 }), /manifest execution/);
+
+  // Two manifests, the second reporting no LLM count at all.
+  ingestAgentManifest(root, 'TASK-WORK', v2(1, 'implemented', { llm_calls: 10, tool_calls: 40, input_tokens: 1000, output_tokens: 200 }, '2026-08-08T00:00:31Z'));
+  ingestAgentManifest(root, 'TASK-WORK', v2(2, 'verified', { llm_calls: null, tool_calls: 5, input_tokens: 300, output_tokens: 50 }, '2026-08-08T00:01:01Z'));
+
+  const telemetry = executionData(loadProject(root));
+  assert.equal(telemetry.configured, true);
+  const entry = telemetry.tasks.find((item) => item.task_id === 'TASK-WORK');
+  assert.equal(entry.attempts, 1);
+  // Counts are incremental per manifest, so one summation rule composes.
+  assert.deepEqual(entry.metrics.tool_calls, { reported: 45, unreported: 0 });
+  assert.deepEqual(entry.metrics.input_tokens, { reported: 1300, unreported: 0 });
+  assert.deepEqual(entry.metrics.output_tokens, { reported: 250, unreported: 0 });
+  // An omitted count is carried as unreported, never folded in as zero.
+  assert.deepEqual(entry.metrics.llm_calls, { reported: 10, unreported: 1 });
+  // Elapsed comes from timestamps the skill owns: contract 00:00:01 -> manifest 00:01:01.
+  assert.equal(entry.elapsed_seconds, 60);
+});
+
+test('telemetry is observational: recorded counts change no decision output', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const { root, contract } = activeAgentFixture('OBSERV');
+  const artifact = evidence('artifact', 'build');
+  ingestAgentManifest(root, 'TASK-WORK', manifest(contract, 'implemented', 1, [artifact], [], {
+    schema_version: 2, execution: { llm_calls: 7, tool_calls: 9, input_tokens: 11, output_tokens: 13 }, observed_at: '2026-08-08T00:00:31Z',
+  }));
+  const state = loadProject(root);
+  const decisions = JSON.stringify({
+    next: nextData(state).tasks, status: statusData(state, '2026-08-08'), valid: validateData(state).valid,
+    blockers: blockerItems(state),
+  });
+  const telemetry = executionData(state);
+  assert.notEqual(telemetry.tasks.length, 0, 'telemetry was actually recorded');
+  // Recompute against a state whose recorded counts differ by orders of magnitude.
+  const { root: other, contract: otherContract } = activeAgentFixture('OBSERV2');
+  ingestAgentManifest(other, 'TASK-WORK', manifest(otherContract, 'implemented', 1, [artifact], [], {
+    schema_version: 2, execution: { llm_calls: 70000, tool_calls: 90000, input_tokens: 110000, output_tokens: 130000 }, observed_at: '2026-08-08T00:00:31Z',
+  }));
+  const otherState = loadProject(other);
+  const otherDecisions = JSON.stringify({
+    next: nextData(otherState).tasks, status: statusData(otherState, '2026-08-08'), valid: validateData(otherState).valid,
+    blockers: blockerItems(otherState),
+  });
+  assert.equal(otherDecisions, decisions, 'decision output must not vary with recorded counts');
+});
+
+test('a failed run mutation leaves every state file byte-unchanged', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = createProject(base, 'RUNROLL', [task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready' })]);
+  const repositories = [{ name: 'app', integration_branch: 'pm/runroll-a1b2c3d4', base_branch: 'main', base_commit: 'c'.repeat(40), coordinator_worktree: '/tmp/wt/app-integration' }];
+  startRun(root, { run_id: 'RUN-A1B2C3D4', title: 'Run', repositories }, '2026-08-18T00:00:00Z');
+  advanceRun(root, { bind_task: { task_id: 'TASK-A', branch: 'pm/runroll-a1b2c3d4-task-a', executor_root: '/tmp/wt/task-a' } }, '2026-08-18T00:10:00Z');
+
+  // Every rejected mutation must roll the candidate back completely.
+  assertNoMutation(root, () => startRun(root, { run_id: 'RUN-E5F6A7B8', title: 'Second', repositories }, '2026-08-18T00:20:00Z'), (error) => error.code === 'RUN_ACTIVE');
+  assertNoMutation(root, () => advanceRun(root, { bind_task: { task_id: 'TASK-GHOST', branch: 'b', executor_root: '/tmp/w' } }, '2026-08-18T00:20:00Z'), (error) => error.code === 'RUN_TASK_UNKNOWN');
+  assertNoMutation(root, () => advanceRun(root, { bind_task: { task_id: 'TASK-A', branch: 'b', executor_root: '/tmp/w' } }, '2026-08-18T00:20:00Z'), (error) => error.code === 'RUN_TASK_BOUND');
+  assertNoMutation(root, () => advanceRun(root, { integrate_task: 'TASK-GHOST' }, '2026-08-18T00:20:00Z'), (error) => error.code === 'RUN_TASK_UNBOUND');
+  // The active-run guard fires before payload validation, so a malformed id while a
+  // run is open still reports RUN_ACTIVE. Payload validation is checked on a clean project.
+  const clean = createProject(base, 'RUNROLL2', [task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready' })]);
+  assertNoMutation(clean, () => startRun(clean, { run_id: 'not-a-run-id', title: 'Bad', repositories }, '2026-08-18T00:20:00Z'), (error) => error.code === 'INVALID_INPUT');
+  assertNoMutation(clean, () => startRun(clean, { run_id: 'RUN-OK', title: 'Bad', repositories: [] }, '2026-08-18T00:20:00Z'), (error) => error.code === 'INVALID_INPUT');
+
+  // The surviving record is still the one the first two calls wrote.
+  const resumed = resumeRun(root);
+  assert.equal(resumed.data.run.run_id, 'RUN-A1B2C3D4');
+  assert.deepEqual(resumed.data.run.pending_tasks, ['TASK-A']);
+});
+
+test('run records and telemetry apply to any project shape, not only multi-task RPD runs', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  // A single-task project with a non-RPD executor provider.
+  const solo = createProject(base, 'SOLO', [task('TASK-ONLY', 'Only', 'O.', ['O accepted.'], {
+    status: 'ready', executor: { provider: 'external', root: null, scope: null },
+  })], { adapters: ['human', 'external'] });
+  const soloState = loadProject(solo);
+  assert.equal(soloState.runs.configured, false);
+  assert.deepEqual(nextData(soloState).tasks.map((row) => row.id), ['TASK-ONLY']);
+  assert.equal(nextData(soloState).tasks[0].depth, 0);
+  assert.equal(executionData(soloState).configured, false);
+  assert.deepEqual(executionData(soloState).tasks, []);
+  assert.equal(reportData(soloState).execution.configured, false);
+  assert.equal(statusData(soloState, '2026-08-18').runs.configured, false);
+
+  // The same run record works for that non-RPD single-task project.
+  startRun(solo, {
+    run_id: 'RUN-50105010', title: 'Solo run',
+    repositories: [{ name: 'app', integration_branch: 'pm/solo-50105010', base_branch: 'main', base_commit: 'd'.repeat(40), coordinator_worktree: '/tmp/wt/app-integration' }],
+  }, '2026-08-18T00:00:00Z');
+  advanceRun(solo, { bind_task: { task_id: 'TASK-ONLY', branch: 'pm/solo-50105010-task-only', executor_root: '/tmp/wt/task-only' } }, '2026-08-18T00:05:00Z');
+  const withRun = loadProject(solo);
+  assert.equal(statusData(withRun, '2026-08-18').runs.active.tasks_bound, 1);
+  assert.equal(statusData(withRun, '2026-08-18').runs.active.tasks_integrated, 0);
+  assert.equal(executionData(withRun).runs[0].tasks_measured, 0, 'a run with no attempts measures nothing rather than zero');
+});
+
+test('an injected mid-write failure rolls the run record back completely', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = createProject(base, 'RUNINJECT', [task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'ready' })]);
+  const repositories = [{ name: 'app', integration_branch: 'pm/runinject-a1b2c3d4', base_branch: 'main', base_commit: 'e'.repeat(40), coordinator_worktree: '/tmp/wt/app-integration' }];
+
+  // Failure injected after the candidate is swapped in: the run must not survive.
+  assertNoMutation(root, () => startRun(root, { run_id: 'RUN-A1B2C3D4', title: 'Run', repositories }, '2026-08-18T00:00:00Z', { injectFailureAfterReplace: true }), /Injected failure/);
+  assert.equal(loadProject(root).runs.configured, false, 'no RUNS.md survives a rolled-back start');
+
+  startRun(root, { run_id: 'RUN-A1B2C3D4', title: 'Run', repositories }, '2026-08-18T00:00:00Z');
+  assertNoMutation(root, () => advanceRun(root, { bind_task: { task_id: 'TASK-A', branch: 'b', executor_root: '/tmp/wt/a' } }, '2026-08-18T00:10:00Z', { injectFailureAfterReplace: true }), /Injected failure/);
+  const after = loadProject(root);
+  assert.deepEqual(after.runs.items[0].tasks, {}, 'a rolled-back advance binds nothing');
+  assert.equal(after.runs.items[0].updated, '2026-08-18T00:00:00Z', 'a rolled-back advance does not move the timestamp');
+});
+
+test('the concurrency ceiling exposes what a plan permits, independent of any scheduler', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  // The real M-HOST milestone shape: 13 tasks, 12 dependent, a 4-level serial prefix.
+  const edges = {
+    'TASK-BOUNDARY': [], 'TASK-STORE': ['TASK-BOUNDARY'], 'TASK-ACCESS': ['TASK-STORE'],
+    'TASK-RUNTIME': ['TASK-ACCESS', 'TASK-STORE'], 'TASK-READS': ['TASK-RUNTIME'],
+    'TASK-RUNCONTROL': ['TASK-ACCESS', 'TASK-RUNTIME', 'TASK-STORE'],
+    'TASK-CHECKPOINTS': ['TASK-RUNCONTROL'],
+    'TASK-HTTPAPI': ['TASK-ACCESS', 'TASK-CHECKPOINTS', 'TASK-READS', 'TASK-RUNTIME'],
+    'TASK-SSE': ['TASK-CHECKPOINTS', 'TASK-HTTPAPI', 'TASK-RUNCONTROL'],
+    'TASK-MUTATION': ['TASK-CHECKPOINTS', 'TASK-READS'], 'TASK-SCRIPTS': ['TASK-MUTATION'],
+    'TASK-MCP': ['TASK-CHECKPOINTS', 'TASK-RUNTIME'],
+    'TASK-FIXTURE': ['TASK-MCP', 'TASK-SCRIPTS', 'TASK-SSE'],
+  };
+  const blocks = {};
+  for (const [id, parents] of Object.entries(edges)) for (const parent of parents) (blocks[parent] ??= []).push(id);
+  const records = Object.entries(edges).map(([id, parents]) => task(id, id, `${id}.`, [`${id} accepted.`], {
+    status: parents.length === 0 ? 'ready' : 'planned',
+    depends_on: parents.sort(), ...(blocks[id] ? { blocks: blocks[id].sort() } : {}),
+  }));
+  const chainy = concurrencyData(loadProject(createProject(base, 'CHAINY', records)));
+  assert.equal(chainy.remaining_tasks, 13);
+  assert.equal(chainy.dependent_tasks, 12);
+  assert.equal(chainy.critical_path, 9, 'nine dependency levels');
+  assert.equal(chainy.widest_level, 3);
+  assert.equal(chainy.serial_prefix, 4, 'four leading levels admit exactly one task each');
+  assert.equal(chainy.concurrency_ceiling, 1.44, 'no scheduler can beat 13/9 on this plan');
+
+  // The same task count with no declared dependencies has a far higher ceiling.
+  const flat = concurrencyData(loadProject(createProject(base, 'FLAT',
+    Object.keys(edges).map((id) => task(id, id, `${id}.`, [`${id} accepted.`], { status: 'ready' })))));
+  assert.equal(flat.critical_path, 1);
+  assert.equal(flat.serial_prefix, 0);
+  assert.equal(flat.concurrency_ceiling, 13);
+
+  // Completed work leaves the remaining plan's ceiling, not the original one.
+  assert.equal(concurrencyData(loadProject(createProject(base, 'EMPTY', []))).configured, false);
+});
+
+test('a dependency on non-runnable work still counts as a dependency', (t) => {
+  const base = temp();
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  // TASK-B depends on a cancelled TASK-A, so it can never run. The edge forms no
+  // chain among runnable work, but reporting TASK-B as dependency-free is a lie.
+  const records = [
+    task('TASK-A', 'Alpha', 'A.', ['A accepted.'], { status: 'planned', blocks: ['TASK-B'], disposition: 'cancelled', disposition_changed_at: '2026-08-08T00:00:00Z' }),
+    task('TASK-B', 'Beta', 'B.', ['B accepted.'], { status: 'planned', depends_on: ['TASK-A'] }),
+    task('TASK-C', 'Gamma', 'C.', ['C accepted.'], { status: 'ready' }),
+  ];
+  const root = createProject(base, 'CANCELDEP', records);
+  // Disposition fields require task schema 3.
+  fs.writeFileSync(path.join(root, 'TASKS.md'), collection(records, 3));
+  const state = loadProject(root);
+  const concurrency = concurrencyData(state);
+  assert.equal(concurrency.remaining_tasks, 2);
+  assert.equal(concurrency.dependent_tasks, 1, 'TASK-B has an unsatisfied dependency');
+  assert.deepEqual(blockerItems(state).map((item) => item.id), ['TASK-B'], 'and blockers agree');
 });

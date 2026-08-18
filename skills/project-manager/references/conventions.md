@@ -190,6 +190,8 @@ accepts `schema_version: 2`; task schemas v2/v3/v4 are valid only for `TASKS.md`
 - Lesson (`LES-`): `{category:"process|technical|communication|estimation|risk|other",statement:string,recommendation:string,date:date,source_tasks:[TASK-ID],source_milestone:null|M-ID}`.
 - Closure (`CLO-`): `{scope:"project|milestone",milestone:null|M-ID,status:"pending|accepted",accepted_by:null|string,accepted_date:null|date,acceptance_evidence:[evidence records],outstanding_items:[string],archive_ref:null|string}`. A milestone scope names a milestone and a project scope does not. Accepted closure requires an acceptor, a date, and at least one evidence record; pending closure binds none. An accepted project closure requires project status `complete`, and an accepted milestone closure requires that milestone complete. At most one project-scoped record exists and each milestone has at most one.
 
+- Run (`RUN-`): `{status:"active|blocked|complete|abandoned",started:"RFC3339 UTC",updated:"RFC3339 UTC",repositories:[{name,integration_branch,base_branch,base_commit,coordinator_worktree}],tasks:{"TASK-ID":{branch:string,executor_root:absolute path,integrated:boolean}}}`. `updated` cannot precede `started`; `base_commit` is a full Git object ID, never an abbreviation; repository names are unique; `executor_root` is absolute. Every task key must exist in `TASKS.md`, and `integrated:true` requires that task to be `verified` or `done`. At most one run is `active` at a time, so a new run cannot silently open beside an unfinished one. `RUNS.md` is optional: a project with no agent execution never has one, and an absent run record contributes nothing to the project source hash.
+
 Typed references reuse the decision form `project|task|milestone|risk|source|success:ID` and must
 resolve within the selected project.
 - Decision: `{status:"proposed|decided|superseded",decision:string,owner:null|string,due_date:null|date,date:null|date,affects:["project|task|milestone|risk|source|success:ID"]}`.
@@ -198,6 +200,16 @@ resolve within the selected project.
 - Traceability frontmatter is exactly `{schema_version:1,items:[{source_id,criterion,tasks}]}`. Pairs are unique and ordered by source then criterion; task arrays are unique and lexical.
 
 Evidence records are exactly `{kind:"file|command|review|artifact|approval|note|commit",ref:string,result:string,sha256:null|lowercase-64-hex}`. File/artifact evidence requires a hash.
+
+Evidence Manifest payloads accept `schema_version` 1 or 2. Version 2 adds exactly one field,
+`execution: {llm_calls,tool_calls,input_tokens,output_tokens}`, each a non-negative integer or
+`null`. Version 1 keeps its exact historical key set and rejects `execution`, so every manifest
+already on disk still validates — stored manifests are re-validated on every read. Counts are
+incremental per manifest, so an attempt's total is the sum of its manifests, a task's total is the
+sum of its attempts, and a run's total is the sum of its tasks. `null` means the executor did not
+report that count and is carried as an explicit unreported tally, never folded in as zero. Execution
+telemetry is excluded from the evidence fingerprint, so it cannot affect replay detection, and it is
+observational only: no readiness, ranking, gating, or completion decision reads it.
 
 ## Discovery index
 

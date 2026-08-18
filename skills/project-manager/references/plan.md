@@ -64,3 +64,38 @@ the reasoning recorded beside it.
 7. Separate declared assumptions from derived facts in every artifact. Team size, parallelism, and the
    working calendar are assumptions until confirmed; record them in `ASSUMPTIONS.md` with
    `impact_if_false` instead of burying them inside a date.
+
+## Dependency density decides wall time
+
+A dependency is a commitment that one task cannot begin until another finishes. Declared
+dependencies set a floor on elapsed time that no executor, no added concurrency, and no scheduler
+can go below, so decomposition — not orchestration — is the dominant control on how long a plan
+takes to run.
+
+After drafting tasks, read `concurrency` from `project-status.js`:
+
+- `critical_path` — the longest chain of dependent tasks. This is the minimum number of sequential
+  task-slots the plan needs.
+- `concurrency_ceiling` — remaining tasks divided by that path: the best speedup any scheduler could
+  ever achieve. A plan with 13 tasks and a 9-level path is capped near `1.4x` no matter how it runs.
+- `widest_level` — the most tasks that can ever be ready at once. Never plan for more concurrency
+  than this.
+- `serial_prefix` — leading levels that admit exactly one task. This is dead time at the start of the
+  run, when the most capacity is idle and the least work is committed.
+
+Treat a low ceiling as a decomposition question before accepting it as a fact:
+
+- Declare a dependency only when the dependent task genuinely cannot be **started** without the other
+  finishing. Shared subject matter, an expected merge conflict, a preferred review order, or "it
+  would be tidier afterwards" are not dependencies. Sequence those with priority instead, which
+  guides order without forbidding overlap.
+- Prefer a dependency on the specific task that establishes a needed contract over a dependency on
+  everything upstream of it. Transitive edges restated as direct ones do not change correctness and
+  do not change the critical path, but they do obscure it.
+- A long `serial_prefix` usually means foundation work was split into stages. If those stages have no
+  independently verifiable acceptance criteria, they are one story, and merging them shortens the
+  path without weakening any gate.
+- When the ceiling is genuinely low because the work is genuinely sequential, say so in the plan.
+  A stated `1.1x` ceiling sets correct expectations; an unstated one gets misread later as an
+  execution failure.
+

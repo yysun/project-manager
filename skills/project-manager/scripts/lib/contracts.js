@@ -14,6 +14,8 @@ const path = require('node:path');
 
 const EVIDENCE_KINDS = new Set(['file', 'command', 'review', 'artifact', 'approval', 'note', 'commit']);
 const MANIFEST_STATUSES = new Set(['implemented', 'verification', 'verified', 'blocked']);
+const MANIFEST_KEYS = ['schema_version', 'sequence', 'contract_id', 'project', 'task', 'status', 'blocker', 'evidence', 'acceptance_evidence', 'sources', 'observed_at', 'notes'];
+const EXECUTION_KEYS = ['llm_calls', 'tool_calls', 'input_tokens', 'output_tokens'];
 const STAGE_ORDER = { implemented: 0, verification: 1, verified: 2 };
 
 const DEFAULT_EVIDENCE = Object.freeze({
@@ -271,6 +273,11 @@ function renderRpdPrompt(input) {
   ].join('\n');
 }
 
+/**
+ * Replay detection is a function of evidence content only. Execution telemetry
+ * is deliberately excluded: two submissions of identical evidence are a replay
+ * even when their token counts differ.
+ */
 function evidenceFingerprint(payload) {
   const sortRecords = (records) => [...records].sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
   const acceptance = Object.fromEntries(Object.keys(payload.acceptance_evidence).sort().map((key) => [key, sortRecords(payload.acceptance_evidence[key])]));
@@ -296,10 +303,29 @@ function validateRpdTerminal(terminal) {
   return true;
 }
 
+/**
+ * Execution telemetry is observational: counts are recorded, never inferred.
+ * `null` means the executor did not report that count and must stay
+ * distinguishable from a genuine zero everywhere downstream.
+ */
+function validateExecution(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Manifest execution must be an object');
+  exactKeys(value, EXECUTION_KEYS, 'manifest execution');
+  for (const key of EXECUTION_KEYS) {
+    const count = value[key];
+    if (count === null) continue;
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+      throw new Error(`Manifest execution ${key} must be a non-negative integer or null`);
+    }
+  }
+  return value;
+}
+
 function validateManifest(payload, contract, previous = [], options = {}) {
   validateTaskContract(contract, options);
-  exactKeys(payload, ['schema_version', 'sequence', 'contract_id', 'project', 'task', 'status', 'blocker', 'evidence', 'acceptance_evidence', 'sources', 'observed_at', 'notes'], 'manifest payload');
-  if (payload.schema_version !== 1) throw new Error('Unsupported manifest schema version');
+  if (![1, 2].includes(payload.schema_version)) throw new Error('Unsupported manifest schema version');
+  exactKeys(payload, payload.schema_version === 2 ? [...MANIFEST_KEYS, 'execution'] : MANIFEST_KEYS, 'manifest payload');
+  if (payload.schema_version === 2) validateExecution(payload.execution);
   if (!Number.isInteger(payload.sequence) || payload.sequence < 1) throw new Error('Manifest sequence must be positive');
   if (payload.contract_id !== contract.contract_id) throw new Error('Manifest contract mismatch');
   exactKeys(payload.project, ['id'], 'manifest project');

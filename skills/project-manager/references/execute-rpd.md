@@ -58,9 +58,16 @@ route. Report it and ask for it to be split; never split it unilaterally.
 
 ### Naming and layout
 
-Generate one fresh lowercase 8-hex run ID per run. Never reuse a prior run's branches or worktrees. A
-prior run may have deliberately left them behind under Delivery, and reuse would silently rewrite
-delivered work.
+Before minting anything, read the project's run record with `project-run.js <folder> resume --json`.
+When it reports an active run, adopt that run's ID, integration branches, and task bindings and
+continue it. Never mint a second ID beside an unfinished run: the previous run's integration branch
+holds real merged work, and starting fresh orphans it while the record still claims it is active.
+`project-run.js <folder> start` refuses this case rather than leaving the choice to judgment.
+
+Only when no active run is recorded, generate one fresh lowercase 8-hex run ID and record it with
+`project-run.js <folder> start` before dispatching any task. Never reuse a *completed* run's branches
+or worktrees. A prior run may have deliberately left them behind under Delivery, and reuse would
+silently rewrite delivered work.
 
 - Integration branch: `pm/<project-id>-<run-id>`.
 - Task branch: `pm/<project-id>-<run-id>-<task-id>`.
@@ -95,29 +102,61 @@ project state to an integration or task branch; report those pending changes in 
 Rediscover a retained worktree from the executor root bound to its task in project state, never by
 scanning the filesystem. That binding is why an already-started task keeps its root across runs.
 
-## Dependency-wave scheduler
+## Ready-queue scheduler
 
-Repeat until all eligible RPD tasks are done or no further task can run:
+Repeat until every eligible RPD task is done or no further task can run.
 
-1. Revalidate project state and calculate the current ready set.
-2. Form a wave from dependency-independent ready tasks. Serialize tasks when repository evidence
-   shows likely conflicting high-risk surfaces even if the dependency graph permits concurrency.
-3. Bound the wave by runtime capacity. Budget two slots per concurrent task: the implementation
-   subagent holds its slot while its serial AR, CR, and VR gates run, and each gate needs its own
-   independent reviewer. Reserve one further slot for the coordinator, making the wave at most
-   `floor((capacity - 1) / 2)` tasks. Never fill every available slot with mutating workers. When
-   capacity cannot seat the coordinator, one implementation subagent, and one reviewer, stop with a
-   concrete blocker instead of running a wave that must review itself.
-4. Assign one implementation subagent to each task worktree. Give it only the readable absolute Task
-   Contract path and the contract's exact deterministic executor prompt. Let RPD own its complete
-   workflow.
-5. Never let two agents mutate one worktree. Reviews may overlap mutations in other isolated
-   worktrees, but the worktree and snapshot under review must remain stable.
-6. Keep each task's AR, CR, and VR gates serial and independent as required by RPD. An implementation
-   agent may not review its own work. RPD's primary-agent review fallback does not apply on this
-   route; when a reviewer cannot be started, block the task rather than accept a self-review.
-7. When a task blocks, ingest a blocked manifest for that attempt, preserve its worktree and evidence,
-   and continue only with unrelated ready tasks. Do not fabricate a retry or relax acceptance.
+1. Revalidate project state. Get the ready set from `project-next.js`.
+2. Set the in-flight limit to the smaller of two numbers: the runtime capacity that still seats the
+   coordinator and one reviewer, and `concurrency.widest_level` from `project-status.js`.
+3. Count only mutating implementation subagents against that limit. Budget read-only reviewers
+   separately.
+4. Stop with a concrete blocker when capacity cannot seat the coordinator, one implementation
+   subagent, and one reviewer.
+5. Dispatch in the order `project-next.js` returns. Serialize two ready tasks only when repository
+   evidence shows they touch conflicting high-risk surfaces.
+6. Give each task its own worktree and one implementation subagent. Pass only the absolute Task
+   Contract path and the contract's exact executor prompt. Let RPD own its complete workflow.
+7. Dispatch a task that concentrates the run's acceptance value and has no dependents — a vertical
+   slice, an end-to-end story, a final integration task — while other work is still in flight, and
+   require checkpoint commits from it.
+8. When any task settles: ingest its manifest, integrate it, capture its evidence, record it with
+   `project-run.js <folder> advance`, then dispatch the next ready task. Other in-flight tasks
+   continue meanwhile.
+9. When a task blocks: ingest a blocked manifest, preserve its worktree and evidence, and continue
+   with unrelated ready tasks only. Do not fabricate a retry or relax acceptance.
+10. Keep one mutating agent per worktree. A reviewer may run while other worktrees mutate, but the
+    worktree and snapshot under review must stay stable.
+11. Keep each task's AR, CR, and VR gates serial, and give each an independent reviewer. An
+    implementation agent may not review its own work. RPD's primary-agent review fallback does not
+    apply here: block the task rather than accept a self-review.
+12. Report `concurrency_ceiling` beside the achieved wall time in the final report.
+
+### Why this shape
+
+**Promote continuously, never in barriered waves.** A wave makes every task wait for the slowest
+member of its group, so an unbalanced group idles workers for as long as its longest task runs while
+dependency-ready work sits untouched.
+
+**Order follows the critical path.** `project-next.js` ranks by declared criticality, then by the
+longest remaining dependency chain each task unblocks, then by immediate fan-out, priority, and
+milestone. Starting the longest chain first is what keeps the critical path off the end of the run.
+
+**Width is capped by the plan, not by ambition.** `widest_level` is the most tasks this dependency
+graph can ever have ready at once. Running wider adds conflict surface for provably zero gain: on a
+plan with a 9-level critical path over 13 tasks, width 2 and width 13 finish at the same time.
+`concurrency_ceiling` is the best speedup any scheduler could reach, which is why the final report
+carries it — a wall time that looks disappointing is often a plan-time limit, not a scheduling
+failure.
+
+**Reviewers are free.** RPD serializes each task's own AR, CR, and VR gates, so a task's
+implementation subagent is idle while its reviewer runs, and a read-only reviewer cannot conflict
+with any worktree. Counting reviewers against mutating capacity halves achievable width for a
+conflict that cannot occur.
+
+**Sinks rank last by construction.** Any dependency-based ordering puts a task with no dependents at
+the end. That is usually the task whose loss costs the most, so it needs the most redundancy, not
+the least.
 
 ## Integration and evidence
 
@@ -143,9 +182,16 @@ dependency order across waves:
    worktree through the RPD completion loop.
 5. After integration passes, snapshot the exact matching RPD REQ, AP, optional E2E spec, DD, and
    terminal AR/CR/VR evidence into the immutable project attempt.
-6. Create and ingest gap-free Evidence Manifests with concrete acceptance mappings. Advance the task
+6. Require each Evidence Manifest to carry `schema_version: 2` with an `execution` object reporting
+   `llm_calls`, `tool_calls`, `input_tokens`, and `output_tokens` for the work that manifest covers.
+   Counts are **incremental per manifest**, not cumulative, so one summation rule composes from
+   attempt to task to run. An executor that cannot report a count sets it to `null`; that is
+   permitted and is recorded as unreported, never as zero. Never estimate a count on an executor's
+   behalf. Elapsed time is derived from the contract and manifest timestamps, so it is recorded even
+   when every count is `null`.
+7. Create and ingest gap-free Evidence Manifests with concrete acceptance mappings. Advance the task
    to done only when the verified manifest, dependencies, and blocker rules permit it.
-7. Revalidate project state and calculate the next wave. A newly ready dependent task must branch
+8. Revalidate project state and calculate the next ready set. A newly ready dependent task must branch
    from the updated integration branch, never from the original base. A dependency edge may cross
    repositories; the dependent still branches from its own repository's integration branch and waits
    only on its dependency reaching done, never on another repository's branch.
@@ -161,9 +207,12 @@ so the user can inspect the result and then resolved under Delivery.
 Close out every repository explicitly after its last wave. A run must never end leaving an
 unannotated integration branch and coordinator worktree for the user to reconstruct.
 
-1. Establish the terminal state per repository before asking anything: integration branch, coordinator
-   worktree path, base branch and whether it moved during the run, whether the base checkout is clean,
-   which tasks are integrated, and which are blocked, skipped, or assigned to non-RPD executors.
+1. Establish the terminal state per repository before asking anything, reading it from the run record
+   via `project-run.js <folder> resume --json` rather than from session memory: integration branch,
+   coordinator worktree path, base branch and whether it moved during the run, whether the base
+   checkout is clean, which tasks are integrated, and which are blocked, skipped, or assigned to
+   non-RPD executors. The run record is what makes this reconstructible by a session that did not
+   dispatch the work.
 2. Test the merge without mutating anything, for example with `git merge-tree`, and record whether the
    integration branch merges into the base branch cleanly or with conflicts, naming the conflicting
    paths.
@@ -191,7 +240,10 @@ unannotated integration branch and coordinator worktree for the user to reconstr
    the base branch. Never force removal, and prune the stale administrative entry afterwards. Retain
    the worktrees of blocked or retried tasks regardless of the delivery decision, and report each path
    with the exact command that removes it.
-8. Record the delivery decision as an explicit outcome. `Left on <integration-branch> at user's
+8. Move the run record to its terminal status with `project-run.js <folder> advance` once delivery is
+   decided. A run left `active` after its work is delivered is indistinguishable from an interrupted
+   one and will block the next run from starting.
+9. Record the delivery decision as an explicit outcome. `Left on <integration-branch> at user's
    request` and `left on <integration-branch>: base checkout dirty` are results; silence is not. An
    unmerged branch must never be ambiguous between deliberate and forgotten.
 
@@ -200,7 +252,11 @@ unannotated integration branch and coordinator worktree for the user to reconstr
 Report:
 
 - tasks completed, blocked, skipped, or assigned to non-RPD executors;
-- dependency waves and material serialization decisions;
+- the run ID and its recorded status, and material serialization decisions;
+- the plan's concurrency ceiling and critical path alongside the achieved wall time, so the result is
+  read against what the dependency graph permitted rather than against serial execution;
+- measured execution totals per task and for the run — elapsed time, LLM calls, tool calls, and input
+  and output tokens — reporting unreported counts as unreported rather than as zero;
 - the delivery decision and terminal Git state for each repository: run ID, integration branch, whether
   it was merged into its base branch or deliberately left, whether the integration is partial and what
   it omits, and every retained worktree path with the exact command that removes it;
