@@ -327,6 +327,21 @@ Marker-bound `.project-manager-work-<24-hex>` recovery roots are excluded from d
 named valid projects remain selectable. Never substitute the current repository for a project merely
 because it is the current directory; explicit selection or the single-valid-project rule must resolve it.
 
+## Never hand-roll a state mutation
+
+Project state changes go through exactly two routes: the built-in commands, and Studio. Writing a
+bespoke script that edits `PROJECT.md`, `TASKS.md`, `STATUS.md`, `CHANGES.md`, or `handoffs/` is out
+of bounds even when it claims to be atomic — a hand-rolled mutation reimplements the candidate copy,
+the immutability guard, the validation gate, and the rollback, and it will get one of them wrong.
+
+**Where no command exists** — completing a milestone is the current example — edit the single
+Markdown record directly, then run `project-validate.js` and regenerate `STATUS.md`. One small edit
+that fails validation loudly is safer than a script that silently half-applies a change.
+
+Observed in a real run: a coordinator with no milestone-completion command wrote its own
+`complete-milestone.js` to clear `current_milestone` "atomically", outside every guarantee this skill
+provides.
+
 ## Mutate atomically
 
 Most deterministic scripts are read-only. `project-init-workspace.js` is the dedicated mutating

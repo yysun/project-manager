@@ -51,6 +51,11 @@ bounds.
    absolute path, then issue the immutable Task Contract, in that order.
 9. For an already-started task: keep its existing root. Preserve the attempt, or use the documented
    blocked-retry path.
+10. Request every permission the run will need now, in one message — see Waiting and escalation.
+11. When the runtime exposes a goal, round budget, or similar turn-limited driver, pause it after the
+    first dispatch. Those budgets advance on wall-clock cadence while the coordinator waits, so a
+    run driven by settle notices exhausts one long before its workers finish. Resume or complete it
+    at close-out.
 
 Stop with a concrete blocker when any of these is true:
 
@@ -172,6 +177,60 @@ conflict that cannot occur.
 **Sinks rank last by construction.** Any dependency-based ordering puts a task with no dependents at
 the end. That is usually the task whose loss costs the most, so it needs the most redundancy, not
 the least.
+
+## Waiting and escalation
+
+A coordinator waits on two very different things, and conflating them is what turns a run's idle time
+into dead time. **A worker will finish on its own. A human will not, unless asked.**
+
+### Ask for everything you will need before the first dispatch
+
+During preflight, identify and request in one message every permission the run will need: sandbox or
+network escalation, credentials for an external system, approval to advance a branch whose `.git`
+lives outside the session workspace. Request them even when the need is only likely.
+
+An escalation requested during preflight costs nothing while workers run. The same escalation
+requested mid-run blocks integration until a human happens to look.
+
+### Declare a human-gated wait; do not poll it
+
+When the run cannot proceed without a human — an approval, an external artifact, a decision — emit
+**one** prominent message and then stop working that line:
+
+1. State exactly what you are blocked on.
+2. State what is already complete, so the wait is not mistaken for a stall.
+3. State precisely what resumes when the answer arrives.
+4. Continue any unrelated ready work. Report when that is exhausted too.
+
+Do not re-poll a human gate on a timer. A person who has not answered has not seen it, and polling
+neither notifies them nor advances the run.
+
+### Never sleep-poll a worker
+
+Use the runtime's blocking wait — a job-output wait or equivalent — to sleep until a worker actually
+settles. Fixed-duration sleeps are always wrong: too short and they burn turns, too long and they add
+latency to every handoff.
+
+### Close out immediately when the last task settles
+
+Run Delivery as soon as the final task is integrated. A completed run that sits waiting for a
+close-out instruction is indistinguishable from a stalled one, and the person who could end it does
+not know it is their turn.
+
+### Why this matters
+
+Measured across four analyzed runs, roughly eight hours of wall time was spent this way:
+
+- **149 minutes** waiting on an external package publish, ended only when the operator typed
+  "stop wait, continue".
+- **165 minutes** of idle tail after the last worker finished, waiting for a merge instruction.
+- **162 minutes** blocked on a sandbox escalation first requested 43 minutes into the run — an
+  escalation that would have cost zero blocked minutes if requested during preflight.
+- One run used 22 fixed sleeps totalling 107 minutes. The run with the lowest handoff overhead used
+  **zero** sleeps and blocking waits instead.
+
+None of this is worker time, review time, or integration time. It is time when nothing was running
+and nobody knew it was their turn.
 
 ## Integration and evidence
 
