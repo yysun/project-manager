@@ -11,7 +11,7 @@ const test = require('node:test');
 const { mutationRevision } = require('../../skills/project-manager/scripts/lib/mutations');
 const { loadProject, regenerateStatus } = require('../../skills/project-manager/scripts/lib/project-state');
 const { buildTaskContract, formatTaskContract } = require('../../skills/project-manager/scripts/lib/contracts');
-const { makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection, builtServerPath } = require('./_helpers');
+const { makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection, builtServerPath, openEventStream, waitUntil } = require('./_helpers');
 
 function placeProject(parent, name, id, records = null) { const source = makeProject(records, id); const target = path.join(parent, name); fs.renameSync(source, target); return target; }
 function runFailure(args, cwd) { return require('node:child_process').spawnSync(process.execPath, [builtServerPath, ...args], { cwd, encoding: 'utf8', timeout: 6000 }); }
@@ -68,65 +68,64 @@ test('SSE stream requires session and issued key, sends scoped events, and close
       response = await fetch(`${origin}/api/events${project ? `?project=${encodeURIComponent(project)}` : ''}`, { headers: { Cookie: cookie } });
       assert.equal(response.status, 400); assert.equal(starts, 0);
     }
-    const key = catalogInstance.initialKey; const controller = new AbortController();
-    response = await fetch(`${origin}/api/events?project=${key}`, { headers: { Cookie: cookie }, signal: controller.signal });
-    assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /^text\/event-stream/); assert.equal(starts, 1); assert.equal(watcherOptions.root, root);
-    const reader = response.body.getReader(); const decoder = new TextDecoder(); let text = decoder.decode((await reader.read()).value);
-    watcherOptions.onChange(); text += decoder.decode((await reader.read()).value);
-    assert.match(text, /event: project-change/); assert.match(text, new RegExp(`data: \\{"projectKey":"${key}"\\}`)); assert.doesNotMatch(text, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    controller.abort(); try { await reader.cancel(); } catch {} await new Promise((resolve) => setTimeout(resolve, 50)); assert.equal(stops, 1);
+    const key = catalogInstance.initialKey;
+    const stream = await openEventStream(origin, cookie, key);
+    assert.match(stream.response.headers.get('content-type'), /^text\/event-stream/); assert.equal(starts, 1); assert.equal(watcherOptions.root, root);
+    watcherOptions.onChange(); const change = await stream.next('project-change');
+    assert.match(change.block, new RegExp(`data: \\{"projectKey":"${key}"\\}`)); assert.doesNotMatch(change.block, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    await stream.close(); await waitUntil(() => stops === 1, 'the disconnect stops the watcher'); assert.equal(stops, 1);
   } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }); }
 });
 
 test('production SSE watcher reports external edits, atomic root replacement, and later new-root edits', async () => {
-  const root = fs.realpathSync(makeProject()); const handle = await startStudio(root); const controller = new AbortController();
+  const root = fs.realpathSync(makeProject()); const handle = await startStudio(root); let stream = null;
   try {
     const { cookie } = await handshake(handle); const key = (await catalog(handle, cookie)).initial_project_key;
-    const response = await fetch(`${handle.origin}/api/events?project=${key}`, { headers: { Cookie: cookie }, signal: controller.signal }); assert.equal(response.status, 200);
-    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffered = '';
-    async function nextChange() {
-      const expires = setTimeout(() => controller.abort(), 3000);
-      try {
-        for (;;) {
-          const boundary = buffered.indexOf('\n\n');
-          if (boundary >= 0) {
-            const block = buffered.slice(0, boundary); buffered = buffered.slice(boundary + 2);
-            if (block.includes('event: project-change')) return block;
-            continue;
-          }
-          const chunk = await reader.read(); if (chunk.done) throw new Error('SSE stream ended before project change'); buffered += decoder.decode(chunk.value, { stream: true });
-        }
-      } finally { clearTimeout(expires); }
-    }
-    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nExternal edit.\n'); assert.match(await nextChange(), new RegExp(key));
-    const replacement = fs.realpathSync(makeProject()); fs.renameSync(root, `${root}-old`); fs.renameSync(replacement, root); assert.match(await nextChange(), new RegExp(key));
-    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nNew root edit.\n'); assert.match(await nextChange(), new RegExp(key));
-    assert.equal((await getProject(handle, cookie, key)).project.id, 'STUDIO'); controller.abort(); try { await reader.cancel(); } catch {}
-  } finally { controller.abort(); await stopStudio(handle); }
+    stream = await openEventStream(handle.origin, cookie, key);
+    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nExternal edit.\n'); assert.match((await stream.next('project-change')).block, new RegExp(key));
+    const replacement = fs.realpathSync(makeProject()); fs.renameSync(root, `${root}-old`); fs.renameSync(replacement, root); assert.match((await stream.next('project-change')).block, new RegExp(key));
+    // Let the replacement's own events land before editing, so the edit below is
+    // the only thing the next project-change can be reporting.
+    await stream.settle();
+    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nNew root edit.\n'); assert.match((await stream.next('project-change')).block, new RegExp(key));
+    assert.equal((await getProject(handle, cookie, key)).project.id, 'STUDIO');
+  } finally { await stream?.close(); await stopStudio(handle); }
 });
 
 test('production project stream ignores sibling project changes', async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-sse-isolation-')); const projectsRoot = path.join(workspace, '.projects'); fs.mkdirSync(projectsRoot);
-  const alpha = placeProject(projectsRoot, 'alpha', 'ALPHA'); const beta = placeProject(projectsRoot, 'beta', 'BETA'); const handle = await startStudioArgs(['--projects-root', projectsRoot, '--project', alpha, '--no-open', '--port', '0']); const controller = new AbortController();
+  const alpha = placeProject(projectsRoot, 'alpha', 'ALPHA'); const beta = placeProject(projectsRoot, 'beta', 'BETA'); const handle = await startStudioArgs(['--projects-root', projectsRoot, '--project', alpha, '--no-open', '--port', '0']); let stream = null;
   try {
     const { cookie } = await handshake(handle); const options = await catalog(handle, cookie); const alphaKey = options.projects.find((item) => item.id === 'ALPHA').key;
-    const response = await fetch(`${handle.origin}/api/events?project=${alphaKey}`, { headers: { Cookie: cookie }, signal: controller.signal }); const reader = response.body.getReader();
-    await reader.read(); const pending = reader.read(); fs.appendFileSync(path.join(beta, 'TASKS.md'), '\nBeta-only edit.\n');
-    assert.equal(await Promise.race([pending.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 250))]), false);
-    fs.appendFileSync(path.join(alpha, 'TASKS.md'), '\nAlpha edit.\n'); const event = await pending; assert.match(new TextDecoder().decode(event.value), /event: project-change/);
-    controller.abort(); try { await reader.cancel(); } catch {}
-  } finally { controller.abort(); await stopStudio(handle); }
+    stream = await openEventStream(handle.origin, cookie, alphaKey);
+    await stream.settle(); // quiesce first, so the window below only covers the beta edit
+    fs.appendFileSync(path.join(beta, 'TASKS.md'), '\nBeta-only edit.\n');
+    assert.deepEqual(await stream.settle(), [], 'a sibling project edit produces no event on this stream');
+    fs.appendFileSync(path.join(alpha, 'TASKS.md'), '\nAlpha edit.\n'); await stream.next('project-change');
+  } finally { await stream?.close(); await stopStudio(handle); }
 });
 
 test('issued project stream stays live through an initial missing-root gap and recovers on restoration', async () => {
-  const root = fs.realpathSync(makeProject()); const handle = await startStudio(root); const controller = new AbortController(); const backup = `${root}-initial-gap`;
+  const root = fs.realpathSync(makeProject()); const handle = await startStudio(root); let stream = null; const backup = `${root}-initial-gap`;
   try {
     const { cookie } = await handshake(handle); const key = (await catalog(handle, cookie)).initial_project_key; fs.renameSync(root, backup);
-    const response = await fetch(`${handle.origin}/api/events?project=${key}`, { headers: { Cookie: cookie }, signal: controller.signal }); assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /^text\/event-stream/);
-    const reader = response.body.getReader(); await reader.read(); fs.renameSync(backup, root);
-    const expires = setTimeout(() => controller.abort(), 3000); const event = await reader.read(); clearTimeout(expires); assert.match(new TextDecoder().decode(event.value), /event: project-change/);
-    assert.equal((await getProject(handle, cookie, key)).project.id, 'STUDIO'); controller.abort(); try { await reader.cancel(); } catch {}
-  } finally { if (fs.existsSync(backup) && !fs.existsSync(root)) fs.renameSync(backup, root); controller.abort(); await stopStudio(handle); }
+    stream = await openEventStream(handle.origin, cookie, key);
+    assert.match(stream.response.headers.get('content-type'), /^text\/event-stream/);
+    // Restore inside the retry budget so the rebinding comes from the watcher's
+    // own retry loop, which is timer-driven. The parent-directory rename event
+    // is the other way back, but the OS coalesces those -- a run here has been
+    // seen losing the disappearance event outright -- so a test that depends on
+    // one being delivered is a coin flip.
+    fs.renameSync(backup, root);
+    // The gap reports itself in a shape that depends on the machine: a change
+    // for the disappearance, and project-stale/project-live when the outage
+    // outlasts the budget. Drain them, so the assertion below can only be
+    // satisfied by an edit observed through a live binding to the restored root.
+    await stream.settle();
+    fs.appendFileSync(path.join(root, 'TASKS.md'), '\nEdit after restoration.\n');
+    await stream.next('project-change');
+    assert.equal((await getProject(handle, cookie, key)).project.id, 'STUDIO');
+  } finally { if (fs.existsSync(backup) && !fs.existsSync(root)) fs.renameSync(backup, root); await stream?.close(); await stopStudio(handle); }
 });
 
 test('binds loopback, uses distinct 256-bit tokens, secures API, and serves client', async () => {
@@ -517,26 +516,23 @@ test('a degraded watcher is reported on the wire and a failed reattach does not 
   const { app, sessionToken } = createServer({ catalog: catalogInstance, clientDistDir: path.resolve(__dirname, '../../skills/project-manager/studio/dist'), onHeartbeat: () => {}, watchProject });
   const server = http.createServer(app); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const controller = new AbortController();
+  let stream = null;
   try {
-    let response = await fetch(`${origin}/?token=${sessionToken}`, { redirect: 'manual' });
+    const response = await fetch(`${origin}/?token=${sessionToken}`, { redirect: 'manual' });
     const cookie = response.headers.get('set-cookie').split(';')[0];
-    response = await fetch(`${origin}/api/events?project=${catalogInstance.initialKey}`, { headers: { Cookie: cookie }, signal: controller.signal });
-    assert.equal(response.status, 200);
-    const reader = response.body.getReader(); const decoder = new TextDecoder();
-    await reader.read(); // the ": connected" preamble
+    stream = await openEventStream(origin, cookie, catalogInstance.initialKey);
 
     watcherOptions.onDegraded(new Error('root binding lost'));
-    assert.match(decoder.decode((await reader.read()).value), /^event: project-stale/m, 'degradation reaches the wire');
+    assert.equal((await stream.next(null)).name, 'project-stale', 'degradation reaches the wire');
     // The stream stays open rather than ending: the reads below succeeding is
-    // the proof, since an ended response would yield done:true instead.
+    // the proof, since an ended response would reject with a stream-ended error.
 
     // A failed reattach still notifies, so a change must not imply liveness.
     watcherOptions.onChange();
-    assert.match(decoder.decode((await reader.read()).value), /^event: project-change/m);
+    assert.equal((await stream.next(null)).name, 'project-change');
 
     // Only a real reattach states it.
     watcherOptions.onLive();
-    assert.match(decoder.decode((await reader.read()).value), /^event: project-live/m, 'recovery is stated, not inferred');
-  } finally { controller.abort(); await new Promise((resolve) => server.close(resolve)); }
+    assert.equal((await stream.next(null)).name, 'project-live', 'recovery is stated, not inferred');
+  } finally { await stream?.close(); await new Promise((resolve) => server.close(resolve)); }
 });

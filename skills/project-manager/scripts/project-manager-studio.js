@@ -1744,7 +1744,7 @@ var require_project_state = __commonJS({
         success: successCounts(state),
         milestones: state.milestones.configured ? { configured: true, items: state.milestones.items.map((item) => ({ id: item.id, status: item.status, target_date: item.target_date, forecast_date: item.forecast_date, overdue: item.target_date !== null && item.target_date < asOf && item.status !== "complete" })) } : { configured: false },
         coverage: coverage.configured ? { configured: true, total: coverage.criteria.total, covered: coverage.criteria.covered, verified: coverage.criteria.verified } : { configured: false },
-        concurrency: concurrencyData(state),
+        concurrency: concurrencyData(state, byId),
         runs: state.runs.configured ? {
           configured: true,
           active: (() => {
@@ -1861,11 +1861,12 @@ var require_project_state = __commonJS({
       });
       return { schema_version: 1, configured: tasks.length > 0, tasks, runs };
     }
-    function concurrencyData(state) {
+    function concurrencyData(state, byId = taskIndex(state)) {
       const remaining = state.tasks.filter((task) => taskDisposition(task) === "active" && task.status !== "done");
       if (remaining.length === 0) return { schema_version: 1, configured: false };
       const ids = new Set(remaining.map((task) => task.id));
-      const deps = new Map(remaining.map((task) => [task.id, task.depends_on.filter((id) => ids.has(id))]));
+      const unsatisfied = (task) => task.depends_on.filter((id) => byId.get(id)?.status !== "done");
+      const deps = new Map(remaining.map((task) => [task.id, unsatisfied(task).filter((id) => ids.has(id))]));
       const memo = /* @__PURE__ */ new Map();
       function level(id) {
         if (memo.has(id)) return memo.get(id);
@@ -1885,7 +1886,7 @@ var require_project_state = __commonJS({
       const criticalPath = widths.length;
       let serialPrefix = 0;
       while (serialPrefix < widths.length && widths[serialPrefix] === 1) serialPrefix += 1;
-      const dependent = remaining.filter((task) => deps.get(task.id).length > 0).length;
+      const dependent = remaining.filter((task) => unsatisfied(task).length > 0).length;
       return {
         schema_version: 1,
         configured: true,

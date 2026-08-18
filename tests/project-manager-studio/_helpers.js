@@ -45,6 +45,79 @@ function startStudioArgs(args, options = {}) { return new Promise((resolve, reje
 function startStudio(project, extra = []) { return startStudioArgs(['--project', project, '--no-open', '--port', '0', ...extra]); }
 async function stopStudio(handle) { if (handle.child.exitCode !== null) return; handle.child.kill('SIGTERM'); await new Promise((resolve) => { const timer = setTimeout(resolve, 3000); handle.child.once('exit', () => { clearTimeout(timer); resolve(); }); }); }
 async function handshake(handle) { const response = await fetch(`${handle.origin}/?token=${handle.token}`, { redirect: 'manual' }); return { response, cookie: response.headers.get('set-cookie').split(';')[0] }; }
+// SSE assertions read events, never chunks: a `reader.read()` chunk is whatever
+// the socket happened to deliver, so it can carry two events or half of one, and
+// the watcher legitimately interleaves project-stale/project-live around the
+// project-change a test is waiting for. This reader pumps continuously into a
+// buffer, frames on the blank-line boundary, and reports whole events by name.
+function openEventStream(origin, cookie, projectKey) {
+  const controller = new AbortController();
+  return fetch(`${origin}/api/events?project=${encodeURIComponent(projectKey)}`, { headers: { Cookie: cookie }, signal: controller.signal }).then((response) => {
+    if (response.status !== 200) { controller.abort(); throw new Error(`SSE stream refused with ${response.status}`); }
+    const reader = response.body.getReader(); const decoder = new TextDecoder();
+    let buffered = ''; const queue = []; let ended = false; let failure = null; let wake = null;
+    // Reports whether an event was queued, so a waiter is only woken by an event
+    // and not by traffic that carries none -- the ": connected" preamble is a
+    // comment, and a chunk can also stop mid-event.
+    function frame() {
+      let queued = false;
+      for (;;) {
+        const boundary = buffered.indexOf('\n\n');
+        if (boundary < 0) return queued;
+        const block = buffered.slice(0, boundary); buffered = buffered.slice(boundary + 2);
+        const match = /^event: (.+)$/m.exec(block);
+        if (match) { queue.push({ name: match[1], block }); queued = true; }
+      }
+    }
+    (async () => {
+      try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; buffered += decoder.decode(chunk.value, { stream: true }); if (frame()) wake?.(); } }
+      catch (error) { failure = error; }
+      ended = true; wake?.();
+    })();
+    function idle(ms) { return new Promise((resolve) => { const timer = setTimeout(settle, ms); timer.unref?.(); wake = settle; function settle() { clearTimeout(timer); wake = null; resolve(); } }); }
+    return {
+      response,
+      /** Resolve with the next event named `name`, discarding events a test is
+       *  not asserting on. Rejects rather than hanging when nothing arrives.
+       *  Pass null to take the next event whatever it is, which is how a test
+       *  asserts on the order of the events rather than on one of them. */
+      async next(name, timeoutMs = 5000) {
+        const expiry = Date.now() + timeoutMs;
+        for (;;) {
+          while (queue.length) { const event = queue.shift(); if (name === null || event.name === name) return event; }
+          if (failure) throw failure;
+          if (ended) throw new Error(`SSE stream ended before a ${name ?? 'further'} event`);
+          const remaining = expiry - Date.now();
+          if (remaining <= 0) throw new Error(`Timed out after ${timeoutMs}ms waiting for a ${name ?? 'further'} event`);
+          await idle(remaining);
+        }
+      },
+      /** Drain until the stream has been silent for `quietMs`, and report the
+       *  event names seen. Adaptive rather than a fixed sleep, so a slow machine
+       *  waits longer instead of asserting against a half-delivered stream. */
+      async settle(quietMs = 250, capMs = quietMs * 8) {
+        const seen = []; const cap = Date.now() + capMs;
+        for (;;) {
+          while (queue.length) seen.push(queue.shift().name);
+          if (failure || ended || Date.now() >= cap) return seen;
+          await idle(Math.min(quietMs, Math.max(cap - Date.now(), 0)));
+          if (queue.length === 0) return seen; // the window closed with nothing new
+        }
+      },
+      async close() { controller.abort(); try { await reader.cancel(); } catch { /* already torn down */ } },
+    };
+  });
+}
+// Poll instead of sleeping a guessed interval: server-side teardown is observed
+// through its effect, so a slow machine waits longer and a fast one returns now.
+async function waitUntil(predicate, message, timeoutMs = 5000) {
+  const expiry = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() >= expiry) throw new Error(`Timed out after ${timeoutMs}ms waiting until ${message}`);
+    await new Promise((resolve) => { const timer = setTimeout(resolve, 10); timer.unref?.(); });
+  }
+}
 async function catalog(handle, cookie) { return (await (await fetch(`${handle.origin}/api/projects`, { headers: { Cookie: cookie } })).json()).data; }
 async function getProject(handle, cookie, key) { return (await (await fetch(`${handle.origin}/api/project?project=${encodeURIComponent(key)}`, { headers: { Cookie: cookie } })).json()).data; }
-module.exports = { builtServerPath, makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection };
+module.exports = { builtServerPath, makeProject, startStudio, startStudioArgs, stopStudio, handshake, catalog, getProject, collection, openEventStream, waitUntil };
