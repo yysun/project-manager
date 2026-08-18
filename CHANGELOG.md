@@ -10,10 +10,118 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
-## [Unreleased]
+## [1.10.0] — 2026-08-18
+
+### Added
+
+- **Run records.** A new optional `RUNS.md` state file (**schema version 1**) records each run's ID,
+  status, timestamps, per-repository integration branch, base branch, base commit, and coordinator
+  worktree, and per-task branch, executor root, and integration flag. `startRun`, `advanceRun`, and
+  `resumeRun` in [`scripts/lib/run-execution.js`](skills/project-manager/scripts/lib/run-execution.js)
+  drive it through the existing atomic mutation path, with a `project-run.js` CLI exposing
+  `start`, `advance`, and `resume`. `startRun` refuses to open a second run beside an unfinished one;
+  `resume` is read-only and answers from `RUNS.md` alone, performing no Git or filesystem discovery.
+  Before this, none of that existed on disk, so a lost coordinator session could not resume a run —
+  only start a new one and orphan the previous integration branch. A project with no `RUNS.md` hashes
+  exactly as it did before: the pre-change module and this one were run against an identical fixture,
+  and that literal is now pinned in the suite, so a change that would stale every project's cached
+  `STATUS.md` fails a test.
+- **Execution telemetry.** Evidence manifests accept `schema_version: 2`, which adds an `execution`
+  object carrying `llm_calls`, `tool_calls`, `input_tokens`, and `output_tokens`. Counts are
+  incremental per manifest rather than cumulative, so one summation rule composes at attempt, task,
+  and run level; executors must follow it or task totals will be wrong, and the rule is stated in
+  [conventions.md](skills/project-manager/references/conventions.md) and
+  [execute-rpd.md](skills/project-manager/references/execute-rpd.md). Elapsed time is derived from
+  contract and manifest timestamps, so it is recorded even when an executor reports no counts. A
+  read-only `executionData` projection aggregates attempt → task → run and is surfaced in
+  `reportData`; `statusData` carries a cheap in-memory run summary instead, because `renderStatus`
+  runs inside every atomic mutation and `executionData` walks the handoffs tree. Stored
+  `schema_version: 1` manifests still validate through the stored-attempt path — version 1 rejects
+  `execution`, version 2 requires it.
+- **Critical-path-aware ready ranking.** `nextData` computes `depth`, the longest remaining dependency
+  chain a task unblocks, with a memoized traversal of the already-validated `blocks` reverse link, and
+  ranks on it above immediate fan-out. A chain-heading task now outranks a task with more leaf
+  dependents. Ordering is unchanged where depth ties.
+- **Concurrency ceiling projection.** A new `concurrencyData` projection reports `critical_path`,
+  `widest_level`, `serial_prefix`, and `concurrency_ceiling` for the remaining plan, surfaced in
+  `statusData`. No scheduler can beat a plan's critical path, so this is what makes an unreachable
+  parallelism target visible before a run rather than after it; `execute-rpd` now caps in-flight work
+  at the smaller of runtime capacity and `widest_level`, and reports the ceiling so wall time is read
+  against what the plan permitted.
+- Estimation rules for task schedules in [plan.md](skills/project-manager/references/plan.md).
+  `scheduled_start`/`scheduled_end` have always been free-form judgment — the engine derives no
+  duration and checks only that the pair is well-formed and ordered — so the skill now states how that
+  judgment is formed: fix the executor's throughput unit first (person-days, agent-hours, and CI
+  minutes are not one ruler), estimate the cost of proving an outcome rather than producing it, carry
+  uncertainty in the width of the span, leave explicit rework allowance, recalibrate against first
+  actuals, and record estimation risk with magnitude and trigger. Assumptions behind a date belong in
+  `ASSUMPTIONS.md` with `impact_if_false`, trigger conditions in the `RISKS.md` v2 `trigger` field, and
+  estimation error after the fact in `LESSONS.md` under `estimation`. No schema or script behavior
+  changes; the rules are LLM-facing guidance over the existing schedule fields.
+- Dependency-density guidance in [plan.md](skills/project-manager/references/plan.md) and
+  [review.md](skills/project-manager/references/review.md): declare a dependency only when the
+  dependent cannot *start* without the other, prefer the specific contract-establishing edge over
+  transitive restatements, and read a long `serial_prefix` as a signal that foundation work was split
+  into stages that are not independently verifiable.
+- A judgment-discipline section in [review.md](skills/project-manager/references/review.md) binding
+  review, `validate-task`, impact analysis, and status narrative: confirm the checked-out revision
+  before assessing, read the decision record before calling something a gap, re-read rather than
+  asserting state from memory, separate "does not exist" from "cannot be reached", mark verified apart
+  from inferred and name what could not be executed, and require evidence rather than artifacts for a
+  completion claim.
+- A waiting and escalation policy in
+  [execute-rpd.md](skills/project-manager/references/execute-rpd.md), from analysis of four real run
+  logs: request every permission during preflight, declare a human-gated wait once instead of polling
+  it, use blocking waits rather than fixed sleeps, and run Delivery the moment the last task settles.
+  The logs showed roughly eight hours of dead wall time across three runs — none of it worker, review,
+  or integration time — including 162 minutes blocked on a sandbox escalation first requested 43
+  minutes into the run.
+- A rule in [SKILL.md](skills/project-manager/SKILL.md) forbidding hand-rolled state mutation, with the
+  documented safe path for the cases where no command exists. A real run wrote its own
+  milestone-completion script outside the skill's immutability guard, validation gate, and rollback,
+  because no such command exists yet; that gap is now named rather than left implicit.
+- Both READMEs list an undeclared executor behind a task date as something Project Manager pushes back
+  on.
+- The Studio brand header shows the release version, read from the same `src/version.ts` constant the
+  MCP server and App host use, so `npm run release:version` keeps it in sync instead of leaving a
+  hand-edited string to drift.
 
 ### Changed
 
+- The `execute-rpd` scheduler is documented as a **work-conserving ready queue** rather than a
+  barriered dependency-wave model: promote a task the moment its dependency settles, count only
+  mutating workers against concurrency (read-only reviewers are budgeted separately, since RPD
+  serializes each task's own gates), and dispatch a value-concentrating sink task with company rather
+  than last and alone. Stale "wave" language that survived the change in `execute-rpd.md`, `SKILL.md`,
+  and `track.md` is gone — Integration still said "in ascending task ID within a wave" for a scheduler
+  with no waves — and two scheduler steps that stated one concurrency rule twice with different
+  criteria were reconciled.
+- Run-scoped branch and worktree naming in
+  [execute-rpd.md](skills/project-manager/references/execute-rpd.md). Each run generates one fresh
+  lowercase 8-hex run ID and never reuses a prior run's branches or worktrees, since a prior run may
+  have deliberately left them behind under Delivery. Integration branch `pm/<project-id>-<run-id>`,
+  task branch `pm/<project-id>-<run-id>-<task-id>`, worktree root
+  `<workspace-root>/.worktrees/<run-id>` beside `.projects`, coordinator worktree
+  `<worktree-root>/<repo-name>-integration` per repository, and task worktree `<worktree-root>/<task-id>`.
+  The worktree root must lie outside every target repository's working tree; when the workspace root is
+  itself inside one, that repository's worktrees go to `<git-common-dir>/pm-worktrees/<run-id>`. Task
+  worktrees are removed as soon as they are clean, reachable, and evidenced; only the integration
+  branch and coordinator worktree persist across the run. Isolation is stated as an inspection and
+  retry property, not a concurrency device — a single-task sequential run still gets its own branch and
+  worktree.
+- Skill instructions are restructured as procedure plus rationale: numbered imperatives carry the
+  steps and reasoning moved into marked "Why" blocks, because negation-dense prose that buries an
+  imperative inside its justification is the form a small model most reliably misreads. Overlapping
+  authority became tables in `SKILL.md` (Studio), `tasks.md` (row order vs. rescheduling vs.
+  specification), and `init.md` (profiles). Across the instruction files, negations went 264 → 239 and
+  list items 167 → 267. This is presentation only, and was proved so rather than asserted: every
+  backtick code span and numeric literal was diffed against the previous revision across all ten
+  instruction files, and the sole difference is `planned|ready` rendering as `planned` ↔ `ready` in a
+  table column.
+- A task whose specification requires changes in more than one repository is explicitly out of scope
+  for the `execute-rpd` route; it is reported for splitting rather than split unilaterally. RPD's
+  primary-agent review fallback is likewise unavailable on this route — when a reviewer cannot be
+  started the task blocks instead of accepting a self-review.
 - Workspace-root initialization now installs `studio.sh` and `studio.cmd` inside the workspace's
   `.projects` folder instead of the workspace root, so all Project Manager support files live in one
   place and the workspace root stays untouched. Each launcher resolves the projects root from its own
@@ -25,26 +133,17 @@ project written by an older release keeps loading unchanged; no release has requ
   removals in `data.removed_retired_launchers`. Any other root file, directory, or symlink at those
   names is the operator's and is left untouched.
 
-### Added
+### Fixed
 
-- Estimation rules for task schedules in [plan.md](skills/project-manager/references/plan.md).
-  `scheduled_start`/`scheduled_end` have always been free-form judgment — the engine derives no
-  duration and checks only that the pair is well-formed and ordered — so the skill now states how that
-  judgment is formed: fix the executor's throughput unit first (person-days, agent-hours, and CI
-  minutes are not one ruler), estimate the cost of proving an outcome rather than producing it, carry
-  uncertainty in the width of the span, leave explicit rework allowance, recalibrate against first
-  actuals, and record estimation risk with magnitude and trigger. Assumptions behind a date belong in
-  `ASSUMPTIONS.md` with `impact_if_false`, trigger conditions in the `RISKS.md` v2 `trigger` field, and
-  estimation error after the fact in `LESSONS.md` under `estimation`. No schema or script behavior
-  changes; the rules are LLM-facing guidance over the existing schedule fields.
-- A judgment-discipline section in [review.md](skills/project-manager/references/review.md) binding
-  review, `validate-task`, impact analysis, and status narrative: confirm the checked-out revision
-  before assessing, read the decision record before calling something a gap, re-read rather than
-  asserting state from memory, separate "does not exist" from "cannot be reached", mark verified apart
-  from inferred and name what could not be executed, and require evidence rather than artifacts for a
-  completion claim.
-- Both READMEs list an undeclared executor behind a task date as something Project Manager pushes back
-  on.
+- Dependency density in `concurrencyData` counts an edge to a cancelled or deferred task as
+  unsatisfied. Only a `done` dependency satisfies an edge; the previous count silently dropped edges
+  whose target was not runnable, even though `blockerItems` reports the dependent as blocked.
+- The bundled Studio server carried a pre-fix copy of that projection and was rebuilt from source.
+- Studio SSE tests assert on framed events instead of raw socket chunks. A `read()` chunk can carry
+  two events or half of one, and the watcher legitimately interleaves `project-stale`/`project-live`
+  around the `project-change` a test waits for, which is what made the production-watcher test
+  intermittently fail. The helper now pumps continuously, frames on the blank-line boundary, reports
+  whole events by name, and settles adaptively rather than on a fixed sleep.
 
 ## [1.9.0] — 2026-08-16
 
@@ -335,6 +434,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.10.0]: https://github.com/yysun/project-manager/releases/tag/v1.10.0
 [1.9.0]: https://github.com/yysun/project-manager/releases/tag/v1.9.0
 [1.8.0]: https://github.com/yysun/project-manager/releases/tag/v1.8.0
 [1.7.0]: https://github.com/yysun/project-manager/releases/tag/v1.7.0

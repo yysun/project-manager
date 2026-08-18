@@ -34592,7 +34592,7 @@ function N3(Z, $, J, X, V) {
 }
 
 // src/version.ts
-var PROJECT_MANAGER_VERSION = "1.9.0";
+var PROJECT_MANAGER_VERSION = "1.10.0";
 
 // src/mcp-app/tools/project-reads.ts
 import path3 from "node:path";

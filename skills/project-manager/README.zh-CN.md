@@ -142,7 +142,7 @@ Project Manager 保持协调者角色。它会验证项目，为每个依赖已�
 安全的根目录。
 
 每个工作 Agent 只返回一个简洁的终态 Evidence Manifest JSON 对象，而不是对话记录。Project Manager 会先
-验证并导入该对象，然后才把工作视为进展并解锁下一个依赖批次。主 Agent 的协调产能和项目上下文与
+验证并导入该对象，然后才把工作视为进展，并推进原本等待它的任务。主 Agent 的协调产能和项目上下文与
 工作 Agent 分离。工作 Agent 绝不修改项目的 `PROJECT.md`、`TASKS.md`、`STATUS.md`、`CHANGES.md`
 或 `handoffs/` 状态。
 
@@ -169,10 +169,20 @@ node <skill-dir>/scripts/project-ingest-agent-manifest.js <project-folder> <task
 
 > 执行“网站上线”项目中的所有 [RPD](https://github.com/yysun/rpd) 工作。
 
-Project Manager 会先验证项目，只启动依赖已经完成的任务，并把互不依赖的就绪任务按批次并行
-执行。每个任务使用独立的子 Agent、Git 分支和 worktree；[RPD](https://github.com/yysun/rpd) 负责实现、测试、修正和独立评审。
+Project Manager 会先验证项目，只启动依赖已经完成的任务，并让就绪工作持续流动：任务在其依赖
+落定的那一刻就被推进，而不是等整批结束；就绪任务按其解锁的依赖链长度排序。每个任务使用独立的
+子 Agent、Git 分支和 worktree；[RPD](https://github.com/yysun/rpd) 负责实现、测试、修正和独立评审。
 随后，Project Manager 按依赖顺序集成各分支，测试组合后的结果，并记录能够证明每项验收条件
 的证据。
+
+同时能跑多少任务，取决于计划本身，而不是机器。Project Manager 会报告剩余计划的关键路径和最宽
+层级，并把在执行中的任务数限制在两者中的较小值，因此依赖图本身就无法达到的并行目标会在执行前
+暴露，而不是事后才发现。
+
+分支和 worktree 按每次运行命名，且从不复用。运行本身会记录在项目文件夹中——包括运行 ID、集成
+分支与任务分支，以及每个任务的 worktree——因此协调会话中断后可以依据该记录恢复同一次运行，而
+不会另起一次并让上一个分支被遗弃。任务的 worktree 在其成果完成合并并留下证据后即被删除；被阻塞
+或重试任务的 worktree 会保留，并报告其路径。
 
 这条命令不表示“同时运行整个待办列表”。非 [RPD](https://github.com/yysun/rpd) 任务仍由原执行器负责；被阻塞的执行尝试会被
 保留；只有无关且已经就绪的工作会继续。该流程会创建本地提交和集成分支，但不会推送、创建

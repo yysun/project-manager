@@ -158,8 +158,8 @@ tasks run serially. A task with no executor root is limited to filesystem-read-o
 non-filesystem target; local or uncertain mutation needs a safe declared root first.
 
 Each worker returns one compact terminal Evidence Manifest JSON object, not a transcript. Project
-Manager validates and ingests that payload before it treats the work as progress or unlocks the next
-dependency wave. It keeps the main coordinator's capacity slot and project context separate from worker
+Manager validates and ingests that payload before it treats the work as progress or promotes the
+tasks that were waiting on it. It keeps the main coordinator's capacity slot and project context separate from worker
 context. A worker never edits the project's `PROJECT.md`, `TASKS.md`, `STATUS.md`, `CHANGES.md`, or
 `handoffs/` state.
 
@@ -189,11 +189,24 @@ and give its project name:
 
 > Execute all [RPD](https://github.com/yysun/rpd) work for the Website Launch project.
 
-Project Manager validates the project, starts only tasks whose dependencies are complete, and runs
-independent ready tasks in parallel waves. Each task gets its own subagent, Git branch, and worktree;
-[RPD](https://github.com/yysun/rpd) handles implementation, testing, correction, and independent review. Project Manager then
-integrates the branches in dependency order, tests the combined result, and records the evidence that
-supports each task's acceptance criteria.
+Project Manager validates the project, starts only tasks whose dependencies are complete, and keeps
+the ready ones moving: a task is promoted the moment the work it waited on settles, rather than at the
+end of a batch, and ready work is ranked by the length of the dependency chain it unblocks. Each task
+gets its own subagent, Git branch, and worktree; [RPD](https://github.com/yysun/rpd) handles
+implementation, testing, correction, and independent review. Project Manager then integrates the
+branches in dependency order, tests the combined result, and records the evidence that supports each
+task's acceptance criteria.
+
+How much of that can actually run at once is a property of your plan, not of the machine. Project
+Manager reports the remaining plan's critical path and widest level, and holds in-flight work to the
+smaller of the two, so a target that the dependency graph makes unreachable is visible before the run
+rather than after it.
+
+Branches and worktrees are named per run and never reused. The run itself is recorded in the project
+folder — its ID, its integration and task branches, and each task's worktree — so an interrupted
+coordinator session resumes the same run from that record instead of starting a second one and leaving
+the first branch orphaned. Each task's worktree is removed once its work is merged and evidenced;
+worktrees for blocked or retried tasks are kept and their paths reported.
 
 This command does not mean “run the entire backlog at once.” It leaves non-[RPD](https://github.com/yysun/rpd) tasks with their
 assigned executors, preserves blocked attempts, and continues only with unrelated ready work. It

@@ -36,6 +36,8 @@ project reality → reasoning → coordinated change
   underlying facts.
 - One coherent project record across people, delegated agents, external executors, and optional
   software workflows such as [RPD](https://github.com/yysun/rpd).
+- Delegated execution that is recorded rather than ephemeral: a run's branches, worktrees, and
+  per-attempt cost are part of the project state, so an interrupted run resumes instead of restarting.
 
 Project truth stays in a durable, versionable Markdown folder and is validated before changes are
 saved. Kanban and Timeline visualize that state; they do not become a second source of truth.
@@ -120,7 +122,7 @@ only the fixed root manifest, `skills/`, and `mcp.json` locations.
 and MCP App runtime through one explicit command:
 
 ```bash
-npm run release:version -- 1.8.1
+npm run release:version -- 1.10.1
 ```
 
 The command does not publish, tag, edit the changelog, or sync an installed copy. After it succeeds,
