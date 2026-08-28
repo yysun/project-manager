@@ -1,5 +1,7 @@
 # Project Manager
 
+[简体中文](README.zh-CN.md)
+
 **An AI project manager you work with through conversation.**
 
 Brief Project Manager as you would a human colleague: explain the outcome, constraints, authority,
@@ -83,6 +85,13 @@ Timeline shows schedules, dependencies, blockers, and date conflicts.
 Studio watches the selected project's durable state and refreshes automatically when the CLI, an
 agent, or another editor changes it. Automatic refresh waits while a task form or schedule draft is
 open so local edits are not discarded; the Refresh button remains available as a manual recovery.
+
+Initializing a project from a selected workspace root also generates `.projects/.env.local`,
+`.projects/.gitignore`, `.projects/studio.sh`, and `.projects/studio.cmd`. Run
+`./.projects/studio.sh` on macOS/Linux or `.projects\studio.cmd` on Windows. The local environment
+file records the active skill path as `~/...` when it is under the current user's home directory and
+as an absolute path otherwise. The launchers parse that file as data, never execute it, and reject
+other relative paths, `~user`, variable references, and shell expressions.
 
 ## MCP App
 

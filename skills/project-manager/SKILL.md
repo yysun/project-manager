@@ -73,8 +73,9 @@ The minimal project folder contains only:
 Optional modules are `MILESTONES.md`, `RISKS.md`, `DECISIONS.md`, `SOURCES.md`, `TRACEABILITY.md`, `CHANGES.md`, `ASSUMPTIONS.md`, `ISSUES.md`, `STAKEHOLDERS.md`, `LESSONS.md`, `CLOSURE.md`, `handoffs/`, and `reports/history/`.
 
 Workspace-root initialization also installs workspace support outside the project folder: ignored
-`.projects/.env.local` records this active skill's absolute path, and canonical `.projects/studio.sh`
-plus `.projects/studio.cmd` launch Studio for that workspace. Always use `project-init-workspace.js` for that
+`.projects/.env.local` records this active skill's `~/...` path when it is inside the current home and
+its absolute path otherwise; canonical `.projects/studio.sh` plus `.projects/studio.cmd` launch Studio
+for that workspace. Always use `project-init-workspace.js` for that
 multi-path transaction; read [init.md](references/init.md). Standalone target-folder initialization
 retains the three-file-only contract and creates no workspace support.
 

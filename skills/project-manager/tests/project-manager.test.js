@@ -5,7 +5,7 @@
  * cover TASKS v3 dispositions, rigor policies, human and agent governed
  * execution, Studio projection, strict projects-root and single-project skill
  * discovery contracts, and atomic workspace initialization with local
- * cross-platform Studio launchers.
+ * cross-platform Studio launchers, including safe home-relative skill paths.
  */
 'use strict';
 
@@ -28,7 +28,10 @@ const { completeHumanTask, loadStableProject } = require('../scripts/lib/human-c
 const { startAgentTask, ingestAgentManifest } = require('../scripts/lib/agent-execution');
 const { startRun, advanceRun, resumeRun } = require('../scripts/lib/run-execution');
 const { parseTaskRecords, renderRecord } = require('../scripts/lib/task-editor');
-const { MAX_PAYLOAD_BYTES, RETIRED_ROOT_LAUNCHERS, initializeWorkspaceProject } = require('../scripts/lib/workspace-init');
+const {
+  MAX_PAYLOAD_BYTES, PREVIOUS_PROJECTS_ROOT_LAUNCHERS, RETIRED_ROOT_LAUNCHERS,
+  initializeWorkspaceProject, portableSkillPath,
+} = require('../scripts/lib/workspace-init');
 
 const SCRIPT_ROOT = path.join(__dirname, '..', 'scripts');
 const SKILL_ROOT = path.join(__dirname, '..');
@@ -116,6 +119,13 @@ function fakeSkill(base) {
 function retiredRootLauncher(name) {
   const bytes = fs.readFileSync(path.join(__dirname, 'fixtures', `retired-root-${name}`));
   assert.equal(RETIRED_ROOT_LAUNCHERS[name].includes(crypto.createHash('sha256').update(bytes).digest('hex')), true, name);
+  return bytes;
+}
+
+function previousProjectsRootLauncher(name) {
+  const bytes = fs.readFileSync(path.join(__dirname, 'fixtures', `previous-projects-root-${name}`));
+  const value = crypto.createHash('sha256').update(bytes).digest('hex');
+  assert.equal(PREVIOUS_PROJECTS_ROOT_LAUNCHERS[name].includes(value), true, name);
   return bytes;
 }
 
@@ -1292,6 +1302,14 @@ test('workspace initialization writes current project state and portable launch 
   assert.deepEqual(first.data.launchers, [path.join(workspace, '.projects', 'studio.sh'), path.join(workspace, '.projects', 'studio.cmd')]);
   assert.deepEqual(first.data.removed_retired_launchers, []);
 
+  const syntheticHome = path.join(base, 'synthetic-home');
+  assert.equal(
+    portableSkillPath(path.join(syntheticHome, '.codex', 'skills', 'project-manager'), syntheticHome),
+    '~/.codex/skills/project-manager',
+  );
+  const outsideHome = path.dirname(syntheticHome);
+  assert.equal(portableSkillPath(outsideHome, syntheticHome), outsideHome);
+
   const envFile = path.join(workspace, '.projects', '.env.local'); const ignoreFile = path.join(workspace, '.projects', '.gitignore');
   fs.writeFileSync(envFile, `OTHER_SETTING=keep=this value\nPROJECT_MANAGER_SKILL_PATH=/stale/path\n`);
   fs.writeFileSync(ignoreFile, `reports/\n/.env.local\n`); fs.chmodSync(path.join(workspace, '.projects', 'studio.sh'), 0o644);
@@ -1332,6 +1350,20 @@ test('workspace initialization retires its own root launchers and never touches 
   assert.deepEqual(treeState(rollback), rollbackBefore);
 });
 
+test('workspace initialization upgrades its previously published projects-root launchers', () => {
+  const base = temp(); const skillRoot = fakeSkill(base); const workspace = fs.realpathSync(temp());
+  const projectsRoot = path.join(workspace, '.projects'); fs.mkdirSync(projectsRoot);
+  fs.writeFileSync(path.join(projectsRoot, 'studio.sh'), previousProjectsRootLauncher('studio.sh'), { mode: 0o755 });
+  fs.writeFileSync(path.join(projectsRoot, 'studio.cmd'), previousProjectsRootLauncher('studio.cmd'), { mode: 0o644 });
+
+  const result = initializeWorkspaceProject(workspace, 'upgraded-project', initPayload('UPGRADED-PROJECT'), {
+    skillRoot, generatedAt: '2026-08-15T12:00:00Z',
+  });
+  assert.equal(loadProject(result.project.root).status_stale, false);
+  assert.equal(fs.readFileSync(path.join(projectsRoot, 'studio.sh')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'))), true);
+  assert.equal(fs.readFileSync(path.join(projectsRoot, 'studio.cmd')).equals(fs.readFileSync(path.join(skillRoot, 'assets', 'studio.cmd'))), true);
+});
+
 test('POSIX Studio launcher uses only local config and preserves cwd, arguments, and exit status', () => {
   const base = temp(); const workspacePath = path.join(base, 'launch workspace with spaces'); fs.mkdirSync(workspacePath);
   const workspace = fs.realpathSync(workspacePath); const skillRoot = fakeSkill(base);
@@ -1344,6 +1376,21 @@ test('POSIX Studio launcher uses only local config and preserves cwd, arguments,
   assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')), { cwd: workspace, argv: ['--no-open', '--port', '43123', 'argument with spaces'] });
 
   const envFile = path.join(workspace, '.projects', '.env.local'); const valid = fs.readFileSync(envFile);
+  fs.rmSync(record, { force: true });
+  fs.writeFileSync(envFile, `PROJECT_MANAGER_SKILL_PATH=~/${path.basename(skillRoot)}\n`);
+  const homeRelative = spawnSync(launcher, ['--home-relative', 'argument with spaces'], {
+    cwd: path.dirname(workspace), encoding: 'utf8',
+    env: { ...process.env, HOME: path.dirname(skillRoot), PROJECT_MANAGER_SKILL_PATH: '/inherited/wrong/path', PM_LAUNCH_RECORD: record, PM_LAUNCH_EXIT: '9' },
+  });
+  assert.equal(homeRelative.status, 9); assert.equal(homeRelative.stderr, '');
+  assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')), { cwd: workspace, argv: ['--home-relative', 'argument with spaces'] });
+
+  fs.rmSync(record, { force: true });
+  const invalidHome = spawnSync(launcher, [], {
+    encoding: 'utf8', env: { ...process.env, HOME: 'relative/home', PROJECT_MANAGER_SKILL_PATH: skillRoot, PM_LAUNCH_RECORD: record },
+  });
+  assert.equal(invalidHome.status, 2); assert.match(invalidHome.stderr, /HOME must be absolute/); assert.equal(fs.existsSync(record), false);
+
   const invalid = [
     null,
     'OTHER=value\n',
@@ -1369,7 +1416,9 @@ test('Windows Studio launcher encodes the local-config and process contract with
   assert.match(text, /tokens=1,\* delims==/); assert.match(text, /PROJECT_MANAGER_SKILL_PATH_COUNT\+=1/);
   assert.doesNotMatch(text, /EnableDelayedExpansion/i); assert.match(text, /cd \/d "%~dp0\.\."/); assert.match(text, /set "PROJECT_MANAGER_ENV=%~dp0\.env\.local"/);
   assert.match(text, /node "%PROJECT_MANAGER_STUDIO%" %\*/); assert.match(text, /exit \/b %PROJECT_MANAGER_STUDIO_EXIT%/);
-  assert.match(text, /PROJECT_MANAGER_SKILL_PATH:~0,2/); assert.match(text, /scripts\\project-manager-studio\.js/); assert.match(text, /PROJECT_MANAGER_STUDIO%\\NUL/);
+  assert.match(text, /PROJECT_MANAGER_SKILL_PATH:~0,2/); assert.match(text, /USERPROFILE/);
+  assert.equal(text.includes('set "PROJECT_MANAGER_SKILL_PATH=%USERPROFILE%\\%PROJECT_MANAGER_SKILL_PATH:~2%"'), true);
+  assert.match(text, /scripts\\project-manager-studio\.js/); assert.match(text, /PROJECT_MANAGER_STUDIO%\\NUL/);
 });
 
 test('initialization instructions expose the deterministic workspace and standalone contracts', () => {

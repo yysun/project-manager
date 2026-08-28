@@ -79,20 +79,24 @@ and atomically establishes this workspace layout:
 `.projects/.env.local` contains exactly one managed entry:
 
 ```dotenv
-PROJECT_MANAGER_SKILL_PATH=<absolute-skill-dir>
+PROJECT_MANAGER_SKILL_PATH=~/<path-under-home>
 ```
 
-The file may contain unrelated local settings. Initialization preserves those lines, replaces or adds
-only the single managed entry, and rejects duplicate managed entries. `.projects/.gitignore` preserves
-unrelated rules and contains the exact `/.env.local` rule. Git is not required; the local ignore file
-only prevents accidental tracking when the workspace is inside a repository.
+When the active real skill root is inside the current user's home directory, initialization serializes
+it with a leading `~/`; otherwise it stores the absolute path. The file may contain unrelated local
+settings. Initialization preserves those lines, replaces or adds only the single managed entry, and
+rejects duplicate managed entries. `.projects/.gitignore` preserves unrelated rules and contains the
+exact `/.env.local` rule. Git is not required; the local ignore file only prevents accidental tracking
+when the workspace is inside a repository.
 
 The projects-root launchers are exact copies of `assets/studio.sh` and `assets/studio.cmd`. They clear
 inherited `PROJECT_MANAGER_SKILL_PATH`, parse rather than execute the `.env.local` beside them, require
-exactly one non-empty absolute value and an existing configured `scripts/project-manager-studio.js`,
-change to the workspace that contains the projects root, forward every caller argument, and return
-Studio's exit status. The shell launcher is mode `0755`. Operators launch Studio with
-`./.projects/studio.sh` on POSIX or `.projects\studio.cmd` on Windows.
+exactly one non-empty value that is absolute or begins with `~/`, and require an existing configured
+`scripts/project-manager-studio.js`. The Windows launcher also accepts `~\`; all other relative paths,
+`~user`, variable references, and shell expressions are invalid. The launchers change to the workspace
+that contains the projects root, forward every caller argument, and return Studio's exit status. The
+shell launcher is mode `0755`. Operators launch Studio with `./.projects/studio.sh` on POSIX or
+`.projects\studio.cmd` on Windows.
 
 Earlier releases installed the launchers at the workspace root. Initialization retires those copies in
 the same transaction: it removes a root `studio.sh` or `studio.cmd` only when it is a regular file whose
@@ -101,8 +105,9 @@ bytes are exactly what a published release wrote, and reports every removal in
 the operator and is left untouched rather than refused.
 
 Preflight the complete write set before exposure. Refuse a symlinked, escaping, special-file, or
-non-empty project target. Reuse only byte-identical launchers; repair mode drift on the canonical shell
-launcher, but refuse to overwrite different `.projects/studio.sh` or `.projects/studio.cmd` content. The built-in command
+non-empty project target. Reuse byte-identical launchers and transactionally upgrade only exact hashes
+of previously published `.projects` launchers; repair mode drift on the canonical shell launcher, but
+refuse to overwrite all other `.projects/studio.sh` or `.projects/studio.cmd` content. The built-in command
 revalidates each target before replacement, rolls its own changes back in reverse order on failure, and
 revalidates its installed candidate before removing anything during rollback. A changed exposed target
 is preserved with the original backup in the recovery root. Otherwise rollback restores prior bytes,

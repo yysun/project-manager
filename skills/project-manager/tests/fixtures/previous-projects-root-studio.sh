@@ -1,6 +1,6 @@
 #!/bin/sh
 # Responsibility: launch Project Manager Studio from workspace-local configuration.
-# Invariants: never source configuration, expand only leading ~/, and preserve Studio arguments and status.
+# Invariants: never source configuration, never use an inherited skill path, and preserve Studio arguments and status.
 
 unset PROJECT_MANAGER_SKILL_PATH
 project_manager_skill_path_count=0
@@ -30,19 +30,9 @@ if [ "$project_manager_skill_path_count" -ne 1 ] || [ -z "$PROJECT_MANAGER_SKILL
 fi
 
 case "$PROJECT_MANAGER_SKILL_PATH" in
-  "~/"*)
-    project_manager_home=${HOME-}
-    case "$project_manager_home" in
-      /*) PROJECT_MANAGER_SKILL_PATH="$project_manager_home/${PROJECT_MANAGER_SKILL_PATH#??}" ;;
-      *)
-        echo "Project Manager Studio: HOME must be absolute when PROJECT_MANAGER_SKILL_PATH starts with ~/" >&2
-        exit 2
-        ;;
-    esac
-    ;;
   /*) ;;
   *)
-    echo "Project Manager Studio: PROJECT_MANAGER_SKILL_PATH must be absolute or start with ~/" >&2
+    echo "Project Manager Studio: PROJECT_MANAGER_SKILL_PATH must be absolute" >&2
     exit 2
     ;;
 esac

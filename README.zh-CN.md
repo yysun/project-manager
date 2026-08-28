@@ -72,6 +72,12 @@ Timeline 展示排期、依赖、阻塞和日期冲突。
 Studio 会监视所选项目的持久状态，并在 CLI、Agent 或其他编辑器修改项目时自动刷新。如果任务表单或
 排期草稿仍处于打开状态，自动刷新会暂停，以免丢弃本地编辑；此时仍可使用 Refresh 按钮手动恢复。
 
+从已选择的工作区根目录初始化项目时，还会生成 `.projects/.env.local`、
+`.projects/.gitignore`、`.projects/studio.sh` 和 `.projects/studio.cmd`。在 macOS/Linux 上运行
+`./.projects/studio.sh`，在 Windows 上运行 `.projects\studio.cmd`。如果当前 Skill 路径位于用户主目录下，
+本地环境文件会把它记录为 `~/...`；否则记录为绝对路径。启动器只把该文件当作数据解析，不会执行它，
+并会拒绝其他相对路径、`~user`、变量引用和 shell 表达式。
+
 ## MCP App
 
 Studio 是一个浏览器窗口。MCP App 将相同的项目事实直接放进对话中，因此你正在讨论的状态会显示在

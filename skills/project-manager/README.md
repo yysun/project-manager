@@ -245,10 +245,12 @@ workspace's `.projects` folder. Run `./.projects/studio.sh` on POSIX or `.projec
 Windows. Both launchers read the active skill installation from the `.projects/.env.local` beside them,
 which `.projects/.gitignore` keeps local, then open that workspace's `.projects` catalog. They preserve
 Studio arguments, so `./.projects/studio.sh --no-open --port 43123`
-works as expected. If either launcher name already contains unrelated content, or the local skill path
-is missing or invalid, initialization or launch fails clearly instead of overwriting the file or
-guessing another installation. Explicit standalone project-folder initialization does not add these
-workspace files.
+works as expected. Initialization records an in-home skill path as `~/...` and uses an absolute path
+otherwise. The launchers parse `.env.local` as data, expand only a leading `~/` (`~\` is also accepted
+by `studio.cmd`), and reject other relative paths, `~user`, variable references, and shell expressions.
+If either launcher name already contains unrelated content, or the local skill path is missing or
+invalid, initialization or launch fails clearly instead of overwriting the file or guessing another
+installation. Explicit standalone project-folder initialization does not add these workspace files.
 
 Earlier releases put the launchers in the workspace root. Initializing again moves them: a root
 `studio.sh` or `studio.cmd` still holding exactly what an earlier release wrote is removed as part of

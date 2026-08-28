@@ -1,6 +1,6 @@
 @echo off
 rem Responsibility: launch Project Manager Studio from workspace-local configuration.
-rem Invariants: never execute configuration, expand only leading ~/ or ~\, and preserve Studio arguments and status.
+rem Invariants: never inherit a skill path, never execute configuration, and preserve Studio arguments and status.
 setlocal
 set "PROJECT_MANAGER_SKILL_PATH="
 set "PROJECT_MANAGER_SKILL_PATH_COUNT=0"
@@ -27,22 +27,10 @@ if not defined PROJECT_MANAGER_SKILL_PATH (
   exit /b 2
 )
 
-if "%PROJECT_MANAGER_SKILL_PATH:~0,2%"=="~/" goto project_manager_home
-if "%PROJECT_MANAGER_SKILL_PATH:~0,2%"=="~\" goto project_manager_home
-goto project_manager_validate_absolute
-
-:project_manager_home
-if not defined USERPROFILE (
-  >&2 echo Project Manager Studio: USERPROFILE is required when PROJECT_MANAGER_SKILL_PATH starts with ~/
-  exit /b 2
-)
-set "PROJECT_MANAGER_SKILL_PATH=%USERPROFILE%\%PROJECT_MANAGER_SKILL_PATH:~2%"
-
-:project_manager_validate_absolute
 if "%PROJECT_MANAGER_SKILL_PATH:~0,2%"=="\\" goto project_manager_absolute
 if "%PROJECT_MANAGER_SKILL_PATH:~1,2%"==":\" goto project_manager_absolute
 if "%PROJECT_MANAGER_SKILL_PATH:~1,2%"==":/" goto project_manager_absolute
->&2 echo Project Manager Studio: PROJECT_MANAGER_SKILL_PATH must be absolute or start with ~/
+>&2 echo Project Manager Studio: PROJECT_MANAGER_SKILL_PATH must be absolute
 exit /b 2
 
 :project_manager_absolute

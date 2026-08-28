@@ -4,10 +4,12 @@
  * Invariants: contained real paths only, STATUS is generated internally, every target is revalidated before exposure,
  * only bytes this skill published are removed, and failed writes restore exact prior bytes and modes or preserve an
  * explicit recovery root.
+ * Recent change: serialize in-home skill roots with a narrowly scoped ~/ prefix for generated launchers.
  */
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
@@ -23,6 +25,12 @@ const ENV_KEY = 'PROJECT_MANAGER_SKILL_PATH';
 const RETIRED_ROOT_LAUNCHERS = Object.freeze({
   'studio.sh': Object.freeze(['2219fc49f038529dd102d1a11510bbbcc9c466bb92f3cba3a18c0da62f9bdefa']),
   'studio.cmd': Object.freeze(['31892644e39ba8244e0c6d13e58a88ec65040cfa9d0a612833b3173e68de45e6']),
+});
+// Frozen sha256 of canonical launchers previously published inside `.projects`. These exact files
+// remain skill-owned and may be upgraded transactionally; any other bytes are operator-owned.
+const PREVIOUS_PROJECTS_ROOT_LAUNCHERS = Object.freeze({
+  'studio.sh': Object.freeze(['ef5cfee67ce22ef34bd88e1463fc2a406ed051c40e83115454ac620be5e37546']),
+  'studio.cmd': Object.freeze(['d1661653ed2d3edbc9a9e128282b59b19b94aee763cdcd8de64eccec50e40d3b']),
 });
 
 class WorkspaceInitError extends Error {
@@ -137,6 +145,19 @@ function ensureIgnore(before, target) {
 
 function sameBytes(snapshotValue, bytes) { return snapshotValue.type === 'file' && snapshotValue.digest === digest(bytes); }
 
+function isManagedLauncher(snapshotValue, currentBytes, previousDigests) {
+  return sameBytes(snapshotValue, currentBytes)
+    || (snapshotValue.type === 'file' && previousDigests.includes(snapshotValue.digest));
+}
+
+function portableSkillPath(target, home = os.homedir()) {
+  if (!path.isAbsolute(target) || !path.isAbsolute(home)) return target;
+  const fromHome = path.relative(home, target);
+  if (fromHome === '') return '~/';
+  if (fromHome === '..' || fromHome.startsWith(`..${path.sep}`) || path.isAbsolute(fromHome)) return target;
+  return `~/${fromHome.split(path.sep).join('/')}`;
+}
+
 // A retired root launcher is removable only when it is a regular file carrying bytes this skill
 // published. Anything else at that name — a symlink, a directory, or unrelated operator content — is
 // reported as absent so the transaction leaves it untouched instead of refusing the whole workspace.
@@ -183,13 +204,18 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
   const cmdSnapshot = projectsSnapshot.type === 'absent' ? { type: 'absent' } : snapshot(cmdTarget, ['file']);
   const shAsset = fs.readFileSync(path.join(skillRoot, 'assets', 'studio.sh'));
   const cmdAsset = fs.readFileSync(path.join(skillRoot, 'assets', 'studio.cmd'));
-  if (shSnapshot.type === 'file' && !sameBytes(shSnapshot, shAsset)) throw new WorkspaceInitError('LAUNCHER_CONFLICT', `Existing launcher is not managed by Project Manager: ${shTarget}`, shTarget);
-  if (cmdSnapshot.type === 'file' && !sameBytes(cmdSnapshot, cmdAsset)) throw new WorkspaceInitError('LAUNCHER_CONFLICT', `Existing launcher is not managed by Project Manager: ${cmdTarget}`, cmdTarget);
+  if (shSnapshot.type === 'file' && !isManagedLauncher(shSnapshot, shAsset, PREVIOUS_PROJECTS_ROOT_LAUNCHERS['studio.sh'])) throw new WorkspaceInitError('LAUNCHER_CONFLICT', `Existing launcher is not managed by Project Manager: ${shTarget}`, shTarget);
+  if (cmdSnapshot.type === 'file' && !isManagedLauncher(cmdSnapshot, cmdAsset, PREVIOUS_PROJECTS_ROOT_LAUNCHERS['studio.cmd'])) throw new WorkspaceInitError('LAUNCHER_CONFLICT', `Existing launcher is not managed by Project Manager: ${cmdTarget}`, cmdTarget);
   const retired = Object.entries(RETIRED_ROOT_LAUNCHERS).map(([name, digests], index) => ({
     name: `retired-${name}`, target: retiredTargets[index], before: retiredLauncherSnapshot(retiredTargets[index], digests), allowed: ['file'], remove: true,
   }));
 
-  const envBytes = Buffer.from(updateManagedLine(envSnapshot.type === 'file' ? envSnapshot : null, ENV_KEY, skillRoot, envTarget));
+  const envBytes = Buffer.from(updateManagedLine(
+    envSnapshot.type === 'file' ? envSnapshot : null,
+    ENV_KEY,
+    portableSkillPath(skillRoot),
+    envTarget,
+  ));
   const ignoreBytes = Buffer.from(ensureIgnore(ignoreSnapshot.type === 'file' ? ignoreSnapshot : null, ignoreTarget));
   const work = createProjectWork(workspace, 'workspace-init-');
   const candidateRoot = path.join(work, 'candidates');
@@ -318,4 +344,7 @@ function initializeWorkspaceProject(workspaceRoot, slug, rawPayload, options = {
   }
 }
 
-module.exports = { MAX_PAYLOAD_BYTES, RETIRED_ROOT_LAUNCHERS, WorkspaceInitError, initializeWorkspaceProject, validatePayload };
+module.exports = {
+  MAX_PAYLOAD_BYTES, PREVIOUS_PROJECTS_ROOT_LAUNCHERS, RETIRED_ROOT_LAUNCHERS, WorkspaceInitError,
+  initializeWorkspaceProject, portableSkillPath, validatePayload,
+};
