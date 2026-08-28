@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Manager"
+  short_description: "Manage QA suites, runs, evidence, gates, and the next action"
+  default_prompt: "Use $test-manager to manage this workspace's QA tests, state the first action, and select one next action after each result."

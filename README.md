@@ -4,6 +4,10 @@
 
 **An AI project manager you work with through conversation.**
 
+The plugin also includes Test Manager, a separate QA skill for evidence-backed test strategy, case
+design, execution history, and release gates. Project Manager owns delivery state under `.projects`;
+Test Manager owns testing state under `.tests`. Neither state tree impersonates the other.
+
 Brief Project Manager as you would a human colleague: explain the outcome, constraints, authority,
 and what is changing in the real world. It takes responsibility for the working plan—decomposing the
 outcome, coordinating dependencies and owners, maintaining schedules and risks, tracking evidence,
@@ -40,6 +44,8 @@ project reality → reasoning → coordinated change
   software workflows such as [RPD](https://github.com/yysun/rpd).
 - Delegated execution that is recorded rather than ephemeral: a run's branches, worktrees, and
   per-attempt cost are part of the project state, so an interrupted run resumes instead of restarting.
+- A separate Test Manager skill for risk-based QA, immutable run history, evidence-backed results, and
+  release decisions without turning test cases into proof that execution happened.
 
 Project truth stays in a durable, versionable Markdown folder and is validated before changes are
 saved. Kanban and Timeline visualize that state; they do not become a second source of truth.
@@ -71,6 +77,8 @@ say so in the rationale.
 - [English user guide](skills/project-manager/README.md) — manage through outcomes, events,
   constraints, evidence, and decisions.
 - [中文使用指南](skills/project-manager/README.zh-CN.md) — 通过目标、事件、约束、证据和决策管理项目。
+- [Test Manager skill contract](skills/test-manager/SKILL.md) — manage QA strategy, suites, cases,
+  executions, evidence, defects, and release gates under `.tests`.
 
 ## Studio
 
@@ -118,7 +126,8 @@ the repository root without selecting a generated subdirectory.
 project-manager/
 ├── plugin.json
 ├── mcp.json
-├── skills/project-manager/       # canonical skill
+├── skills/project-manager/       # canonical delivery-coordination skill
+├── skills/test-manager/          # canonical QA skill and standalone runtime
 ├── bin/project-manager-mcp.mjs   # bundled MCP server
 └── ui/                           # self-contained MCP App views
 ```
@@ -127,11 +136,12 @@ project-manager/
 tests, and build tooling may coexist with the portable components; Agent Plugins clients discover
 only the fixed root manifest, `skills/`, and `mcp.json` locations.
 
-`plugin.json` is the canonical product release version. Bump it together with the standalone skill
-and MCP App runtime through one explicit command:
+`plugin.json` is the canonical plugin and Project Manager release version. Bump it together with the
+Project Manager skill and MCP App runtime through one explicit command. Test Manager keeps its own
+standalone version in its `SKILL.md` metadata:
 
 ```bash
-npm run release:version -- 1.10.1
+npm run release:version -- 1.11.0
 ```
 
 The command does not publish, tag, edit the changelog, or sync an installed copy. After it succeeds,
@@ -174,25 +184,31 @@ parse as a project, never arbitrary files. Set a projects root if you want that 
 
 Choose the installation that matches what you want.
 
-For the complete Agent Plugin — skill, MCP server, and MCP App — ask a client that supports GitHub
-Agent Plugin installation:
+For the complete Agent Plugin — both skills, the Project Manager MCP server, and its MCP App — ask a
+client that supports GitHub Agent Plugin installation:
 
 > Install the Project Manager plugin from GitHub `yysun/project-manager`.
 
-For the standalone skill only, ask Codex:
+For only the standalone Project Manager skill, ask Codex:
 
 > Install the Project Manager skill from GitHub `yysun/project-manager`.
 
-Codex inspects the repository and installs `skills/project-manager/` into its skills directory. This
-does not install root `mcp.json`, `bin/`, or `ui/`, so the MCP tools and embedded App are unavailable.
-Installers that do not infer nested skill paths may require the explicit path
-`skills/project-manager`.
+For only the standalone Test Manager skill, ask Codex:
+
+> Install the Test Manager skill from GitHub `yysun/project-manager`, path `skills/test-manager`.
+
+Codex installs only the selected skill directory. A standalone installation does not include root
+`mcp.json`, `bin/`, or `ui/`, so Project Manager's MCP tools and embedded App are unavailable. Use the
+explicit nested path `skills/project-manager` or `skills/test-manager` when an installer cannot infer
+which sibling skill you selected.
 
 ## Development
 
 ```bash
 npm ci
 npm test
+npm run check:syntax
+npm run test:e2e:tm
 npm run pm-studio:dev
 ```
 
@@ -214,13 +230,15 @@ npm run demo
 That writes `demo/pm-studio-demo/` (gitignored), which you can then pass with
 `npm run pm-studio:dev -- --project demo/pm-studio-demo`.
 
-The installable skill is in `skills/project-manager/` and Studio source is in
-`src/project-manager-studio/`. The MCP server is isolated in `src/mcp-app/`; the MCP App adapter and views
-live beside the shared Studio code in `src/project-manager-studio/mcp-app/`. Portable manifests stay
-at the repository root.
+The canonical installable skills are in `skills/project-manager/` and `skills/test-manager/`. Test
+Manager's directly runnable source and local Studio stay inside its installable directory. Project
+Manager Studio source is in `src/project-manager-studio/`; the MCP server is isolated in
+`src/mcp-app/`; and the MCP App adapter and views live beside the shared Studio code in
+`src/project-manager-studio/mcp-app/`. Portable manifests stay at the repository root.
 
 ## Technical documentation
 
 - [Skill contract](skills/project-manager/SKILL.md)
 - [Project conventions](skills/project-manager/references/conventions.md)
+- [Test Manager contract](skills/test-manager/SKILL.md)
 - [Changelog](CHANGELOG.md)

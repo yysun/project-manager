@@ -1,10 +1,10 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "project-manager",
-  "version": "1.10.0",
-  "description": "An AI project manager you work with through conversation, with a read-only status card and board rendered in the chat.",
+  "version": "1.11.0",
+  "description": "Coordinate product delivery and manage evidence-backed QA with separate Project Manager and Test Manager skills, plus a read-only project status card and board.",
   "license": "MIT",
   "repository": "https://github.com/yysun/project-manager",
   "homepage": "https://github.com/yysun/project-manager",
-  "keywords": ["project-management", "planning", "tasks", "kanban", "pmbok"]
+  "keywords": ["project-management", "test-management", "quality-assurance", "planning", "tasks", "kanban", "pmbok"]
 }

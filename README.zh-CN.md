@@ -4,6 +4,10 @@
 
 **一名通过对话与你协作的 AI 项目经理。**
 
+Plugin 还包含独立的 Test Manager QA Skill，用于基于证据的测试策略、用例设计、执行历史和发布门禁。
+Project Manager 管理 `.projects` 下的交付状态；Test Manager 管理 `.tests` 下的测试状态。两棵状态树
+各自保持权威，不会相互冒充。
+
 像向真人同事交代工作一样向 Project Manager 说明结果、约束、权限，以及现实中正在发生的变化。
 它会对工作计划负责：拆解目标、协调依赖与负责人、维护排期与风险、跟踪证据，并持续处理变化带来的影响。
 
@@ -32,6 +36,8 @@ Project Manager 会追踪受影响的工作，用新约束检验计划，根据�
   [RPD](https://github.com/yysun/rpd)。
 - 委派执行有据可查，而非转瞬即逝：每次运行的分支、worktree 和每次尝试的开销都属于项目状态，
   因此中断的运行可以恢复，而不必重新开始。
+- 一个独立的 Test Manager Skill，用于基于风险的 QA、不可变运行历史、证据支撑的结果和发布决策，
+  不会把“存在测试用例”误当成“已经执行测试”。
 
 项目事实保存在持久、可版本控制的 Markdown 文件夹中，所有变更在保存前都会经过验证。Kanban 和
 Timeline 只是这些状态的可视化，不会成为第二个事实来源。
@@ -58,6 +64,8 @@ Project Manager **遵循 PMBOK 7 原则，并对裁剪决策留有记录**。它
 
 - [English user guide](skills/project-manager/README.md) — 通过结果、事件、约束、证据和决策来管理项目。
 - [中文使用指南](skills/project-manager/README.zh-CN.md) — 通过目标、事件、约束、证据和决策管理项目。
+- [Test Manager Skill 合约](skills/test-manager/SKILL.md) — 管理 `.tests` 下的 QA 策略、套件、用例、
+  执行、证据、缺陷和发布门禁。
 
 ## Studio
 
@@ -101,13 +109,18 @@ MCP App **只读**。你仍然通过与 Agent 对话，以及使用 Skill 和 CL
 project-manager/
 ├── plugin.json
 ├── mcp.json
-├── skills/project-manager/       # 规范 Skill
+├── skills/project-manager/       # 规范的交付协调 Skill
+├── skills/test-manager/          # 规范的 QA Skill 与独立运行时
 ├── bin/project-manager-mcp.mjs   # 已打包的 MCP 服务器
 └── ui/                           # 自包含的 MCP App 视图
 ```
 
 `npm run build:plugin` 会就地刷新已提交的 `bin/` 和 `ui/` 运行时产物。源代码、测试和构建工具可以与
 可移植组件共存；Agent Plugins 客户端只会发现根目录中固定的清单、`skills/` 和 `mcp.json` 路径。
+
+`plugin.json` 是 Plugin 与 Project Manager 的规范发布版本。通过
+`npm run release:version -- 1.11.0` 同步更新 Project Manager Skill 和 MCP App 运行时；Test Manager
+在自己的 `SKILL.md` metadata 中保留独立版本。
 
 ### 在 Claude Desktop 中安装
 
@@ -144,24 +157,30 @@ MCP App。省略文件夹时，Agent 只会在所选工作区根目录下搜索�
 
 请选择与你的需求相符的安装方式。
 
-如需完整的 Agent Plugin——包括 Skill、MCP 服务器和 MCP App——请在支持从 GitHub 安装 Agent
-Plugin 的客户端中提出：
+如需完整的 Agent Plugin——包括两个 Skill、Project Manager MCP 服务器及其 MCP App——请在支持
+从 GitHub 安装 Agent Plugin 的客户端中提出：
 
 > 从 GitHub 安装 Project Manager Plugin：`yysun/project-manager`。
 
-如果只需要独立 Skill，请向 Codex 提出：
+如果只需要独立的 Project Manager Skill，请向 Codex 提出：
 
-> 从 GitHub `yysun/project-manager` 安装 Project Manager Skill。
+> 从 GitHub `yysun/project-manager` 的 `skills/project-manager` 路径安装 Project Manager Skill。
 
-Codex 会检查仓库，并将 `skills/project-manager/` 安装到它的 Skills 目录。此方式不会安装根目录的
-`mcp.json`、`bin/` 或 `ui/`，因此 MCP 工具和内嵌 App 不可用。无法自动识别嵌套 Skill 路径的安装器
-可能需要明确指定 `skills/project-manager`。
+如果只需要独立的 Test Manager Skill，请向 Codex 提出：
+
+> 从 GitHub `yysun/project-manager` 的 `skills/test-manager` 路径安装 Test Manager Skill。
+
+Codex 只会安装所选的 Skill 目录。独立安装不会包含根目录的 `mcp.json`、`bin/` 或 `ui/`，因此
+Project Manager 的 MCP 工具和内嵌 App 不可用。安装器无法推断选择时，请明确指定
+`skills/project-manager` 或 `skills/test-manager`。
 
 ## 开发
 
 ```bash
 npm ci
 npm test
+npm run check:syntax
+npm run test:e2e:tm
 npm run pm-studio:dev
 ```
 
@@ -184,12 +203,14 @@ npm run demo
 npm run pm-studio:dev -- --project demo/pm-studio-demo
 ```
 
-可安装的 Skill 位于 `skills/project-manager/`，Studio 源代码位于 `src/project-manager-studio/`。
-MCP 服务器独立放在 `src/mcp-app/`；MCP App 适配器和视图与共享的 Studio 代码一起位于
-`src/project-manager-studio/mcp-app/`。可移植清单保留在仓库根目录。
+两个规范的可安装 Skill 分别位于 `skills/project-manager/` 和 `skills/test-manager/`。Test Manager
+可直接运行的源代码和本地 Studio 保留在其可安装目录中。Project Manager Studio 源代码位于
+`src/project-manager-studio/`；MCP 服务器独立放在 `src/mcp-app/`；MCP App 适配器和视图与共享的
+Studio 代码一起位于 `src/project-manager-studio/mcp-app/`。可移植清单保留在仓库根目录。
 
 ## 技术文档
 
 - [Skill 合约](skills/project-manager/SKILL.md)
 - [项目约定](skills/project-manager/references/conventions.md)
+- [Test Manager 合约](skills/test-manager/SKILL.md)
 - [更新日志](CHANGELOG.md)

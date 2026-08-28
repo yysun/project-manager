@@ -1,11 +1,11 @@
 ---
 name: project-manager
-description: Plan, coordinate, execute, track, review, and report folder-native projects. Use when Codex needs to initialize or manage a project folder, decompose outcomes into tasks, select next work, track blockers or evidence, coordinate human/agent/external/RPD executors, execute dependency-ready RPD tasks with subagents and Git worktrees from English or Chinese natural-language requests, assess change impact, or create operator, project-manager, executive, or board status reports. Generic Markdown project state is the core; Git, source code, trackers, and RPD are optional integrations.
+description: Plan, coordinate, execute, track, review, and report product-delivery work as folder-native .projects state. Use to manage outcomes, tasks, dependencies, blockers, evidence, executors, impact, and stakeholder reporting; do not use for QA suite, case, or run management under .tests.
 ---
 
 # Project Manager
 
-**Version:** `1.10.0`
+**Version:** `1.11.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 
@@ -18,6 +18,7 @@ Project Manager uses unique marker-bound `.project-manager-work-<24-hex>` siblin
 ## Operating boundary
 
 - Project Manager owns project state, decomposition, dependency coordination, prioritization, blockers, evidence ingestion, impact analysis, and reporting.
+- Project Manager owns `.projects` delivery coordination, not QA case design, test execution, Run history, or `.tests` state. Quality evidence may inform a project task without making project state authoritative for testing.
 - Executors own task work. Governed execution and lightweight human completion both persist through the same Task Contract → Evidence Manifest boundary.
 - RPD is optional and owns `understand → implement → test → correct → verify` for a software task. Do not reproduce RPD inside this skill.
 - Git, source code, issue trackers, and storage providers are optional context. Never make them authoritative project state.

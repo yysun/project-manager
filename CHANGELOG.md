@@ -10,6 +10,28 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [1.11.0] — 2026-08-28
+
+### Added
+
+- **Test Manager as a canonical sibling skill.** Installing the root Agent Plugin now exposes both
+  Project Manager for `.projects` delivery coordination and Test Manager `0.1.0` for `.tests` QA
+  strategy, case design, evidence-backed execution, immutable Run history, defects, and release
+  gates. `skills/test-manager/` is also a complete standalone installation with its own local,
+  loopback-only, token-protected Studio.
+- Package inventory, independent-version, skill-validation, unit/integration, and isolated
+  standalone Studio/API smoke coverage for the bundled Test Manager source.
+
+### Changed
+
+- Skill selection and package documentation now state the authority boundary explicitly: Project
+  Manager owns delivery coordination and never manages QA case or Run state; Test Manager owns QA
+  state and never becomes the product-delivery coordinator.
+- Plugin release checking reports Test Manager's independent version and canonical source without
+  coupling it to the Project Manager plugin, skill, or MCP runtime version.
+
+No `.projects` or `.tests` schema changed in this release.
+
 ## [1.10.0] — 2026-08-18
 
 ### Added
@@ -434,6 +456,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.11.0]: https://github.com/yysun/project-manager/releases/tag/v1.11.0
 [1.10.0]: https://github.com/yysun/project-manager/releases/tag/v1.10.0
 [1.9.0]: https://github.com/yysun/project-manager/releases/tag/v1.9.0
 [1.8.0]: https://github.com/yysun/project-manager/releases/tag/v1.8.0

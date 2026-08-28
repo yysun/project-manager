@@ -1,0 +1,185 @@
+<!doctype html>
+<!-- Responsibility: provide the local Test Manager Studio shell without third-party runtime assets.
+     Security: scripts and styles are same-origin resources served by the token-aware loopback server.
+     Recent change: ship unchanged as part of the canonical standalone Test Manager skill. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Test Manager Studio</title>
+    <link rel="stylesheet" href="/studio.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">QUALITY OPERATING SYSTEM</p>
+        <h1>Test Manager Studio</h1>
+        <p id="root-path" class="root-path">Reading test root…</p>
+      </div>
+      <div class="top-actions">
+        <span id="gate" class="gate">UNKNOWN</span>
+        <button id="record-run" class="primary">Record run</button>
+        <button id="refresh" class="secondary">Refresh</button>
+      </div>
+    </header>
+
+    <section id="metrics" class="metrics" aria-label="Test summary"></section>
+
+    <section class="toolbar">
+      <nav class="tabs" aria-label="Studio views">
+        <button class="tab active" data-view="kanban">Kanban</button>
+        <button class="tab" data-view="timeline">Timeline</button>
+        <button class="tab" data-view="runs">Runs</button>
+      </nav>
+      <div class="filters">
+        <select id="suite-filter" aria-label="Filter by test suite">
+          <option value="">All suites</option>
+        </select>
+        <select id="priority-filter" aria-label="Filter by priority">
+          <option value="">All priorities</option>
+          <option>P0</option>
+          <option>P1</option>
+          <option>P2</option>
+          <option>P3</option>
+        </select>
+        <input
+          id="search"
+          type="search"
+          placeholder="Search case ID, title, or risk…"
+        />
+      </div>
+    </section>
+
+    <main>
+      <section
+        id="kanban-view"
+        class="view active"
+        aria-label="Kanban"
+      ></section>
+      <section id="timeline-view" class="view" aria-label="Timeline"></section>
+      <section id="runs-view" class="view" aria-label="Runs"></section>
+    </main>
+
+    <dialog id="case-dialog">
+      <form id="case-form" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <p id="case-suite" class="eyebrow"></p>
+            <h2 id="case-title"></h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <p id="case-objective" class="detail-copy"></p>
+        <div class="detail-grid">
+          <div><span>Priority</span><strong id="case-priority"></strong></div>
+          <div><span>Type</span><strong id="case-type"></strong></div>
+          <div>
+            <span>Automation</span><strong id="case-automation"></strong>
+          </div>
+          <div><span>Latest</span><strong id="case-result"></strong></div>
+        </div>
+        <label
+          >Case state<select id="case-state">
+            <option>DRAFT</option>
+            <option>READY</option>
+            <option>RETIRED</option>
+          </select></label
+        >
+        <div class="date-grid">
+          <label>Planned start<input id="case-start" type="date" /></label>
+          <label>Planned end<input id="case-end" type="date" /></label>
+        </div>
+        <div class="oracle">
+          <span>Expected outcome</span>
+          <p id="case-expected"></p>
+        </div>
+        <p id="case-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary close-dialog">Cancel</button>
+          <button type="submit" class="primary">Save plan</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="run-dialog">
+      <form id="run-form" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">IMMUTABLE EXECUTION RECORD</p>
+            <h2>Record test run</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <label>Case<select id="run-case" required></select></label>
+        <div class="date-grid">
+          <label
+            >Environment<input id="run-environment" required placeholder="test"
+          /></label>
+          <label
+            >Build<input
+              id="run-build"
+              required
+              placeholder="commit / build ID"
+          /></label>
+        </div>
+        <label
+          >Data identity<input
+            id="run-data"
+            required
+            placeholder="dataset / object IDs"
+        /></label>
+        <div class="date-grid">
+          <label
+            >Result<select id="run-result" required>
+              <option>PASS</option>
+              <option>FAIL</option>
+              <option>BLOCKED</option>
+              <option>SKIPPED</option>
+              <option>INVALID</option>
+            </select></label
+          >
+          <label
+            >Executor<input
+              id="run-executor"
+              required
+              placeholder="name / agent"
+          /></label>
+        </div>
+        <label
+          >Evidence<input
+            id="run-evidence"
+            placeholder="relative path or durable URL"
+        /></label>
+        <label
+          >Defect / blocker / reason<input
+            id="run-issue"
+            placeholder="required for non-PASS outcomes"
+        /></label>
+        <p class="hint">
+          PASS and FAIL require evidence. FAIL, BLOCKED, SKIPPED, and INVALID
+          also require a defect, blocker, waiver, or invalidity reason.
+        </p>
+        <p id="run-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary close-dialog">Cancel</button>
+          <button type="submit" class="primary">Append run</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script type="module" src="/studio.js"></script>
+  </body>
+</html>

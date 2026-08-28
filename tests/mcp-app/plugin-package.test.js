@@ -1,5 +1,6 @@
 /* Agent Plugins 1.0 package: the repository root is the installable plugin and
-   uses the standard's fixed layout and manifest constraints. */
+   uses the standard's fixed layout and manifest constraints. Both canonical
+   sibling skills are complete independently installable units. */
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
@@ -8,6 +9,42 @@ const path = require('node:path');
 
 const pkg = path.resolve(__dirname, '../..');
 const read = (file) => JSON.parse(fs.readFileSync(path.join(pkg, file), 'utf-8'));
+const TEST_MANAGER_FILES = [
+  'SKILL.md',
+  'agents/openai.yaml',
+  'assets/cases.md',
+  'assets/root-status.md',
+  'assets/root-suites.md',
+  'assets/root-testing.md',
+  'assets/runs.md',
+  'assets/steps.md',
+  'assets/studio.cmd',
+  'assets/studio.sh',
+  'assets/suite.md',
+  'references/conventions.md',
+  'references/execution-and-reporting.md',
+  'references/test-design.md',
+  'scripts/test-manager-studio.mjs',
+  'scripts/test-manager.mjs',
+  'tests/test-manager.test.mjs',
+  'ui/studio.css',
+  'ui/studio.html',
+  'ui/studio.js',
+];
+const TEST_MANAGER_EXECUTABLES = new Set([
+  'assets/studio.sh',
+  'scripts/test-manager-studio.mjs',
+  'scripts/test-manager.mjs',
+]);
+
+function relativeFiles(root, current = root) {
+  return fs.readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(current, entry.name);
+    if (entry.isDirectory()) return relativeFiles(root, target);
+    assert.equal(entry.isFile(), true, `installable skills cannot contain non-file entry ${target}`);
+    return path.relative(root, target).split(path.sep).join('/');
+  });
+}
 
 test('the package uses the standard fixed root layout', () => {
   for (const entry of ['plugin.json', 'mcp.json', 'skills', 'bin', 'ui']) {
@@ -16,8 +53,26 @@ test('the package uses the standard fixed root layout', () => {
   // Skills are discovered as immediate child directories containing SKILL.md.
   const skills = fs.readdirSync(path.join(pkg, 'skills'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(pkg, 'skills', entry.name, 'SKILL.md')));
-  assert.ok(skills.length >= 1, 'at least one discoverable skill');
-  assert.ok(skills.some((entry) => entry.name === 'project-manager'));
+  assert.deepEqual(
+    skills.map((entry) => entry.name).sort(),
+    ['project-manager', 'test-manager'],
+    'the plugin exposes both canonical sibling skills',
+  );
+});
+
+test('Test Manager ships the complete reviewed standalone inventory and executable modes', () => {
+  const root = path.join(pkg, 'skills/test-manager');
+  assert.deepEqual(relativeFiles(root).sort(), [...TEST_MANAGER_FILES].sort());
+  if (process.platform !== 'win32') {
+    for (const relative of TEST_MANAGER_FILES) {
+      const expected = TEST_MANAGER_EXECUTABLES.has(relative) ? 0o755 : 0o644;
+      assert.equal(
+        fs.statSync(path.join(root, relative)).mode & 0o777,
+        expected,
+        `${relative} must retain mode ${expected.toString(8)}`,
+      );
+    }
+  }
 });
 
 test('plugin.json declares the required fields and a conformant name', () => {

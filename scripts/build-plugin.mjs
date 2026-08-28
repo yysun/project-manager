@@ -1,5 +1,6 @@
-// Build the portable Agent Plugin in place. The repository root is the plugin
-// root, so Git clients can install it without a generated package directory.
+// Responsibility: build the portable Agent Plugin in place at the repository root.
+// Packaging: require both canonical skills and keep generated MCP artifacts outside them.
+// Recent change: include Test Manager as a required independently runnable sibling skill.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +11,8 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 import { assertVersionConsistency } from './versioning.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const skill = path.join(root, 'skills/project-manager');
+const projectManagerSkill = path.join(root, 'skills/project-manager');
+const testManagerSkill = path.join(root, 'skills/test-manager');
 const mcpApp = path.join(root, 'src/project-manager-studio/mcp-app');
 
 async function required(file) {
@@ -22,7 +24,8 @@ async function required(file) {
 await Promise.all([
   required(path.join(root, 'plugin.json')),
   required(path.join(root, 'mcp.json')),
-  required(path.join(skill, 'SKILL.md')),
+  required(path.join(projectManagerSkill, 'SKILL.md')),
+  required(path.join(testManagerSkill, 'SKILL.md')),
   required(path.join(root, 'src/mcp-app/cli.ts')),
   required(path.join(mcpApp, 'status.html')),
   required(path.join(mcpApp, 'board.html')),
