@@ -58,6 +58,10 @@ Prove that an authorized payment creates one order and one payment fact.
 
 - PAY-D01
 
+### Runner Instructions
+
+- Use the visible checkout UI and stop before retrying an uncertain submission.
+
 ### Expected Outcome
 
 - The order persists and reconciles from a second view.
@@ -161,6 +165,8 @@ try {
   const state = await authorizedState.json();
   assert.equal(state.valid, true);
   assert.equal(state.root, testsRoot);
+  assert.match(state.suites[0].cases[0].runnerInstructions, /visible checkout UI/);
+  assert.match(state.suites[0].cases[0].runnerPrompt, /Execute CHECKOUT-C001/);
 
   const firstResponse = await postRun(port, token, firstPayload);
   const firstRun = await expectJson(firstResponse, 200);

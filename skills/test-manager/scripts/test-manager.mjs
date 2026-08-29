@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Responsibility: manage folder-native test roots, suites, validation, and derived status.
 // Invariants: preserve authoritative state, append-only runs, atomic writes, and safe local helpers.
-// Recent change: serialize in-home Studio skill paths with a narrowly scoped ~/ prefix.
+// Recent change: generate copy-ready Runner Prompts as a core Test Manager projection.
 
 import {
   chmodSync,
@@ -35,6 +35,7 @@ const assetsDir = join(skillDir, "assets");
 
 const ROOT_FILES = ["TESTING.md", "SUITES.md", "STATUS.md"];
 const ROOT_HELPER_FILES = new Set(["studio.sh", "studio.cmd"]);
+const ROOT_OPTIONAL_FILES = new Set(["RUNNER_PROMPT.md"]);
 const SUITE_FILES = ["SUITE.md", "CASES.md", "RUNS.md"];
 const SUITE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CASE_ID = /^[A-Z0-9]+(?:-[A-Z0-9]+)*-C\d{3}$/;
@@ -57,6 +58,89 @@ const REQUIRED_READY_SECTIONS = [
   "Negative Assertions",
   "Evidence Required",
 ];
+const OPTIONAL_CASE_SECTIONS = ["Runner Instructions"];
+const RUNNER_PROMPT_FILE = "RUNNER_PROMPT.md";
+
+function promptLines(value) {
+  return String(value || "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-*]\s+/, ""))
+    .filter(Boolean);
+}
+
+function runnerPromptValues(testCase) {
+  return {
+    "Case ID": testCase.id,
+    Title: testCase.title,
+    State: testCase.labels?.State || testCase.state || "UNKNOWN",
+    Priority: testCase.labels?.Priority || testCase.priority || "UNKNOWN",
+    Type: testCase.labels?.Type || "UNKNOWN",
+    Automation: testCase.labels?.Automation || "UNKNOWN",
+    Owner: testCase.labels?.Owner || "UNASSIGNED",
+    ...testCase.labels,
+    Objective: testCase.sections?.Objective || "",
+    Preconditions: testCase.sections?.Preconditions || "",
+    "Test Data": testCase.sections?.["Test Data"] || "",
+    "Runner Instructions": testCase.sections?.["Runner Instructions"] || "",
+    "Expected Outcome": testCase.sections?.["Expected Outcome"] || "",
+    "Negative Assertions": testCase.sections?.["Negative Assertions"] || "",
+    "Evidence Required": testCase.sections?.["Evidence Required"] || "",
+  };
+}
+
+function renderRunnerPromptTemplate(template, testCase) {
+  const values = runnerPromptValues(testCase);
+  const rendered = String(template).replace(
+    /\{\{\s*([^{}|]+?)\s*(?:\|\s*([a-z-]+)\s*)?\}\}/g,
+    (_match, rawName, filter = "raw") => {
+      const name = rawName.trim();
+      if (!Object.hasOwn(values, name)) {
+        fail(`RUNNER_PROMPT.md uses unknown placeholder: ${name}`);
+      }
+      const value = String(values[name] || "").trim();
+      if (filter === "raw") return value;
+      if (filter === "compact") return promptLines(value).join(" ");
+      if (filter === "first") return promptLines(value)[0] || "";
+      if (filter === "unbullet") return promptLines(value).join("\n");
+      fail(`RUNNER_PROMPT.md uses unknown filter: ${filter}`);
+    },
+  );
+  if (/\{\{|\}\}/.test(rendered)) {
+    fail("RUNNER_PROMPT.md contains an invalid or unclosed placeholder");
+  }
+  return rendered.trim();
+}
+
+function loadRunnerPromptTemplate(root) {
+  const projectTemplate = join(root, RUNNER_PROMPT_FILE);
+  const templatePath = existsSync(projectTemplate)
+    ? projectTemplate
+    : join(assetsDir, "runner-prompt.md");
+  const stat = lstatSync(templatePath);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail(`Runner Prompt template must be a regular non-symlink file: ${templatePath}`);
+  }
+  return readFileSync(templatePath, "utf8");
+}
+
+function buildRunnerPrompt(
+  testCase,
+  template = readFileSync(join(assetsDir, "runner-prompt.md"), "utf8"),
+) {
+  const caseState = testCase.labels?.State || "UNKNOWN";
+  if (caseState !== "READY") {
+    return [
+      "此测试尚未准备好，不要打开或操作目标系统。",
+      "Run Context: —",
+      "Result: INVALID",
+      "Conclusion: 未执行",
+      "Evidence: —",
+      "Issue / Reason: 测试尚未就绪",
+    ].join("\n");
+  }
+
+  return renderRunnerPromptTemplate(template, testCase);
+}
 
 function portableSkillPath(target, home = homedir()) {
   if (!isAbsolute(target) || !isAbsolute(home)) return target;
@@ -119,6 +203,7 @@ function usage() {
     "  test-manager.mjs create-suite <suite-slug> [--root <tests-root>] [--title <title>]",
     "  test-manager.mjs validate [--root <tests-root>] [--json]",
     "  test-manager.mjs status [--root <tests-root>] [--json] [--write]",
+    "  test-manager.mjs prompt <case-id> [--root <tests-root>] [--json]",
   ].join("\n");
 }
 
@@ -269,18 +354,22 @@ function parseCases(path, slug, errors, warnings) {
     }
 
     const sections = Object.fromEntries(
-      REQUIRED_READY_SECTIONS.map((name) => [name, sectionBody(block, name)]),
+      [...REQUIRED_READY_SECTIONS, ...OPTIONAL_CASE_SECTIONS].map((name) => [
+        name,
+        sectionBody(block, name),
+      ]),
     );
     if (state === "READY") {
       if (!meaningful(labels["Requirement / Risk"])) {
         errors.push(`${id}: READY case needs a Requirement / Risk`);
       }
-      for (const [name, body] of Object.entries(sections)) {
+      for (const name of REQUIRED_READY_SECTIONS) {
+        const body = sections[name];
         if (!meaningful(body)) errors.push(`${id}: READY case needs ${name}`);
       }
     } else if (state === "DRAFT") {
-      const missing = Object.values(sections).filter(
-        (body) => !meaningful(body),
+      const missing = REQUIRED_READY_SECTIONS.filter(
+        (name) => !meaningful(sections[name]),
       ).length;
       if (missing)
         warnings.push(
@@ -372,6 +461,13 @@ function inspectRoot(root) {
   }
 
   for (const file of ROOT_FILES) assertRegular(join(root, file), file, errors);
+  if (existsSync(join(root, RUNNER_PROMPT_FILE))) {
+    assertRegular(
+      join(root, RUNNER_PROMPT_FILE),
+      RUNNER_PROMPT_FILE,
+      errors,
+    );
+  }
   if (errors.length)
     return {
       valid: false,
@@ -395,7 +491,8 @@ function inspectRoot(root) {
     if (
       entry.isFile() &&
       !ROOT_FILES.includes(entry.name) &&
-      !ROOT_HELPER_FILES.has(entry.name)
+      !ROOT_HELPER_FILES.has(entry.name) &&
+      !ROOT_OPTIONAL_FILES.has(entry.name)
     ) {
       warnings.push(`unrecognized root file: ${entry.name}`);
       continue;
@@ -501,6 +598,15 @@ function inspectRoot(root) {
         errors.push(`${suite.slug}/STEPS.md references another suite: ${id}`);
       }
     }
+  }
+
+  try {
+    const runnerPromptTemplate = loadRunnerPromptTemplate(root);
+    for (const testCase of allCases.values()) {
+      renderRunnerPromptTemplate(runnerPromptTemplate, testCase);
+    }
+  } catch (error) {
+    errors.push(error.message);
   }
 
   const counts = calculateCounts(suites);
@@ -697,6 +803,10 @@ function initialize(root, title) {
       join(assetsDir, "root-suites.md"),
       join(candidate, "SUITES.md"),
     );
+    copyFileSync(
+      join(assetsDir, "runner-prompt.md"),
+      join(candidate, RUNNER_PROMPT_FILE),
+    );
     writeFileSync(
       join(candidate, "STATUS.md"),
       renderAsset("root-status.md", { GENERATED_AT: new Date().toISOString() }),
@@ -847,6 +957,25 @@ function main() {
     return;
   }
 
+  if (command === "prompt") {
+    if (positionals.length !== 1)
+      fail("prompt requires exactly one Case ID");
+    const report = inspectRoot(options.root);
+    if (!report.valid) {
+      printValidation(report, options.json);
+      process.exitCode = 1;
+      return;
+    }
+    const caseId = positionals[0];
+    const testCase = report.suites
+      .flatMap((suite) => suite.cases)
+      .find((candidate) => candidate.id === caseId);
+    if (!testCase) fail(`Case not found: ${caseId}`);
+    const prompt = buildRunnerPrompt(testCase, loadRunnerPromptTemplate(options.root));
+    console.log(options.json ? JSON.stringify({ caseId, prompt }, null, 2) : prompt);
+    return;
+  }
+
   fail(`unknown command: ${command}`);
 }
 
@@ -862,12 +991,15 @@ if (basename(process.argv[1] ?? "") === "test-manager.mjs") {
 export {
   RESULTS,
   atomicWrite,
+  buildRunnerPrompt,
   createSuite,
   gateIndicator,
   initialize,
   inspectRoot,
+  loadRunnerPromptTemplate,
   meaningful,
   portableSkillPath,
   registryMarkdown,
+  renderRunnerPromptTemplate,
   statusMarkdown,
 };

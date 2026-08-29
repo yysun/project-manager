@@ -16,10 +16,13 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { once } from "node:events";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
+  buildRunnerPrompt,
   createSuite,
   initialize,
   inspectRoot,
+  loadRunnerPromptTemplate,
   portableSkillPath,
 } from "../scripts/test-manager.mjs";
 import {
@@ -42,6 +45,9 @@ import {
 } from "../ui/timeline-model.mjs";
 
 const tempRoots = [];
+const managerScript = fileURLToPath(
+  new URL("../scripts/test-manager.mjs", import.meta.url),
+);
 
 function fixture() {
   const workspace = mkdtempSync(join(tmpdir(), "test-manager-test-"));
@@ -103,6 +109,11 @@ Prove that an authorized payment creates one order and one payment fact.
 
 - PAY-D01
 
+### Runner Instructions
+
+- Use /browser to open the prepared checkout UI.
+- Complete the payment through visible controls; stop before retrying an uncertain submission.
+
 ### Expected Outcome
 
 - The order persists and reconciles from a second view.
@@ -157,6 +168,11 @@ test("initializes a valid folder-native test root and suite", () => {
   );
   assert.equal(existsSync(join(root, "studio.sh")), true);
   assert.equal(existsSync(join(root, "studio.cmd")), true);
+  assert.equal(existsSync(join(root, "RUNNER_PROMPT.md")), true);
+  assert.match(
+    readFileSync(join(root, "RUNNER_PROMPT.md"), "utf8"),
+    /\{\{Runner Instructions \| unbullet\}\}/,
+  );
   assert.equal(statSync(join(root, "studio.sh")).mode & 0o777, 0o755);
   assert.equal(
     readFileSync(join(root, ".gitignore"), "utf8"),
@@ -304,6 +320,128 @@ test("validates a ready case, schedules it, and records an evidence-backed pass"
   assert.equal(report.valid, true, report.errors.join("\n"));
   assert.equal(report.counts.pass, 1);
   assert.equal(report.counts.notRun, 0);
+});
+
+test("projects optional Runner Instructions and a complete copy-ready prompt", () => {
+  const { root, suite } = fixture();
+  writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
+
+  const report = inspectRoot(root);
+  assert.equal(report.valid, true, report.errors.join("\n"));
+  const testCase = report.suites[0].cases[0];
+  assert.match(
+    testCase.sections["Runner Instructions"],
+    /Use \/browser/,
+  );
+
+  const template = loadRunnerPromptTemplate(root);
+  const prompt = buildRunnerPrompt(testCase, template);
+  assert.match(prompt, /^Use \/browser to open the prepared checkout UI\./);
+  assert.match(prompt, /Case: CHECKOUT-C001 — Submit a valid payment/);
+  assert.match(prompt, /Objective: Prove that an authorized payment/);
+  assert.match(prompt, /Test data: PAY-D01/);
+  assert.match(prompt, /Expected: The order persists/);
+  assert.doesNotMatch(prompt, /Preconditions\n|Negative assertions\n|Evidence required\n|Execution discipline\n/);
+  assert.ok(prompt.length < 1000, `prompt too long: ${prompt.length}`);
+  assert.match(prompt, /Return only:/);
+  assert.match(prompt, /Run Context: executed at \| environment \| build \| data ID/);
+  assert.match(prompt, /Issue \/ Reason:/);
+
+  const projected = statePayload(root).suites[0].cases[0];
+  assert.equal(projected.runnerInstructions, testCase.sections["Runner Instructions"]);
+  assert.equal(projected.runnerPrompt, prompt);
+});
+
+test("generates the same Runner Prompt from core CLI without Studio", () => {
+  const { root, suite } = fixture();
+  writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
+  const report = inspectRoot(root);
+  const testCase = report.suites[0].cases[0];
+  const result = spawnSync(
+    process.execPath,
+    [managerScript, "prompt", testCase.id, "--root", root],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    result.stdout.trim(),
+    buildRunnerPrompt(testCase, loadRunnerPromptTemplate(root)),
+  );
+});
+
+test("uses a project-owned Runner Prompt template in core, CLI, and Studio", () => {
+  const { root, suite } = fixture();
+  writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
+  writeFileSync(
+    join(root, "RUNNER_PROMPT.md"),
+    "{{Runner Instructions | unbullet}}\n\nTASK {{Case ID}}: {{Objective | compact}}\nEXPECT: {{Expected Outcome | first}}\n",
+    "utf8",
+  );
+  const report = inspectRoot(root);
+  assert.equal(report.valid, true, report.errors.join("\n"));
+  const testCase = report.suites[0].cases[0];
+  const template = loadRunnerPromptTemplate(root);
+  const prompt = buildRunnerPrompt(testCase, template);
+  assert.match(prompt, /^Use \/browser/);
+  assert.match(prompt, /TASK CHECKOUT-C001: Prove that an authorized payment/);
+  assert.match(prompt, /EXPECT: The order persists/);
+  assert.equal(statePayload(root).suites[0].cases[0].runnerPrompt, prompt);
+
+  const cli = spawnSync(
+    process.execPath,
+    [managerScript, "prompt", testCase.id, "--root", root],
+    { encoding: "utf8" },
+  );
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(cli.stdout.trim(), prompt);
+});
+
+test("rejects unknown project-owned Runner Prompt placeholders", () => {
+  const { root, suite } = fixture();
+  writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
+  writeFileSync(
+    join(root, "RUNNER_PROMPT.md"),
+    "TASK {{Case ID}}: {{Project-Specific Secret}}\n",
+    "utf8",
+  );
+
+  const report = inspectRoot(root);
+  assert.equal(report.valid, false);
+  assert.match(
+    report.errors.join("\n"),
+    /RUNNER_PROMPT\.md uses unknown placeholder: Project-Specific Secret/,
+  );
+});
+
+test("keeps Runner Instructions optional for READY cases", () => {
+  const { root, suite } = fixture();
+  const withoutInstructions = readyCase().replace(
+    /\n### Runner Instructions\n\n- Use \/browser to open the prepared checkout UI\.\n- Complete the payment through visible controls; stop before retrying an uncertain submission\.\n/,
+    "",
+  );
+  writeFileSync(join(suite, "CASES.md"), withoutInstructions, "utf8");
+
+  const report = inspectRoot(root);
+  assert.equal(report.valid, true, report.errors.join("\n"));
+  assert.equal(report.suites[0].cases[0].sections["Runner Instructions"], "");
+  assert.match(
+    buildRunnerPrompt(
+      report.suites[0].cases[0],
+      loadRunnerPromptTemplate(root),
+    ),
+    /^Case: CHECKOUT-C001/,
+  );
+});
+
+test("keeps non-ready Runner Prompts free of internal Case identity", () => {
+  const { root, suite } = fixture();
+  writeFileSync(join(suite, "CASES.md"), draftCase(), "utf8");
+  const testCase = inspectRoot(root).suites[0].cases[0];
+  const prompt = buildRunnerPrompt(testCase, loadRunnerPromptTemplate(root));
+
+  assert.match(prompt, /^此测试尚未准备好/);
+  assert.doesNotMatch(prompt, /CHECKOUT-C001|Incomplete draft|Case State/);
+  assert.match(prompt, /Result: INVALID/);
 });
 
 test("rejects promotion of an incomplete draft and restores exact state", () => {

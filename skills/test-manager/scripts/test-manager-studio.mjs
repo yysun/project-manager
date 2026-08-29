@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Responsibility: serve Test Manager's local Kanban, Timeline, and immutable Run API.
 // Security: bind only to loopback and require the generated bearer token for every API route.
-// Recent change: ship as a self-contained sibling skill in the Project Manager plugin.
+// Recent change: project core-generated Runner Prompts into Studio Case detail.
 
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -12,8 +12,10 @@ import { spawn } from "node:child_process";
 import {
   RESULTS,
   atomicWrite,
+  buildRunnerPrompt,
   gateIndicator,
   inspectRoot,
+  loadRunnerPromptTemplate,
   meaningful,
   registryMarkdown,
   statusMarkdown,
@@ -253,6 +255,7 @@ function statePayload(root) {
       errors: report.errors,
       warnings: report.warnings,
     };
+  const runnerPromptTemplate = loadRunnerPromptTemplate(root);
   const suites = report.suites.map((suite) => {
     const current = new Map();
     for (const run of suite.runs) current.set(run.caseId, run);
@@ -288,7 +291,9 @@ function statePayload(root) {
           ? testCase.labels["Planned End"]
           : null,
         objective: testCase.sections.Objective,
+        runnerInstructions: testCase.sections["Runner Instructions"],
         expectedOutcome: testCase.sections["Expected Outcome"],
+        runnerPrompt: buildRunnerPrompt(testCase, runnerPromptTemplate),
         currentRun: current.get(testCase.id) ?? null,
       })),
       runs: [...suite.runs].reverse(),

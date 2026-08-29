@@ -75,7 +75,20 @@
             ×
           </button>
         </div>
-        <p id="case-objective" class="detail-copy"></p>
+        <div class="case-definition">
+          <div>
+            <span>Objective</span>
+            <p id="case-objective"></p>
+          </div>
+          <div>
+            <span>Runner instructions</span>
+            <p id="case-instructions"></p>
+          </div>
+          <div>
+            <span>Expected outcome</span>
+            <p id="case-expected"></p>
+          </div>
+        </div>
         <div class="detail-grid">
           <div><span>Priority</span><strong id="case-priority"></strong></div>
           <div><span>Type</span><strong id="case-type"></strong></div>
@@ -95,9 +108,22 @@
           <label>Planned start<input id="case-start" type="date" /></label>
           <label>Planned end<input id="case-end" type="date" /></label>
         </div>
-        <div class="oracle">
-          <span>Expected outcome</span>
-          <p id="case-expected"></p>
+        <div class="runner-prompt-block">
+          <div class="runner-prompt-head">
+            <div>
+              <span>Runner prompt</span>
+              <p>Generated from the complete Case definition.</p>
+            </div>
+            <button type="button" id="copy-runner-prompt" class="secondary">
+              Copy prompt
+            </button>
+          </div>
+          <textarea
+            id="case-runner-prompt"
+            rows="9"
+            readonly
+            aria-label="Runner prompt"
+          ></textarea>
         </div>
         <p id="case-error" class="form-error" role="alert"></p>
         <div class="dialog-actions">

@@ -1,6 +1,6 @@
 /* Responsibility: style Test Manager's responsive Kanban, Timeline, and Run-history interface.
    UI boundary: visual lanes represent validated case and Run state; they are not a second truth source.
-   Recent change: match Project Manager's labeled, horizontally scalable Timeline dates. */
+   Recent change: keep generated Runner Prompts readable and copyable in Case detail. */
 
 :root {
   color-scheme: light;
@@ -690,6 +690,8 @@ td {
 
 dialog {
   width: min(650px, calc(100vw - 60px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 0;
@@ -714,11 +716,31 @@ dialog form {
   font-size: 22px;
   letter-spacing: -0.025em;
 }
-.detail-copy {
-  padding: 13px;
+.case-definition {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
   border-radius: 10px;
+  background: var(--line);
+}
+.case-definition div {
+  padding: 13px;
+  background: #f5f7f3;
+}
+.case-definition span,
+.runner-prompt-head span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.case-definition p {
+  margin: 6px 0 0;
   color: #344139;
-  background: #f1f4ef;
+  white-space: pre-wrap;
+  font-size: 12px;
   line-height: 1.45;
 }
 .detail-grid {
@@ -732,8 +754,7 @@ dialog form {
   border: 1px solid var(--line);
   border-radius: 9px;
 }
-.detail-grid span,
-.oracle span {
+.detail-grid span {
   display: block;
   color: var(--muted);
   font-size: 10px;
@@ -768,17 +789,33 @@ label select {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
-.oracle {
+.runner-prompt-block {
   margin-top: 14px;
   padding: 12px;
   border-left: 3px solid var(--green);
   background: #f5f7f3;
 }
-.oracle p {
-  margin: 6px 0 0;
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.45;
+.runner-prompt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.runner-prompt-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.runner-prompt-block textarea {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+  resize: vertical;
+  color: var(--ink);
+  background: white;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .dialog-actions {
   display: flex;

@@ -1,6 +1,6 @@
 // Responsibility: render Test Manager views and submit token-authenticated case and Run mutations.
 // State boundary: PASS is created only through the evidence-backed Run API, never card movement.
-// Recent change: match Project Manager's labeled, range-sized weekly Timeline canvas.
+// Recent change: expose copy-ready Runner Prompts in Case detail.
 
 import {
   barGeometry,
@@ -344,6 +344,9 @@ function openCase(caseId) {
   $("#case-suite").textContent = `${testCase.suiteTitle} · ${testCase.id}`;
   $("#case-title").textContent = testCase.title;
   $("#case-objective").textContent = testCase.objective || "Objective not defined";
+  $("#case-instructions").textContent =
+    testCase.runnerInstructions ||
+    "No case-specific instructions; follow the generated execution discipline.";
   $("#case-priority").textContent = testCase.priority;
   $("#case-type").textContent = testCase.type;
   $("#case-automation").textContent = testCase.automation;
@@ -353,6 +356,8 @@ function openCase(caseId) {
   $("#case-end").value = testCase.plannedEnd || "";
   $("#case-expected").textContent =
     testCase.expectedOutcome || "Expected outcome not defined";
+  $("#case-runner-prompt").value = testCase.runnerPrompt || "";
+  $("#copy-runner-prompt").disabled = !testCase.runnerPrompt;
   $("#case-error").textContent = "";
   $("#case-dialog").showModal();
 }
@@ -376,6 +381,19 @@ async function saveCase(event) {
     await load();
   } catch (error) {
     $("#case-error").textContent = error.message;
+  }
+}
+
+async function copyRunnerPrompt() {
+  const prompt = $("#case-runner-prompt").value;
+  if (!prompt) return;
+  try {
+    await navigator.clipboard.writeText(prompt);
+    toast("Runner prompt copied");
+  } catch {
+    $("#case-runner-prompt").focus();
+    $("#case-runner-prompt").select();
+    toast("Prompt selected; copy it manually");
   }
 }
 
@@ -431,6 +449,7 @@ $("#record-run").addEventListener("click", () => {
   $("#run-dialog").showModal();
 });
 $("#case-form").addEventListener("submit", saveCase);
+$("#copy-runner-prompt").addEventListener("click", copyRunnerPrompt);
 $("#run-form").addEventListener("submit", saveRun);
 $$(".close-dialog").forEach((button) =>
   button.addEventListener("click", () => button.closest("dialog").close()),

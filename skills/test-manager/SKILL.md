@@ -40,6 +40,7 @@ node <absolute-skill-dir>/scripts/test-manager.mjs init [--root <tests-root>] [-
 node <absolute-skill-dir>/scripts/test-manager.mjs create-suite <suite-slug> [--root <tests-root>] [--title <title>]
 node <absolute-skill-dir>/scripts/test-manager.mjs validate [--root <tests-root>] [--json]
 node <absolute-skill-dir>/scripts/test-manager.mjs status [--root <tests-root>] [--json] [--write]
+node <absolute-skill-dir>/scripts/test-manager.mjs prompt <case-id> [--root <tests-root>] [--json]
 node <absolute-skill-dir>/scripts/test-manager-studio.mjs [--root <tests-root>] [--port <port>] [--no-open]
 ```
 
@@ -52,7 +53,7 @@ Infer the appropriate route from the user's goal; do not require command syntax.
 1. **Initialize** — establish the root strategy and empty suite registry.
 2. **Create or plan a suite** — define scope, risks, test levels, data, environments, entry criteria, and exit criteria.
 3. **Design or update cases** — add stable, observable, risk-linked cases and select suitable design techniques.
-4. **Add steps when needed** — create `STEPS.md` only when exact procedure materially improves repeatability, safety, auditability, or human handoff.
+4. **Add execution guidance when needed** — use optional Case-level `Runner Instructions` for constraints, tools, evidence, and comparison requirements; create `STEPS.md` only when an exact procedure is justified.
 5. **Review readiness** — challenge missing oracle, data, environment, ownership, negative coverage, recovery, or traceability before execution.
 6. **Execute** — run only ready cases against a recorded build and known starting state.
 7. **Record results** — append an immutable run row and suite-local evidence; link failures and blockers to a defect or explicit reason.
@@ -74,19 +75,20 @@ Infer the appropriate route from the user's goal; do not require command syntax.
 
 Launch Studio when the user asks to show or manage the test board, Kanban, Timeline, schedule, or run history. It binds to loopback only and prints a tokenized URL.
 
-- `init` creates `studio.sh`, `studio.cmd`, `.env.local`, and `.gitignore` in the managed test root. From that root, use `./studio.sh` on macOS/Linux or `studio.cmd` on Windows; both pass the root explicitly to the installed Studio.
+- `init` creates `RUNNER_PROMPT.md`, `studio.sh`, `studio.cmd`, `.env.local`, and `.gitignore` in the managed test root. From that root, use `./studio.sh` on macOS/Linux or `studio.cmd` on Windows; both pass the root explicitly to the installed Studio.
 - `.env.local` contains only the installed skill path and is ignored by Git. `init` uses `~/...` when the skill is inside the current home directory and an absolute path otherwise. Launchers parse it as data, never source or execute it, expand only a leading `~/` (`~\` is also accepted by `studio.cmd`), and reject missing, duplicate, other relative, or invalid paths.
 
 - **Kanban** separates case design state from the latest run result: Draft, Ready/Not run, Passed, Failed, Blocked, and Other.
 - The Studio defaults to `All suites`. Its Suite toolbar filter scopes Kanban, Timeline, Runs, and run entry to one Suite when selected; aggregate metrics and the release gate remain root-wide.
 - **Timeline** combines optional Case and Suite planning dates with a labeled weekly date scale, a neutral Suite start marker, an orange Suite target marker, case state, ownership, risk, design method, and latest-run context. Visible Suite dates establish the canvas even when Cases are unscheduled, and Suite markers span the full visible Case grid. Schedule changes never alter evidence or test results.
 - **Runs** shows immutable execution history and provides a validated form for appending a run.
+- **Case detail** emphasizes Objective, Runner Instructions, and Expected Outcome. It displays the concise, copy-ready Runner Prompt rendered by Test Manager core from the test root's optional `RUNNER_PROMPT.md`; the complete Case remains authoritative and the project owns presentation. The same prompt is available without Studio through `test-manager.mjs prompt <case-id>`.
 - Studio may update `DRAFT / READY / RETIRED` and planned dates. It must pass the same validator; incomplete cases cannot be promoted to `READY`.
 - A card cannot be dragged or edited into `PASS`. Only a new valid Run row with build, environment, data, executor, and required evidence can change the current result.
 
 ## State model and invariants
 
-- `TESTING.md`, `SUITE.md`, `CASES.md`, and `RUNS.md` are authoritative. `SUITES.md` is the suite registry; `STATUS.md` is derived and may be regenerated.
+- `TESTING.md`, optional `RUNNER_PROMPT.md`, `SUITE.md`, `CASES.md`, and `RUNS.md` are authoritative. `RUNNER_PROMPT.md` controls presentation only; `SUITES.md` is the suite registry and `STATUS.md` is derived.
 - Case design state is `DRAFT / READY / RETIRED`. Execution result is `PASS / FAIL / BLOCKED / SKIPPED / INVALID`. Never conflate readiness with result.
 - `PASS` requires observable evidence against the expected outcome. `FAIL` and `BLOCKED` require a defect, blocker, or explicit reason. `INVALID` does not count as executed coverage.
 - A case is not ready without a stable ID, objective, risk or requirement link, preconditions, data needs, expected outcome/oracle, priority, and test type.
@@ -110,9 +112,11 @@ Apply risk-based QA:
 7. Retest the fix and run impact-based regression. Do not close a defect from implementation claims alone.
 8. Report coverage, results, blockers, residual risk, and release recommendation separately.
 
-## Cases versus steps
+## Cases, runner instructions, and steps
 
 Prefer outcome-oriented cases. A business E2E or exploratory case may be a natural-language mission plus oracle, allowing the tester or browser agent to discover the UI.
+
+Use Case-level `Runner Instructions` to tell a human tester or browser agent how to execute without prescribing a brittle click sequence. Good instructions start with the concrete execution surface or tool, then define the safety boundary, evaluator order, comparison target, evidence discipline, and stop conditions in a few short commands. Test Manager core renders them with the project's `RUNNER_PROMPT.md`; core must not contain product names, URLs, project labels, or project-specific extraction rules. Studio and exports consume the same projection; they do not own or duplicate it. `Runner Instructions` are optional and do not replace the oracle.
 
 Add exact steps only when at least one applies:
 
