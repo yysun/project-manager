@@ -1,6 +1,6 @@
 // Responsibility: render Test Manager views and submit token-authenticated case and Run mutations.
 // State boundary: PASS is created only through the evidence-backed Run API, never card movement.
-// Recent change: ship unchanged as part of the canonical standalone Test Manager skill.
+// Recent change: give Timeline rows Project Manager-level planning and run context.
 
 const token = new URLSearchParams(location.search).get("token");
 const state = { data: null, view: "kanban", selectedCase: null };
@@ -144,6 +144,45 @@ function utcDay(value) {
   return Math.floor(Date.parse(`${value}T00:00:00Z`) / 86_400_000);
 }
 
+function usefulTimelineValue(value) {
+  const text = String(value ?? "").trim();
+  return text && !["—", "UNDEFINED", "UNASSIGNED"].includes(text);
+}
+
+function timelineLabel(testCase) {
+  const result = latestResult(testCase);
+  const owner = usefulTimelineValue(testCase.owner)
+    ? testCase.owner
+    : "Unassigned";
+  const design = [testCase.type, testCase.automation]
+    .filter(usefulTimelineValue)
+    .join(" · ");
+  const requirement = usefulTimelineValue(testCase.requirementRisk)
+    ? `<span class="timeline-context">Requirement / risk · ${escapeHtml(testCase.requirementRisk)}</span>`
+    : "";
+  const run = testCase.currentRun;
+  const runContext = run
+    ? `<span class="timeline-run-context">Latest ${escapeHtml(result)} · ${escapeHtml(run.executedAt.slice(0, 10))} · ${escapeHtml(run.build)} · ${escapeHtml(run.environment)}</span>`
+    : '<span class="timeline-run-context">No run recorded</span>';
+  const issue =
+    run && usefulTimelineValue(run.issue)
+      ? `<span class="timeline-run-issue ${escapeHtml(result)}">${escapeHtml(result === "FAIL" ? "Defect" : "Reason")} · ${escapeHtml(run.issue)}</span>`
+      : "";
+
+  return `<span class="timeline-label">
+    <span class="timeline-title-line"><strong>${escapeHtml(testCase.title)}</strong><span class="case-id">${escapeHtml(testCase.id)}</span></span>
+    <span class="timeline-label-meta"><span class="case-state">${escapeHtml(testCase.state)}</span><span class="result ${escapeHtml(result)}">${escapeHtml(result)}</span><span class="priority">${escapeHtml(testCase.priority)}</span><span>${escapeHtml(owner)}</span><span>${escapeHtml(testCase.suiteTitle)}</span></span>
+    ${design ? `<span class="timeline-context">${escapeHtml(design)}</span>` : ""}
+    ${requirement}
+    ${runContext}
+    ${issue}
+  </span>`;
+}
+
+function unscheduledCase(testCase) {
+  return `<button class="unscheduled-case" data-case="${escapeHtml(testCase.id)}">${timelineLabel(testCase)}</button>`;
+}
+
 function renderTimeline() {
   const list = filteredCases();
   const scheduled = list.filter((item) => item.plannedStart || item.plannedEnd);
@@ -152,7 +191,7 @@ function renderTimeline() {
   );
   if (!scheduled.length) {
     $("#timeline-view").innerHTML =
-      `<div class="timeline-shell"><div class="unscheduled"><h3>No timeline scheduled</h3><p class="hint">Set Planned Start / End on a case card. Planned dates are not execution evidence.</p><div class="chip-list">${unscheduled.map((item) => `<button class="case-chip" data-case="${item.id}">${item.id}</button>`).join("")}</div></div></div>`;
+      `<div class="timeline-shell"><div class="unscheduled"><h3>No timeline scheduled</h3><p class="hint">Set Planned Start / End on a case. Planning dates do not change execution evidence.</p><div class="unscheduled-list">${unscheduled.map(unscheduledCase).join("")}</div></div></div>`;
   } else {
     const starts = scheduled.map((item) =>
       utcDay(item.plannedStart || item.plannedEnd),
@@ -176,11 +215,14 @@ function renderTimeline() {
         const left = ((start - minimum) / span) * 100;
         const width = (Math.max(1, end - start + 1) / span) * 100;
         const result = latestResult(item);
-        return `<button class="timeline-row" data-case="${item.id}"><span class="timeline-label"><strong>${item.id}</strong><span>${escapeHtml(item.title)}</span></span><span class="timeline-track"><i class="timeline-bar ${result}" style="left:${left}%;width:${width}%" title="${item.plannedStart || item.plannedEnd} → ${item.plannedEnd || item.plannedStart}"></i></span></button>`;
+        const startDate = item.plannedStart || item.plannedEnd;
+        const endDate = item.plannedEnd || item.plannedStart;
+        const barTitle = `${item.title}: ${startDate} → ${endDate}`;
+        return `<button class="timeline-row" data-case="${escapeHtml(item.id)}">${timelineLabel(item)}<span class="timeline-track"><i class="timeline-bar ${escapeHtml(result)}" style="left:${left}%;width:${width}%" title="${escapeHtml(barTitle)}"><span>${escapeHtml(item.title)}</span><small>${escapeHtml(startDate)} → ${escapeHtml(endDate)}</small></i></span></button>`;
       })
       .join("");
     $("#timeline-view").innerHTML =
-      `<div class="timeline-shell"><div class="timeline-summary"><span>${date(minimum)}</span><strong>${scheduled.length} scheduled cases</strong><span>${date(maximum)}</span></div>${rows}<div class="unscheduled"><h3>Unscheduled · ${unscheduled.length}</h3><div class="chip-list">${unscheduled.map((item) => `<button class="case-chip" data-case="${item.id}">${item.id}</button>`).join("")}</div></div></div>`;
+      `<div class="timeline-shell"><div class="timeline-summary"><span>${date(minimum)}</span><strong>${scheduled.length} scheduled · ${unscheduled.length} unscheduled</strong><span>${date(maximum)}</span></div>${rows}<div class="unscheduled"><h3>Unscheduled · ${unscheduled.length}</h3>${unscheduled.length ? `<div class="unscheduled-list">${unscheduled.map(unscheduledCase).join("")}</div>` : '<p class="hint">All visible cases have planning dates.</p>'}</div></div>`;
   }
   $$("#timeline-view [data-case]").forEach((element) =>
     element.addEventListener("click", () => openCase(element.dataset.case)),

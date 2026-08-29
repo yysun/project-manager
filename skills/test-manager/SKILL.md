@@ -76,7 +76,7 @@ Launch Studio when the user asks to show or manage the test board, Kanban, Timel
 - `.env.local` contains only the installed skill path and is ignored by Git. `init` uses `~/...` when the skill is inside the current home directory and an absolute path otherwise. Launchers parse it as data, never source or execute it, expand only a leading `~/` (`~\` is also accepted by `studio.cmd`), and reject missing, duplicate, other relative, or invalid paths.
 
 - **Kanban** separates case design state from the latest run result: Draft, Ready/Not run, Passed, Failed, Blocked, and Other.
-- **Timeline** displays optional `Planned Start` and `Planned End` metadata. Schedule changes never alter evidence or test results.
+- **Timeline** combines optional `Planned Start` and `Planned End` metadata with case state, ownership, risk, design method, and latest-run context. Schedule changes never alter evidence or test results.
 - **Runs** shows immutable execution history and provides a validated form for appending a run.
 - Studio may update `DRAFT / READY / RETIRED` and planned dates. It must pass the same validator; incomplete cases cannot be promoted to `READY`.
 - A card cannot be dragged or edited into `PASS`. Only a new valid Run row with build, environment, data, executor, and required evidence can change the current result.

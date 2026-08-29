@@ -1,6 +1,6 @@
 /* Responsibility: style Test Manager's responsive Kanban, Timeline, and Run-history interface.
    UI boundary: visual lanes represent validated case and Run state; they are not a second truth source.
-   Recent change: ship unchanged as part of the canonical standalone Test Manager skill. */
+   Recent change: expose case planning and latest-run context throughout Timeline. */
 
 :root {
   color-scheme: light;
@@ -356,9 +356,9 @@ main {
 }
 .timeline-row {
   display: grid;
-  grid-template-columns: 250px 1fr;
+  grid-template-columns: 360px 1fr;
   width: 100%;
-  min-height: 58px;
+  min-height: 118px;
   padding: 0;
   border: 0;
   border-bottom: 1px solid #edf0eb;
@@ -366,23 +366,80 @@ main {
   text-align: left;
   background: transparent;
 }
+.timeline-row:hover,
+.unscheduled-case:hover {
+  background: #f8faf7;
+}
 .timeline-label {
-  padding: 12px 16px;
+  display: block;
+  min-width: 0;
+  padding: 11px 16px;
   border-right: 1px solid #edf0eb;
 }
-.timeline-label strong {
-  display: block;
+.timeline-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.timeline-title-line strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.timeline-title-line .case-id {
+  flex: none;
   font-size: 12px;
 }
-.timeline-label span {
+.timeline-label-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 9px;
+}
+.case-state {
+  color: var(--blue);
+  font-weight: 850;
+}
+.timeline-label-meta .result {
+  padding: 2px 5px;
+  font-size: 8px;
+}
+.timeline-label-meta .priority {
+  padding-block: 1px;
+  font-size: 8px;
+}
+.timeline-context,
+.timeline-run-context,
+.timeline-run-issue {
   display: block;
   margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 9px;
+}
+.timeline-run-context {
+  color: var(--blue);
+  font-weight: 700;
+}
+.timeline-run-issue {
+  color: var(--amber);
+  font-weight: 800;
+}
+.timeline-run-issue.FAIL {
+  color: var(--red);
 }
 .timeline-track {
   position: relative;
-  margin: 12px 20px;
+  min-height: 72px;
+  margin: 23px 20px;
   border-radius: 8px;
   background: repeating-linear-gradient(
     90deg,
@@ -394,12 +451,36 @@ main {
 }
 .timeline-bar {
   position: absolute;
-  top: 7px;
-  height: 22px;
-  min-width: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 44px;
+  min-width: 12px;
+  overflow: hidden;
+  padding: 5px 8px;
   border-radius: 7px;
-  background: linear-gradient(90deg, var(--green), #3c9371);
-  box-shadow: 0 4px 12px rgba(23, 107, 77, 0.18);
+  color: white;
+  background: #718079;
+  box-shadow: 0 4px 12px rgba(42, 55, 47, 0.18);
+  font-style: normal;
+  white-space: nowrap;
+}
+.timeline-bar span,
+.timeline-bar small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timeline-bar span {
+  font-size: 10px;
+  font-weight: 800;
+}
+.timeline-bar small {
+  margin-top: 2px;
+  font-size: 8px;
+  opacity: 0.88;
 }
 .timeline-bar.FAIL {
   background: var(--red);
@@ -410,6 +491,10 @@ main {
 .timeline-bar.PASS {
   background: var(--green);
 }
+.timeline-bar.INVALID,
+.timeline-bar.SKIPPED {
+  background: var(--blue);
+}
 .unscheduled {
   padding: 18px;
 }
@@ -417,18 +502,23 @@ main {
   margin: 0 0 10px;
   font-size: 13px;
 }
-.chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+.unscheduled-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
 }
-.case-chip {
+.unscheduled-case {
+  min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 7px 10px;
+  border-radius: 10px;
+  padding: 0;
   color: var(--ink);
   background: white;
-  font-size: 11px;
+  text-align: left;
+}
+.unscheduled-case .timeline-label {
+  border-right: 0;
 }
 
 table {
