@@ -48,6 +48,12 @@ recorded attempts, which is not the same as a project that consumed nothing.
 Telemetry is observational. It never explains why work is ready, blocked, or done, and it must not
 be offered as evidence that acceptance criteria were met.
 
+## Assessment and recommendation
+
+The conversational handoff follows the `Current assessment` and `Recommended next action` contract
+in `SKILL.md`. A saved report may retain those sections as derived narrative, but they never become
+authoritative project fields or editable Studio state.
+
 ## Concurrency ceiling
 
 `project-status.js` returns a `concurrency` projection describing what the remaining plan's

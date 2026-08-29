@@ -47,6 +47,17 @@ intents and explicit escape hatches, not the product interaction model:
 
 For source or scope changes, read [impact.md](references/impact.md). For exact schemas, lifecycle rules, and output contracts, read [conventions.md](references/conventions.md).
 
+## Current assessment and recommended next action contract
+
+- Do not use `First action` as a formal heading. Before acting, give a brief unlabelled progress update naming the initial operation only when it helps the user follow the work. It is execution visibility, not a summary of the current project state.
+- At a meaningful handoff after initialization, planning, update, status, review, reporting, coordination, or an execution result, lead with **Current assessment**. Summarize the present delivery condition, the decisive evidence or unknown, and the leading blocker, risk, variance, or decision when one exists. Derive it from validated project state and separate facts from judgment.
+- If managed work remains and cannot continue immediately, follow with exactly one **Recommended next action**. Identify the relevant Task, Milestone, Decision, Issue, or other stable project ID when known; explain why the action dominates now; and name any unmet prerequisite or owner.
+- A recommended action may execute a task, clear a dependency or blocker, obtain a decision, collect or ingest evidence, perform impact analysis, apply a milestone or project gate, or close the project. It is not necessarily the next task.
+- Select the recommendation from explicit user intent, dependency readiness, business impact, blockers, risk, milestone pressure, evidence gaps, and current executor capacity. Use `project-next.js` as deterministic candidate input when relevant, but do not blindly choose its first task, the next ID, or the oldest task.
+- If the recommended action is safe, in scope, and already authorized, perform it in the same turn and reassess instead of presenting it as advice. If user input, approval, credentials, external coordination, or another boundary is required, stop there and request the one concrete unblocker.
+- When no executable task remains, recommend the applicable decision, gate, residual-risk response, or closure action. When the project is fully closed, omit the recommendation rather than inventing work.
+- `Current assessment` and `Recommended next action` are derived response elements. Never add them as authoritative project fields or editable Studio state. A saved report may retain them as derived narrative. Use these exact English headings whenever the sections are shown.
+
 ## Render plugin views
 
 When the Project Manager MCP tools are available, treat display intent as an explicit UI request:

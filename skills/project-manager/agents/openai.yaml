@@ -1,4 +1,4 @@
 interface:
   display_name: "Project Manager"
-  short_description: "Plan, execute, track, and review projects"
-  default_prompt: "Use $project-manager to execute all RPD work for the Website Launch project."
+  short_description: "Assess delivery and recommend the next action"
+  default_prompt: "Use $project-manager to assess this project's delivery state and recommend exactly one next action when a handoff remains."

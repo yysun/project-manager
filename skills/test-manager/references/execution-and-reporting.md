@@ -16,9 +16,9 @@ Do not begin a decision-bearing run until the applicable entry criteria are met:
 
 If a prerequisite is wrong, record `INVALID` or `BLOCKED`; do not improvise a different acceptance standard mid-run.
 
-## Choose the first and next action
+## Assess the current state and recommend the next action
 
-State one concrete first action before execution begins. After any result or status update, choose exactly one primary next action using this order, modified by real dependencies and business impact:
+Do not present `First action` as a formal field. Before execution begins, use a brief unlabelled progress update to name the initial operation only when it improves visibility. After any result or status update, write `Current assessment` first: state the current quality conclusion, the decisive evidence or unknown, and the leading blocker or residual risk. Then, when work remains and cannot continue immediately, choose exactly one `Recommended next action` using this order, modified by real dependencies and business impact:
 
 1. Honor an explicit user-selected case or decision when its entry gate is satisfied.
 2. Resolve the smallest prerequisite blocking the selected or already-started work.
@@ -27,7 +27,7 @@ State one concrete first action before execution begins. After any result or sta
 5. Make the highest-risk uncovered or incomplete case ready when no suitable ready case exists.
 6. Apply the release gate or produce the closure decision when required execution and retest work is complete.
 
-Name the suite or Case ID, explain why it is next in one sentence, and identify the exact prerequisite or owner only when known. Never infer a fix is available, an approval exists, or a blocker has cleared. When the current request authorizes execution and the action is safe, perform it rather than returning it as advice. When user action is required, ask for one concrete unblocker instead of presenting several competing next steps.
+Name the suite or Case ID, explain why it is next in one sentence, and identify the exact prerequisite or owner only when known. Never infer a fix is available, an approval exists, or a blocker has cleared. When the current request authorizes execution and the action is safe, perform it, reassess, and recommend only the next action that still requires a handoff. When user action is required, ask for one concrete unblocker instead of presenting several competing next steps. These sections are derived response elements, never managed test state, and must use the exact English headings `Current assessment` and `Recommended next action` whenever shown.
 
 ## Run discipline
 
@@ -116,7 +116,7 @@ State the denominator for every rate. Keep absent facts `UNKNOWN`; never convert
 
 | Audience        | Emphasis                                                                           |
 | --------------- | ---------------------------------------------------------------------------------- |
-| Tester/operator | One primary next action, exact blockers, data and environment actions               |
+| Tester/operator | Current assessment, one recommended next action, exact blockers, data and environment actions |
 | Test lead       | Coverage gaps, execution trend, defect clusters, retest/regression, capacity risks |
 | Release owner   | Critical outcomes, unmet gates, residual risk, waivers, go/no-go recommendation    |
 | Executive       | Business exposure, confidence, major unknowns, decision needed                     |

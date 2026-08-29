@@ -60,13 +60,15 @@ Infer the appropriate route from the user's goal; do not require command syntax.
 9. **Status or report** — calculate facts first, then tailor the narrative for tester, test lead, release owner, or executive.
 10. **Review or close** — validate exit criteria, residual risk, waivers, evidence retention, and regression obligations.
 
-## First and next action contract
+## Current assessment and recommended next action contract
 
-- At the start of managed work, state one concrete **First action** before acting. It may be a safe action Codex will perform immediately or the smallest prerequisite the user must provide.
-- After readiness review, status, execution, triage, retest, or reporting, if managed work remains, end with exactly one primary **Next action**. Name the suite or Case ID when known, why it is next, and any unmet prerequisite. Do not stop at a status summary or present a menu of generic possibilities.
-- Select the next action from explicit user intent, entry blockers, business risk, dependencies, current-build coverage, defect severity, and retest/regression need; do not simply choose the next ID or the oldest card.
-- If the next action is safe, in scope, and already authorized, continue with it in the same turn instead of merely reminding the user. If user input, login, approval, data reset, or another external change is required, stop at that boundary and ask for the one concrete unblocker.
-- When no executable work remains, the next action is the applicable quality-gate decision, residual-risk decision, or closure report. Do not invent work to keep the queue non-empty.
+- Do not use `First action` as a formal heading. Before acting, give a brief unlabelled progress update naming the initial operation only when it helps the user follow the work. It is execution visibility, not a summary of the current state.
+- After readiness review, status, execution, triage, retest, or reporting, lead with **Current assessment**. Summarize the present quality conclusion, the decisive evidence or unknown, and the leading blocker or residual risk when one exists. Separate observed facts from judgment.
+- If managed work remains and cannot continue immediately, follow with exactly one **Recommended next action**. Name the suite or Case ID when known, explain why it is next, and identify any unmet prerequisite or owner. Do not stop at an assessment or present a menu of generic possibilities.
+- Select the recommendation from explicit user intent, entry blockers, business risk, dependencies, current-build coverage, defect severity, and retest/regression need; do not simply choose the next ID or the oldest card.
+- If the recommended action is safe, in scope, and already authorized, perform it in the same turn and reassess instead of presenting it as advice. If user input, login, approval, data reset, or another external change is required, stop at that boundary and request the one concrete unblocker.
+- When no executable test work remains, recommend the applicable quality-gate decision, residual-risk decision, or closure report. When the managed test effort is fully closed, omit the recommendation rather than inventing work.
+- `Current assessment` and `Recommended next action` are derived response elements. Never persist them as case, suite, run, or root state, and use these exact English headings whenever the sections are shown.
 
 ## Studio
 
