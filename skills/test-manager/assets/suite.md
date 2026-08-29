@@ -5,6 +5,8 @@ title: "{{TITLE}}"
 risk: MEDIUM
 state: PLANNED
 owner: UNASSIGNED
+planned_start: UNPLANNED
+planned_end: UNPLANNED
 ---
 
 # {{TITLE}}

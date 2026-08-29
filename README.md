@@ -210,13 +210,15 @@ npm test
 npm run check:syntax
 npm run test:e2e:tm
 npm run pm-studio:dev
+npm run tm-studio:dev
 ```
 
-The development server generates a fresh disposable demo project on every start, so you can run it
-with no setup. To open a specific project instead:
+Each Studio development command generates a fresh disposable demo on start, so either UI can run
+with no setup. To open specific managed state instead:
 
 ```bash
 npm run pm-studio:dev -- --project /absolute/path/to/project
+npm run tm-studio:dev -- --root /absolute/path/to/workspace/.tests
 ```
 
 Because a Task Contract binds an absolute project root, a demo is only valid for the checkout that
@@ -225,10 +227,16 @@ you want Studio edits to survive a restart — with:
 
 ```bash
 npm run demo
+npm run demo:tm
 ```
 
-That writes `demo/pm-studio-demo/` (gitignored), which you can then pass with
-`npm run pm-studio:dev -- --project demo/pm-studio-demo`.
+These write `demo/pm-studio-demo/` and `demo/tm-studio-demo/.tests/` respectively (both gitignored).
+Launch the persistent demos with:
+
+```bash
+npm run pm-studio:dev -- --project demo/pm-studio-demo
+npm run tm-studio:dev -- --root demo/tm-studio-demo/.tests
+```
 
 The canonical installable skills are in `skills/project-manager/` and `skills/test-manager/`. Test
 Manager's directly runnable source and local Studio stay inside its installable directory. Project

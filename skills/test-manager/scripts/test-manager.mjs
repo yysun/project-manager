@@ -222,6 +222,14 @@ function meaningful(value) {
   );
 }
 
+function optionalPlannedDate(value) {
+  return (
+    value === undefined ||
+    value === "UNPLANNED" ||
+    /^\d{4}-\d{2}-\d{2}$/.test(value)
+  );
+}
+
 function parseCases(path, slug, errors, warnings) {
   const content = withoutFencedCode(readFileSync(path, "utf8"));
   const heading = /^## ([A-Z0-9]+(?:-[A-Z0-9]+)*-C\d{3}) — (.+)$/gm;
@@ -421,6 +429,17 @@ function inspectRoot(root) {
       errors.push(`${slug}: invalid state ${meta.state ?? "missing"}`);
     if (!meaningful(meta.title)) errors.push(`${slug}: missing suite title`);
     if (!meta.owner) errors.push(`${slug}: missing owner`);
+    if (!optionalPlannedDate(meta.planned_start))
+      errors.push(`${slug}: planned_start must be YYYY-MM-DD or UNPLANNED`);
+    if (!optionalPlannedDate(meta.planned_end))
+      errors.push(`${slug}: planned_end must be YYYY-MM-DD or UNPLANNED`);
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(meta.planned_start ?? "") &&
+      /^\d{4}-\d{2}-\d{2}$/.test(meta.planned_end ?? "") &&
+      meta.planned_end < meta.planned_start
+    ) {
+      errors.push(`${slug}: planned_end must not be before planned_start`);
+    }
 
     const cases = parseCases(
       join(suitePath, "CASES.md"),
@@ -624,6 +643,12 @@ function serializable(report) {
       risk: suite.meta.risk,
       state: suite.meta.state,
       owner: suite.meta.owner,
+      plannedStart: /^\d{4}-\d{2}-\d{2}$/.test(suite.meta.planned_start ?? "")
+        ? suite.meta.planned_start
+        : null,
+      plannedEnd: /^\d{4}-\d{2}-\d{2}$/.test(suite.meta.planned_end ?? "")
+        ? suite.meta.planned_end
+        : null,
       cases: suite.cases.length,
       runs: suite.runs.length,
       currentResult: suiteCurrentResult(suite),

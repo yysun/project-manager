@@ -262,6 +262,12 @@ function statePayload(root) {
       risk: suite.meta.risk,
       state: suite.meta.state,
       owner: suite.meta.owner,
+      plannedStart: /^\d{4}-\d{2}-\d{2}$/.test(suite.meta.planned_start ?? "")
+        ? suite.meta.planned_start
+        : null,
+      plannedEnd: /^\d{4}-\d{2}-\d{2}$/.test(suite.meta.planned_end ?? "")
+        ? suite.meta.planned_end
+        : null,
       cases: suite.cases.map((testCase) => ({
         id: testCase.id,
         title: testCase.title,
@@ -336,6 +342,10 @@ function startStudio({ root, port = 0, open = true }) {
       }
       if (request.method === "GET" && url.pathname === "/studio.js") {
         asset(response, "studio.js", "text/javascript; charset=utf-8");
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/timeline-model.mjs") {
+        asset(response, "timeline-model.mjs", "text/javascript; charset=utf-8");
         return;
       }
       if (!authorized(request, url, token)) {

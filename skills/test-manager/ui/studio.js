@@ -1,6 +1,17 @@
 // Responsibility: render Test Manager views and submit token-authenticated case and Run mutations.
 // State boundary: PASS is created only through the evidence-backed Run API, never card movement.
-// Recent change: give Timeline rows Project Manager-level planning and run context.
+// Recent change: match Project Manager's labeled, range-sized weekly Timeline canvas.
+
+import {
+  barGeometry,
+  datePercent,
+  dayDiff,
+  rangeDays,
+  rangeContains,
+  timelineContentWidth,
+  timelineLayout,
+  timelineScaleTicks,
+} from "./timeline-model.mjs";
 
 const token = new URLSearchParams(location.search).get("token");
 const state = { data: null, view: "kanban", selectedCase: null };
@@ -40,6 +51,8 @@ function cases() {
       ...testCase,
       suite: suite.slug,
       suiteTitle: suite.title,
+      suitePlannedStart: suite.plannedStart,
+      suitePlannedEnd: suite.plannedEnd,
     })),
   );
 }
@@ -66,6 +79,11 @@ function filteredCases() {
       return false;
     return true;
   });
+}
+
+function visibleSuites() {
+  const suite = $("#suite-filter").value;
+  return state.data.suites.filter((item) => !suite || item.slug === suite);
 }
 
 function latestResult(testCase) {
@@ -100,12 +118,13 @@ function renderMetrics() {
         `<article class="metric"><span>${label}</span><strong>${value}</strong></article>`,
     )
     .join("");
+  const suiteGate = state.data.gateIndicator;
   const gate = $("#gate");
-  gate.textContent = state.data.gateIndicator;
+  gate.textContent = suiteGate;
   gate.dataset.tone =
-    state.data.gateIndicator === "PASS"
+    suiteGate === "PASS"
       ? "good"
-      : ["FAIL", "BLOCKED"].includes(state.data.gateIndicator)
+      : ["FAIL", "BLOCKED"].includes(suiteGate)
         ? "bad"
         : "warn";
 }
@@ -140,10 +159,6 @@ function renderKanban() {
   );
 }
 
-function utcDay(value) {
-  return Math.floor(Date.parse(`${value}T00:00:00Z`) / 86_400_000);
-}
-
 function usefulTimelineValue(value) {
   const text = String(value ?? "").trim();
   return text && !["—", "UNDEFINED", "UNASSIGNED"].includes(text);
@@ -161,6 +176,9 @@ function timelineLabel(testCase) {
     ? `<span class="timeline-context">Requirement / risk · ${escapeHtml(testCase.requirementRisk)}</span>`
     : "";
   const run = testCase.currentRun;
+  const suitePlan = [testCase.suitePlannedStart, testCase.suitePlannedEnd]
+    .filter(Boolean)
+    .join(" → ");
   const runContext = run
     ? `<span class="timeline-run-context">Latest ${escapeHtml(result)} · ${escapeHtml(run.executedAt.slice(0, 10))} · ${escapeHtml(run.build)} · ${escapeHtml(run.environment)}</span>`
     : '<span class="timeline-run-context">No run recorded</span>';
@@ -173,6 +191,7 @@ function timelineLabel(testCase) {
     <span class="timeline-title-line"><strong>${escapeHtml(testCase.title)}</strong><span class="case-id">${escapeHtml(testCase.id)}</span></span>
     <span class="timeline-label-meta"><span class="case-state">${escapeHtml(testCase.state)}</span><span class="result ${escapeHtml(result)}">${escapeHtml(result)}</span><span class="priority">${escapeHtml(testCase.priority)}</span><span>${escapeHtml(owner)}</span><span>${escapeHtml(testCase.suiteTitle)}</span></span>
     ${design ? `<span class="timeline-context">${escapeHtml(design)}</span>` : ""}
+    ${suitePlan ? `<span class="timeline-context timeline-suite-plan">Suite plan · ${escapeHtml(suitePlan)}</span>` : ""}
     ${requirement}
     ${runContext}
     ${issue}
@@ -183,46 +202,68 @@ function unscheduledCase(testCase) {
   return `<button class="unscheduled-case" data-case="${escapeHtml(testCase.id)}">${timelineLabel(testCase)}</button>`;
 }
 
+const TIMELINE_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+function timelineScale(range) {
+  const total = rangeDays(range);
+  const ticks = timelineScaleTicks(range);
+  return `<span class="timeline-scale">${ticks
+    .map((date, index) => {
+      const elapsed = dayDiff(range.start, date);
+      const remaining = total - elapsed;
+      const year = date.slice(0, 4);
+      const previousYear = ticks[index - 1]?.slice(0, 4);
+      const label = `${TIMELINE_DATE_FORMATTER.format(new Date(`${date}T00:00:00Z`))}${index === 0 || year !== previousYear ? `, ${year}` : ""}`;
+      const compactEnd = remaining < 5;
+      const style = compactEnd
+        ? `left:${(elapsed / total) * 100}%;width:88px`
+        : `left:${(elapsed / total) * 100}%;width:${(Math.min(7, remaining) / total) * 100}%`;
+      return `<span class="timeline-week ${compactEnd ? "timeline-week--end" : ""}" title="${escapeHtml(date)}" aria-label="${escapeHtml(date)}" style="${style}">${escapeHtml(label)}</span>`;
+    })
+    .join("")}</span>`;
+}
+
+function timelineMarkerLayer(markers, range) {
+  return markers
+    .filter((marker) => rangeContains(marker.date, range))
+    .map(
+      (marker) =>
+        `<i class="timeline-marker timeline-marker--suite-${escapeHtml(marker.kind)}" style="left:${datePercent(marker.date, range)}%" title="${escapeHtml(marker.label)} · ${escapeHtml(marker.date)}"></i>`,
+    )
+    .join("");
+}
+
 function renderTimeline() {
   const list = filteredCases();
-  const scheduled = list.filter((item) => item.plannedStart || item.plannedEnd);
-  const unscheduled = list.filter(
-    (item) => !item.plannedStart && !item.plannedEnd,
-  );
-  if (!scheduled.length) {
+  const layout = timelineLayout(list, visibleSuites());
+  if (!layout.range) {
     $("#timeline-view").innerHTML =
-      `<div class="timeline-shell"><div class="unscheduled"><h3>No timeline scheduled</h3><p class="hint">Set Planned Start / End on a case. Planning dates do not change execution evidence.</p><div class="unscheduled-list">${unscheduled.map(unscheduledCase).join("")}</div></div></div>`;
+      `<div class="timeline-shell"><div class="unscheduled"><h3>No timeline scheduled</h3><p class="hint">Set Suite or Case planning dates. Planning dates do not change execution evidence.</p><div class="unscheduled-list">${layout.unscheduled.map(unscheduledCase).join("")}</div></div></div>`;
   } else {
-    const starts = scheduled.map((item) =>
-      utcDay(item.plannedStart || item.plannedEnd),
-    );
-    const ends = scheduled.map((item) =>
-      utcDay(item.plannedEnd || item.plannedStart),
-    );
-    const minimum = Math.min(...starts);
-    const maximum = Math.max(...ends);
-    const span = Math.max(1, maximum - minimum + 1);
-    const date = (day) => new Date(day * 86_400_000).toISOString().slice(0, 10);
-    const rows = scheduled
-      .sort((a, b) =>
-        (a.plannedStart || a.plannedEnd).localeCompare(
-          b.plannedStart || b.plannedEnd,
-        ),
-      )
-      .map((item) => {
-        const start = utcDay(item.plannedStart || item.plannedEnd);
-        const end = utcDay(item.plannedEnd || item.plannedStart);
-        const left = ((start - minimum) / span) * 100;
-        const width = (Math.max(1, end - start + 1) / span) * 100;
-        const result = latestResult(item);
-        const startDate = item.plannedStart || item.plannedEnd;
-        const endDate = item.plannedEnd || item.plannedStart;
-        const barTitle = `${item.title}: ${startDate} → ${endDate}`;
-        return `<button class="timeline-row" data-case="${escapeHtml(item.id)}">${timelineLabel(item)}<span class="timeline-track"><i class="timeline-bar ${escapeHtml(result)}" style="left:${left}%;width:${width}%" title="${escapeHtml(barTitle)}"><span>${escapeHtml(item.title)}</span><small>${escapeHtml(startDate)} → ${escapeHtml(endDate)}</small></i></span></button>`;
-      })
-      .join("");
+    const { bounds, markers, ordered, range, scheduled, unscheduled } = layout;
+    const rows = ordered.length
+      ? ordered
+          .map((item) => {
+            const result = latestResult(item);
+            const startDate = item.plannedStart || item.plannedEnd || null;
+            const endDate = item.plannedEnd || item.plannedStart || null;
+            let schedule =
+              '<span class="timeline-unscheduled-track">Unscheduled · add dates</span>';
+            if (startDate) {
+              const geometry = barGeometry(startDate, endDate, range);
+              const barTitle = `${item.title}: ${startDate} → ${endDate}`;
+              schedule = `<i class="timeline-bar ${escapeHtml(result)}" style="left:${geometry.left}%;width:${geometry.width}%" title="${escapeHtml(barTitle)}"><span>${escapeHtml(item.title)}</span><small>${escapeHtml(startDate)} → ${escapeHtml(endDate)}</small></i>`;
+            }
+            return `<button class="timeline-row" data-case="${escapeHtml(item.id)}">${timelineLabel(item)}<span class="timeline-track">${schedule}</span></button>`;
+          })
+          .join("")
+      : '<div class="timeline-row timeline-row--empty"><span class="timeline-label timeline-empty-label">No matching cases</span><span class="timeline-track"></span></div>';
     $("#timeline-view").innerHTML =
-      `<div class="timeline-shell"><div class="timeline-summary"><span>${date(minimum)}</span><strong>${scheduled.length} scheduled · ${unscheduled.length} unscheduled</strong><span>${date(maximum)}</span></div>${rows}<div class="unscheduled"><h3>Unscheduled · ${unscheduled.length}</h3>${unscheduled.length ? `<div class="unscheduled-list">${unscheduled.map(unscheduledCase).join("")}</div>` : '<p class="hint">All visible cases have planning dates.</p>'}</div></div>`;
+      `<div class="timeline-shell"><div class="timeline-summary"><span>${escapeHtml(bounds.start)}</span><strong>${scheduled.length} scheduled · ${unscheduled.length} unscheduled</strong><span>${escapeHtml(bounds.end)}</span></div><div class="timeline-planner" style="--timeline-days:${rangeDays(range)};--timeline-content-width:${timelineContentWidth(range)}px"><div class="timeline-scroll" role="region" aria-label="Scrollable test case timeline" tabindex="0"><div class="timeline-canvas"><div class="timeline-date-header"><span class="timeline-date-label"><strong>Case</strong><span>${list.length} shown</span></span>${timelineScale(range)}</div><span class="timeline-marker-layer" aria-hidden="true">${timelineMarkerLayer(markers, range)}</span>${rows}</div></div></div></div>`;
   }
   $$("#timeline-view [data-case]").forEach((element) =>
     element.addEventListener("click", () => openCase(element.dataset.case)),
@@ -258,8 +299,17 @@ function populateFilters() {
   const current = $("#suite-filter").value;
   $("#suite-filter").innerHTML =
     `<option value="">All suites</option>${state.data.suites.map((suite) => `<option value="${suite.slug}">${escapeHtml(suite.title)}</option>`).join("")}`;
-  $("#suite-filter").value = current;
+  $("#suite-filter").value = state.data.suites.some(
+    (suite) => suite.slug === current,
+  )
+    ? current
+    : "";
+}
+
+function populateRunCases() {
+  const suite = $("#suite-filter").value;
   $("#run-case").innerHTML = cases()
+    .filter((testCase) => !suite || testCase.suite === suite)
     .filter((testCase) => testCase.state !== "RETIRED")
     .map(
       (testCase) =>
@@ -268,11 +318,17 @@ function populateFilters() {
     .join("");
 }
 
+function renderSuiteFilter() {
+  populateRunCases();
+  renderViews();
+}
+
 async function load() {
   try {
     state.data = await api("/api/state");
     $("#root-path").textContent = state.data.root;
     populateFilters();
+    populateRunCases();
     renderMetrics();
     renderViews();
   } catch (error) {
@@ -365,7 +421,8 @@ $$(".tab").forEach((tab) =>
     );
   }),
 );
-[$("#suite-filter"), $("#priority-filter"), $("#search")].forEach((element) =>
+$("#suite-filter").addEventListener("input", renderSuiteFilter);
+[$("#priority-filter"), $("#search")].forEach((element) =>
   element.addEventListener("input", renderViews),
 );
 $("#refresh").addEventListener("click", load);

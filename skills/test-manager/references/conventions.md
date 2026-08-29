@@ -66,10 +66,14 @@ title: Checkout
 risk: HIGH
 state: ACTIVE
 owner: UNASSIGNED
+planned_start: UNPLANNED
+planned_end: UNPLANNED
 ---
 ```
 
 Allowed risk values are `CRITICAL / HIGH / MEDIUM / LOW`. Allowed suite states are `PLANNED / ACTIVE / BLOCKED / COMPLETE / RETIRED`.
+
+`planned_start` and `planned_end` are optional ISO dates for the Suite plan. Use `UNPLANNED` when a boundary has not been agreed. Studio Timeline renders the Suite start as a neutral marker and the Suite end as the orange target marker. Existing v1 suites without these optional keys remain valid.
 
 The body defines purpose, scope/non-goals, risk statements, requirements or business capabilities, dependencies, environment/data, entry/exit criteria, regression obligation, and known limitations.
 
@@ -116,7 +120,7 @@ Prove that an authorized payment produces exactly one order and one payment fact
 
 Allowed case states are `DRAFT / READY / RETIRED`. Priorities are `P0 / P1 / P2 / P3`. Suggested types are `UNIT / COMPONENT / CONTRACT / API / INTEGRATION / BUSINESS_E2E / UI / ACCESSIBILITY / PERFORMANCE / SECURITY / COMPATIBILITY / RECOVERY / EXPLORATORY`; add a domain type only when it improves decisions. Automation is `MANUAL / AI_BROWSER / AUTOMATED / HYBRID / NOT_SUITABLE`.
 
-`Planned Start` and `Planned End` are optional ISO dates used by Studio Timeline. Use `UNPLANNED` when no schedule has been agreed. Dates are planning metadata, not execution evidence.
+`Planned Start` and `Planned End` are optional ISO dates used by Studio Timeline. Use `UNPLANNED` when no schedule has been agreed. Case and Suite dates are planning metadata, not execution evidence.
 
 A `READY` case must have a non-empty Objective, Preconditions, Test Data, Expected Outcome, Negative Assertions, and Evidence Required section. If something is genuinely not applicable, state why; do not leave a silent blank.
 

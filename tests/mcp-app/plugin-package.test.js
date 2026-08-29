@@ -30,6 +30,7 @@ const TEST_MANAGER_FILES = [
   'ui/studio.css',
   'ui/studio.html',
   'ui/studio.js',
+  'ui/timeline-model.mjs',
 ];
 const TEST_MANAGER_EXECUTABLES = new Set([
   'assets/studio.sh',

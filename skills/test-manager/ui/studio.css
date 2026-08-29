@@ -1,6 +1,6 @@
 /* Responsibility: style Test Manager's responsive Kanban, Timeline, and Run-history interface.
    UI boundary: visual lanes represent validated case and Run state; they are not a second truth source.
-   Recent change: expose case planning and latest-run context throughout Timeline. */
+   Recent change: match Project Manager's labeled, horizontally scalable Timeline dates. */
 
 :root {
   color-scheme: light;
@@ -354,11 +354,83 @@ main {
   color: var(--muted);
   font-size: 12px;
 }
+.timeline-planner {
+  --timeline-grid: #dfe4e6;
+  --timeline-week: #cbd2d5;
+}
+.timeline-scroll {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior-x: contain;
+}
+.timeline-scroll:focus-visible {
+  outline: 3px solid rgba(23, 107, 77, 0.3);
+  outline-offset: -3px;
+}
+.timeline-canvas {
+  position: relative;
+  width: max-content;
+  min-width: calc(360px + var(--timeline-content-width));
+}
+.timeline-date-header,
 .timeline-row {
   display: grid;
-  grid-template-columns: 360px 1fr;
-  width: 100%;
+  grid-template-columns: 360px var(--timeline-content-width);
+  min-width: calc(360px + var(--timeline-content-width));
+}
+.timeline-date-header {
+  min-height: 42px;
+  color: var(--ink);
+  background: #f7f8f8;
+  box-shadow: 0 1px 0 var(--timeline-week);
+}
+.timeline-date-label {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-right: 2px solid var(--timeline-week);
+  background: #f7f8f8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+}
+.timeline-date-label span {
+  color: var(--muted);
+}
+.timeline-scale {
+  position: relative;
+  width: var(--timeline-content-width);
+  min-height: 42px;
+  overflow: hidden;
+  background: #f7f8f8;
+}
+.timeline-week {
+  position: absolute;
+  inset-block: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 4px;
+  border-left: 1px solid var(--timeline-week);
+  color: #1f2923;
+  font: 750 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.timeline-week--end {
+  transform: translateX(-100%);
+  border-right: 1px solid var(--timeline-week);
+  border-left: 0;
+}
+.timeline-row {
   min-height: 118px;
+  width: max-content;
   padding: 0;
   border: 0;
   border-bottom: 1px solid #edf0eb;
@@ -370,11 +442,18 @@ main {
 .unscheduled-case:hover {
   background: #f8faf7;
 }
+.timeline-row:hover .timeline-label {
+  background: #f8faf7;
+}
 .timeline-label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
   display: block;
   min-width: 0;
   padding: 11px 16px;
-  border-right: 1px solid #edf0eb;
+  border-right: 2px solid var(--timeline-week);
+  background: white;
 }
 .timeline-title-line {
   display: flex;
@@ -438,19 +517,42 @@ main {
 }
 .timeline-track {
   position: relative;
-  min-height: 72px;
-  margin: 23px 20px;
-  border-radius: 8px;
-  background: repeating-linear-gradient(
-    90deg,
-    #eef1ec 0,
-    #eef1ec 1px,
-    transparent 1px,
-    transparent 10%
-  );
+  min-height: 118px;
+  overflow: hidden;
+  background-color: white;
+  background-image:
+    linear-gradient(to right, rgba(211, 218, 221, 0.34) 1px, transparent 1px),
+    linear-gradient(to right, var(--timeline-week) 1px, transparent 1px);
+  background-size:
+    calc(100% / var(--timeline-days)) 100%,
+    calc(700% / var(--timeline-days)) 100%;
+}
+.timeline-marker-layer {
+  position: absolute;
+  z-index: 1;
+  top: 42px;
+  bottom: 0;
+  left: 360px;
+  width: var(--timeline-content-width);
+  pointer-events: none;
+}
+.timeline-marker {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  pointer-events: none;
+  background: #69756d;
+  opacity: 0.55;
+}
+.timeline-marker--suite-target {
+  width: 2px;
+  background: #d89136;
 }
 .timeline-bar {
   position: absolute;
+  z-index: 2;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -495,6 +597,26 @@ main {
 .timeline-bar.SKIPPED {
   background: var(--blue);
 }
+.timeline-unscheduled-track {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  padding: 5px 8px;
+  border: 1px dashed #a9b2b5;
+  border-radius: 6px;
+  color: var(--muted);
+  background: #f8faf9;
+  font-size: 9px;
+  font-weight: 700;
+}
+.timeline-row--empty {
+  cursor: default;
+}
+.timeline-empty-label {
+  color: var(--muted);
+  font-size: 11px;
+}
 .unscheduled {
   padding: 18px;
 }
@@ -518,6 +640,7 @@ main {
   text-align: left;
 }
 .unscheduled-case .timeline-label {
+  position: static;
   border-right: 0;
 }
 

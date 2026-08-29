@@ -25,8 +25,21 @@ import {
 import {
   appendRun,
   startStudio,
+  statePayload,
   updateCase,
 } from "../scripts/test-manager-studio.mjs";
+import {
+  barGeometry,
+  datePercent,
+  dayDiff,
+  rangeDays,
+  rangeContains,
+  timelineContentWidth,
+  timelineLayout,
+  timelineMarkers,
+  timelineRange,
+  timelineScaleTicks,
+} from "../ui/timeline-model.mjs";
 
 const tempRoots = [];
 
@@ -37,6 +50,31 @@ function fixture() {
   initialize(root, "Fixture Testing");
   createSuite(root, "checkout", "Checkout");
   return { workspace, root, suite: join(root, "checkout") };
+}
+
+function setSuitePlan(suite, plannedStart, plannedEnd) {
+  const path = join(suite, "SUITE.md");
+  let content = readFileSync(path, "utf8");
+  if (/^planned_start:.*$/m.test(content)) {
+    content = content.replace(
+      /^planned_start:.*$/m,
+      `planned_start: ${plannedStart}`,
+    );
+  } else {
+    content = content.replace(
+      /^owner:.*$/m,
+      (owner) => `${owner}\nplanned_start: ${plannedStart}`,
+    );
+  }
+  if (/^planned_end:.*$/m.test(content)) {
+    content = content.replace(/^planned_end:.*$/m, `planned_end: ${plannedEnd}`);
+  } else {
+    content = content.replace(
+      /^planned_start:.*$/m,
+      (start) => `${start}\nplanned_end: ${plannedEnd}`,
+    );
+  }
+  writeFileSync(path, content, "utf8");
 }
 
 function readyCase() {
@@ -110,6 +148,9 @@ test("initializes a valid folder-native test root and suite", () => {
   assert.deepEqual(report.warnings, []);
   assert.equal(report.counts.suites, 1);
   assert.equal(report.counts.cases, 0);
+  const suiteCharter = readFileSync(join(root, "checkout", "SUITE.md"), "utf8");
+  assert.match(suiteCharter, /^planned_start: UNPLANNED$/m);
+  assert.match(suiteCharter, /^planned_end: UNPLANNED$/m);
   assert.match(
     readFileSync(join(root, "SUITES.md"), "utf8"),
     /\| checkout \| Checkout \|/,
@@ -191,6 +232,38 @@ test("initializes a valid folder-native test root and suite", () => {
       'set "TEST_MANAGER_SKILL_PATH=%USERPROFILE%\\%TEST_MANAGER_SKILL_PATH:~2%"',
     ),
   );
+});
+
+test("validates optional Suite plan dates and projects them into Studio state", () => {
+  const { root, suite } = fixture();
+  const charter = join(suite, "SUITE.md");
+  writeFileSync(
+    charter,
+    readFileSync(charter, "utf8").replace(/^planned_(?:start|end):.*\n/gm, ""),
+    "utf8",
+  );
+  let report = inspectRoot(root);
+  assert.equal(report.valid, true, report.errors.join("\n"));
+  assert.equal(statePayload(root).suites[0].plannedStart, null);
+  assert.equal(statePayload(root).suites[0].plannedEnd, null);
+
+  setSuitePlan(suite, "2026-08-25", "2026-09-12");
+  report = inspectRoot(root);
+  assert.equal(report.valid, true, report.errors.join("\n"));
+  assert.equal(report.suites[0].meta.planned_start, "2026-08-25");
+  assert.equal(report.suites[0].meta.planned_end, "2026-09-12");
+  assert.deepEqual(
+    {
+      plannedStart: statePayload(root).suites[0].plannedStart,
+      plannedEnd: statePayload(root).suites[0].plannedEnd,
+    },
+    { plannedStart: "2026-08-25", plannedEnd: "2026-09-12" },
+  );
+
+  setSuitePlan(suite, "2026-09-12", "2026-08-25");
+  report = inspectRoot(root);
+  assert.equal(report.valid, false);
+  assert.match(report.errors.join("\n"), /planned_end must not be before planned_start/);
 });
 
 test("validates a ready case, schedules it, and records an evidence-backed pass", () => {
@@ -276,9 +349,83 @@ test("rejects PASS without evidence and leaves the run ledger unchanged", () => 
   assert.equal(readFileSync(join(suite, "RUNS.md"), "utf8"), before);
 });
 
+test("Timeline uses Project Manager-style UTC weekly scale and readable width", () => {
+  const range = timelineRange([
+    { plannedStart: "2026-12-30", plannedEnd: "2027-01-02" },
+    { plannedStart: "2027-03-08", plannedEnd: "2027-03-10" },
+  ]);
+  assert.deepEqual(range, { start: "2026-12-27", end: "2027-03-13" });
+  assert.equal(rangeDays(range), 77);
+  assert.equal(dayDiff("2027-03-07", "2027-03-09"), 2);
+  assert.ok(timelineScaleTicks(range).some((date) => date.startsWith("2027-")));
+  assert.equal(timelineContentWidth(range), 1020);
+  assert.equal(
+    timelineContentWidth({ start: "2026-01-01", end: "2026-04-30" }),
+    1584,
+  );
+  assert.deepEqual(barGeometry("2026-12-30", "2027-01-02", range), {
+    left: (3 / 77) * 100,
+    width: (4 / 77) * 100,
+  });
+  assert.equal(datePercent("2026-12-27", range), (0.5 / 77) * 100);
+  assert.equal(rangeContains("2027-01-01", range), true);
+  assert.equal(rangeContains("2027-03-14", range), false);
+  assert.deepEqual(
+    timelineRange([
+      { plannedStart: "2027-01-01", plannedEnd: "2027-01-02" },
+      { plannedStart: "2026-12-20", plannedEnd: "2027-03-20" },
+    ]),
+    { start: "2026-12-17", end: "2027-03-23" },
+  );
+
+  const suiteOnly = timelineLayout(
+    [{ id: "ALPHA-C001", suiteTitle: "Alpha", plannedStart: null, plannedEnd: null }],
+    [
+      {
+        slug: "alpha",
+        title: "Alpha",
+        plannedStart: "2027-01-05",
+        plannedEnd: "2027-01-12",
+      },
+      {
+        slug: "beta",
+        title: "Beta",
+        plannedStart: "2027-01-08",
+        plannedEnd: "2027-01-19",
+      },
+    ],
+  );
+  assert.deepEqual(suiteOnly.range, {
+    start: "2027-01-02",
+    end: "2027-01-22",
+  });
+  assert.deepEqual(suiteOnly.bounds, {
+    start: "2027-01-05",
+    end: "2027-01-19",
+  });
+  assert.equal(suiteOnly.scheduled.length, 0);
+  assert.equal(suiteOnly.unscheduled.length, 1);
+  assert.equal(suiteOnly.ordered.length, 1);
+  assert.deepEqual(
+    timelineMarkers([
+      {
+        slug: "alpha",
+        title: "Alpha",
+        plannedStart: "2027-01-05",
+        plannedEnd: "2027-01-12",
+      },
+    ]),
+    [
+      { date: "2027-01-05", kind: "start", label: "Alpha start", suite: "alpha" },
+      { date: "2027-01-12", kind: "target", label: "Alpha target", suite: "alpha" },
+    ],
+  );
+});
+
 test("serves token-protected Studio state and static Kanban UI", async () => {
   const { root, suite } = fixture();
   writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
+  setSuitePlan(suite, "2026-08-25", "2026-09-12");
   const studio = startStudio({ root, port: 0, open: false });
   const { url, token, port } = await studio.ready;
 
@@ -292,6 +439,8 @@ test("serves token-protected Studio state and static Kanban UI", async () => {
     assert.equal(authorized.status, 200);
     const payload = await authorized.json();
     assert.equal(payload.suites[0].cases[0].id, "CHECKOUT-C001");
+    assert.equal(payload.suites[0].plannedStart, "2026-08-25");
+    assert.equal(payload.suites[0].plannedEnd, "2026-09-12");
 
     const page = await fetch(url);
     assert.equal(page.status, 200);
