@@ -10,6 +10,16 @@ ship alongside the skill and are noted under the release they landed in.
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
+## [Unreleased]
+
+### Added
+
+- Test Manager can render an eligible ready Case through the opt-in `goal-based-ui` Runner Prompt
+  profile for fresh-context visible-UI execution, explicit task-outcome versus Run-result mapping,
+  interaction traces, contamination disclosure, and raw operational metrics. Omitting the profile
+  preserves the existing project-owned prompt behavior. No `.tests` schema or Studio control changed,
+  and the independent `audit-ui-ops` skill remains unbundled.
+
 ## [1.11.0] — 2026-08-28
 
 ### Added

@@ -1,6 +1,6 @@
 // Responsibility: prove the bundled Test Manager skill works when copied and installed alone.
 // Security: verify the actual loopback socket and that unauthorized writes cannot alter Run history.
-// Recent change: cover the Project Manager plugin's canonical Test Manager distribution boundary.
+// Recent change: verify the installed skill renders the opt-in goal-based UI prompt profile.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -126,6 +126,26 @@ try {
   writeFileSync(evidencePath, "Observed order and payment reconciliation.\n", "utf8");
   const validReady = JSON.parse(runNode(cli, ["validate", "--root", testsRoot, "--json"]));
   assert.equal(validReady.valid, true, validReady.errors?.join("\n"));
+  const goalPrompt = JSON.parse(
+    runNode(cli, [
+      "prompt",
+      "CHECKOUT-C001",
+      "--root",
+      testsRoot,
+      "--profile",
+      "goal-based-ui",
+      "--json",
+    ]),
+  );
+  assert.equal(goalPrompt.profile, "goal-based-ui");
+  assert.match(goalPrompt.prompt, /^You are a fresh goal-based UI tester\./);
+  assert.match(
+    goalPrompt.prompt,
+    /Task Outcome: COMPLETED \| PARTIAL \| BLOCKED \| FAILED/,
+  );
+  assert.match(goalPrompt.prompt, /Executor: name \| agent \| runtime identity/);
+  assert.match(goalPrompt.prompt, /Do not calculate a composite score/);
+  assert.equal(existsSync(join(testsRoot, "goal-based-ui-runner-prompt.md")), false);
 
   const studioModule = await import(pathToFileURL(join(installedSkill, "scripts/test-manager-studio.mjs")).href);
   studio = studioModule.startStudio({ root: testsRoot, port: 0, open: false });
@@ -166,7 +186,10 @@ try {
   assert.equal(state.valid, true);
   assert.equal(state.root, testsRoot);
   assert.match(state.suites[0].cases[0].runnerInstructions, /visible checkout UI/);
-  assert.match(state.suites[0].cases[0].runnerPrompt, /Execute CHECKOUT-C001/);
+  assert.match(
+    state.suites[0].cases[0].runnerPrompt,
+    /^Use the visible checkout UI[\s\S]*Case: CHECKOUT-C001/,
+  );
 
   const firstResponse = await postRun(port, token, firstPayload);
   const firstRun = await expectJson(firstResponse, 200);

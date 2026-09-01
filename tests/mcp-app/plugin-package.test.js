@@ -1,6 +1,6 @@
 /* Agent Plugins 1.0 package: the repository root is the installable plugin and
-   uses the standard's fixed layout and manifest constraints. Both canonical
-   sibling skills are complete independently installable units. */
+   uses the standard's fixed layout and manifest constraints. The exact skill
+   inventory includes optional Runner Prompt profiles without generated copies. */
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
@@ -13,9 +13,11 @@ const TEST_MANAGER_FILES = [
   'SKILL.md',
   'agents/openai.yaml',
   'assets/cases.md',
+  'assets/goal-based-ui-runner-prompt.md',
   'assets/root-status.md',
   'assets/root-suites.md',
   'assets/root-testing.md',
+  'assets/runner-prompt.md',
   'assets/runs.md',
   'assets/steps.md',
   'assets/studio.cmd',
@@ -23,6 +25,7 @@ const TEST_MANAGER_FILES = [
   'assets/suite.md',
   'references/conventions.md',
   'references/execution-and-reporting.md',
+  'references/goal-based-ui.md',
   'references/test-design.md',
   'scripts/test-manager-studio.mjs',
   'scripts/test-manager.mjs',

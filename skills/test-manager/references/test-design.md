@@ -30,6 +30,20 @@ Use qualitative ratings unless the organization already has a calibrated scoring
 
 Do not duplicate the same assertion at every level. Lower levels localize rules; a small set of E2E cases proves that the assembled business journey works.
 
+## Keep classification dimensions separate
+
+- **Type or level** states what boundary proves the risk: unit, API, integration, business E2E, UI,
+  performance, and so on.
+- **Purpose** explains why coverage is selected or rerun: functional conformance, regression,
+  recovery, exploration, or another quality objective.
+- **Automation** states the mechanism: human, AI browser, automated runner, hybrid, or unsuitable.
+- **Execution profile** adds special operating constraints. `goal-based-ui` removes product-specific
+  navigation knowledge and measures discovery through the visible interface.
+
+Do not model these dimensions as sibling tester skills. A business E2E Case may be selected for
+regression, executed by an AI browser, and use the goal-based UI profile at the same time. Read
+[goal-based-ui.md](goal-based-ui.md) when the requested evidence depends on fresh-context discovery.
+
 ## Select design techniques deliberately
 
 - **Equivalence partitions:** representative valid and invalid classes.
