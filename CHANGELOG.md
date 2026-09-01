@@ -12,13 +12,34 @@ project written by an older release keeps loading unchanged; no release has requ
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-09-01
+
 ### Added
 
+- **Test Manager Suite timeline and disposable demo.** Optional paired `Planned Start` and
+  `Planned End` metadata now projects Cases onto a UTC weekly timeline without changing their
+  design or execution state. `npm run tm-studio:dev` creates a fresh temporary workspace for
+  browser testing without touching a real `.tests` directory.
+- **Copy-ready Runner Prompts.** `test-manager.mjs prompt <case-id>` and Studio now render a
+  complete execution mission from validated Case state, the project-owned `RUNNER_PROMPT.md`, and
+  optional per-Case Runner Instructions.
 - Test Manager can render an eligible ready Case through the opt-in `goal-based-ui` Runner Prompt
   profile for fresh-context visible-UI execution, explicit task-outcome versus Run-result mapping,
   interaction traces, contamination disclosure, and raw operational metrics. Omitting the profile
   preserves the existing project-owned prompt behavior. No `.tests` schema or Studio control changed,
   and the independent `audit-ui-ops` skill remains unbundled.
+
+### Changed
+
+- Project Manager and Test Manager handoffs now lead with an assessment grounded in validated state
+  and exactly one recommended next action, so operators get a decision instead of a state dump.
+- Timeline rows now keep Case state, priority, owner, suite/design, and latest-Run context visible;
+  unscheduled Cases remain equally inspectable instead of disappearing from the planning surface.
+- Local plugin development now uses `project-manager@personal` as the sole persistent installation.
+  Standalone skill behavior stays covered through isolated validators and smoke fixtures, avoiding
+  duplicate skill identities while the plugin is enabled.
+
+No `.projects` or `.tests` schema changed in this release.
 
 ## [1.11.0] — 2026-08-28
 
@@ -466,6 +487,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.12.0]: https://github.com/yysun/project-manager/releases/tag/v1.12.0
 [1.11.0]: https://github.com/yysun/project-manager/releases/tag/v1.11.0
 [1.10.0]: https://github.com/yysun/project-manager/releases/tag/v1.10.0
 [1.9.0]: https://github.com/yysun/project-manager/releases/tag/v1.9.0

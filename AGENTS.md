@@ -6,6 +6,16 @@
   `skills/project-manager/` and `skills/test-manager/` installable skills.
 - Do not recreate `dist/plugin/`, `plugins/project-manager/`, or a repository-local Codex marketplace;
   duplicate skill identities and generated package copies have undefined precedence.
+- Develop and test the complete local plugin as `project-manager@personal`, with the personal
+  marketplace source pointing at the repository root. Do not also install or symlink
+  `skills/project-manager/` or `skills/test-manager/` into the user skill directory while that
+  plugin is enabled; the plugin-owned `project-manager:project-manager` and
+  `project-manager:test-manager` identities are the canonical development surface. Exercise
+  standalone installation behavior only through isolated validators and smoke fixtures.
+- Codex materializes the local plugin into its managed cache. After rebuilding or changing any
+  plugin-packaged file, refresh the complete installation with
+  `codex plugin add project-manager@personal --json`, then use a new task to test the refreshed
+  skills, MCP server, and App. Never symlink or edit the managed cache directly.
 - After an edit that affects `skills/project-manager/` or the MCP App runtime, run
   `npm run build:plugin` and commit the generated root `bin/` and `ui/` directories. After changing
   plugin release metadata or `src/version.ts`, run the complete `npm run build` so the standalone
