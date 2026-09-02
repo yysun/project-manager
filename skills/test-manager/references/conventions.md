@@ -142,10 +142,11 @@ A `READY` case must have a non-empty Objective, Preconditions, Test Data, Expect
 
 Unknown placeholders, unknown filters, unclosed placeholders, symlinks, and non-regular template files invalidate the test root. Keep product URLs, system names, tool sequence, comparison wording, and return format in the project template or Case instructions—not in Test Manager core.
 
-The optional `prompt <case-id> --profile goal-based-ui` route uses Test Manager's bundled goal-based
-template instead of the project-owned presentation template. It does not create or change a root
-file, Case field, Run column, or Studio projection. Omitting `--profile` retains the project-owned
-template behavior. Read [goal-based-ui.md](goal-based-ui.md) before using that profile.
+Test Manager defines no execution-profile registry. Put specialized execution rules, output fields,
+trace requirements, or measurements in the project-owned `RUNNER_PROMPT.md` or Case-level Runner
+Instructions. Use an independent skill when the requested method has its own methodology and output
+contract; Test Manager remains responsible only for Case authority, evidence links, Run results, and
+quality gates.
 
 ## Runner instructions versus optional steps
 

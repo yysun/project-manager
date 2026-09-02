@@ -5,7 +5,7 @@ description: Plan, coordinate, execute, track, review, and report product-delive
 
 # Project Manager
 
-**Version:** `1.12.0`
+**Version:** `1.12.1`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/project-manager
 

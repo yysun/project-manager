@@ -3,14 +3,28 @@
 All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and version numbers are
-the `project-manager` skill version recorded in
-[`skills/project-manager/SKILL.md`](skills/project-manager/SKILL.md). Studio and repository tooling
-ship alongside the skill and are noted under the release they landed in.
+the shared plugin release recorded in `plugin.json` and both bundled skills. Studio and repository
+tooling ship alongside the skills and are noted under the release they landed in.
 
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
 ## [Unreleased]
+
+## [1.12.1] — 2026-09-02
+
+### Changed
+
+- Unified the Project Manager skill, Test Manager skill, plugin manifest, and MCP App runtime under
+  release `1.12.1`. `npm run release:version -- <semver>` now updates all release-bearing files
+  together while Test Manager remains independently installable.
+- Simplified Test Manager by removing the product-specific `goal-based-ui` prompt profile and its
+  bundled execution contract. Projects now define specialized runner behavior entirely through the
+  existing `RUNNER_PROMPT.md` and Case-level Runner Instructions; standalone operational UX audits
+  remain the responsibility of the independent `audit-ui-ops` skill. The `.tests` schema, default
+  Runner Prompt, Studio projection, and Run ledger are unchanged.
+
+No `.projects` or `.tests` schema changed in this release.
 
 ## [1.12.0] — 2026-09-01
 
@@ -487,6 +501,7 @@ Initial release of the folder-native project manager.
 - Studio project selection defaulting to `<launch-working-directory>/.projects`, with server-issued
   opaque keys binding reads and saves to one catalog entry, and no client-supplied filesystem paths.
 
+[1.12.1]: https://github.com/yysun/project-manager/releases/tag/v1.12.1
 [1.12.0]: https://github.com/yysun/project-manager/releases/tag/v1.12.0
 [1.11.0]: https://github.com/yysun/project-manager/releases/tag/v1.11.0
 [1.10.0]: https://github.com/yysun/project-manager/releases/tag/v1.10.0

@@ -136,12 +136,12 @@ project-manager/
 tests, and build tooling may coexist with the portable components; Agent Plugins clients discover
 only the fixed root manifest, `skills/`, and `mcp.json` locations.
 
-`plugin.json` is the canonical plugin and Project Manager release version. Bump it together with the
-Project Manager skill and MCP App runtime through one explicit command. Test Manager keeps its own
-standalone version in its `SKILL.md` metadata:
+`plugin.json` is the canonical release version. Bump it together with the Project Manager skill,
+Test Manager skill, and MCP App runtime through one explicit command. Test Manager remains
+standalone-installable, but uses the same release number as the complete plugin:
 
 ```bash
-npm run release:version -- 1.11.0
+npm run release:version -- 1.13.0
 ```
 
 The command does not publish, tag, edit the changelog, or sync an installed copy. After it succeeds,

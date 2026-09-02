@@ -1,6 +1,6 @@
 // Responsibility: verify managed-root invariants, launcher behavior, Studio APIs, and run history.
 // Test isolation: every fixture uses a disposable temporary workspace removed after the suite.
-// Recent change: cover opt-in goal-based UI prompts and unchanged default projections.
+// Recent change: keep Runner Prompt behavior project-owned and reject profile-specific CLI policy.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -181,7 +181,6 @@ test("initializes a valid folder-native test root and suite", () => {
   assert.equal(existsSync(join(root, "studio.sh")), true);
   assert.equal(existsSync(join(root, "studio.cmd")), true);
   assert.equal(existsSync(join(root, "RUNNER_PROMPT.md")), true);
-  assert.equal(existsSync(join(root, "goal-based-ui-runner-prompt.md")), false);
   assert.deepEqual(readdirSync(root).sort(), [
     ".env.local",
     ".gitignore",
@@ -393,7 +392,7 @@ test("generates the same Runner Prompt from core CLI without Studio", () => {
   );
 });
 
-test("preserves literal project-owned Runner Prompt stdout and JSON without a profile", () => {
+test("preserves literal project-owned Runner Prompt stdout and JSON", () => {
   const { root, suite } = fixture();
   writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
   writeFileSync(
@@ -432,181 +431,10 @@ test("preserves literal project-owned Runner Prompt stdout and JSON without a pr
   );
 });
 
-test("renders an eligible Case through the goal-based UI profile without mutation", () => {
-  const { root, suite } = fixture();
-  writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
-  writeFileSync(
-    join(root, "RUNNER_PROMPT.md"),
-    "PROJECT DEFAULT {{Case ID}}\n",
-    "utf8",
-  );
-  const before = treeSnapshot(root);
-  const args = [
-    "prompt",
-    "CHECKOUT-C001",
-    "--root",
-    root,
-    "--profile",
-    "goal-based-ui",
-  ];
-
-  const plain = spawnSync(process.execPath, [managerScript, ...args], {
-    encoding: "utf8",
-  });
-  assert.equal(plain.status, 0, plain.stderr);
-  assert.match(plain.stdout, /^You are a fresh goal-based UI tester\./);
-  assert.match(plain.stdout, /Case: CHECKOUT-C001 — Submit a valid payment/);
-  assert.match(plain.stdout, /A clean cart and approved test account exist\./);
-  assert.match(plain.stdout, /PAY-D01/);
-  assert.match(plain.stdout, /Use \/browser to open the prepared checkout UI\./);
-  assert.match(plain.stdout, /The order persists and reconciles from a second view\./);
-  assert.match(plain.stdout, /No duplicate charge or orphan order exists\./);
-  assert.match(plain.stdout, /Before, after, order ID, payment ID/);
-  assert.match(
-    plain.stdout,
-    /Task Outcome `BLOCKED`, Result `INVALID`, zero counters, elapsed `NOT_STARTED`/,
-  );
-  assert.match(
-    plain.stdout,
-    /implementation details or artifacts.*prior-run evidence or screenshots.*hidden API or database knowledge/,
-  );
-  assert.match(plain.stdout, /`PASS` requires Task Outcome `COMPLETED`/);
-  assert.match(
-    plain.stdout,
-    /partial, incorrect, or unrecoverable product outcome/,
-  );
-  assert.match(plain.stdout, /Counters may overlap/);
-  assert.match(plain.stdout, /Do not calculate a composite score/);
-  assert.match(plain.stdout, /Executor: name \| agent \| runtime identity/);
-  assert.doesNotMatch(plain.stdout, /PROJECT DEFAULT/);
-
-  const jsonResult = spawnSync(
-    process.execPath,
-    [managerScript, ...args, "--json"],
-    { encoding: "utf8" },
-  );
-  assert.equal(jsonResult.status, 0, jsonResult.stderr);
-  const parsed = JSON.parse(jsonResult.stdout);
-  assert.equal(parsed.caseId, "CHECKOUT-C001");
-  assert.equal(parsed.profile, "goal-based-ui");
-  assert.equal(parsed.prompt, plain.stdout.trim());
-  assert.deepEqual(treeSnapshot(root), before);
-
-  const projected = statePayload(root).suites[0].cases[0];
-  assert.equal(Object.hasOwn(projected, "executionProfile"), false);
-  assert.equal(Object.hasOwn(projected, "metrics"), false);
-  assert.doesNotMatch(
-    readFileSync(studioHtml, "utf8"),
-    /goal-based-ui|execution profile/i,
-  );
-});
-
-test("rejects invalid goal-based profile arguments without mutation", () => {
+test("rejects removed execution-profile flags without mutation", () => {
   const { root, suite } = fixture();
   writeFileSync(join(suite, "CASES.md"), readyCase(), "utf8");
   const before = treeSnapshot(root);
-  const cases = [
-    {
-      args: ["prompt", "CHECKOUT-C001", "--root", root, "--profile"],
-      error: /--profile requires a value/,
-    },
-    {
-      args: [
-        "prompt",
-        "DOES-NOT-EXIST-C001",
-        "--root",
-        root,
-        "--profile",
-        "goal-based-ui",
-        "--profile",
-        "goal-based-ui",
-      ],
-      error: /--profile may be specified only once/,
-    },
-    {
-      args: [
-        "prompt",
-        "CHECKOUT-C001",
-        "--root",
-        root,
-        "--profile",
-        "unknown",
-      ],
-      error: /unsupported prompt profile: unknown; supported: goal-based-ui/,
-    },
-    {
-      args: ["validate", "--root", root, "--profile", "goal-based-ui"],
-      error: /--profile is only valid with prompt/,
-    },
-    {
-      args: [
-        "validate",
-        "--root",
-        root,
-        "--profile",
-        "goal-based-ui",
-        "--help",
-      ],
-      error: /--profile is only valid with prompt/,
-    },
-  ];
-
-  for (const item of cases) {
-    const result = spawnSync(process.execPath, [managerScript, ...item.args], {
-      encoding: "utf8",
-    });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, item.error);
-    assert.deepEqual(treeSnapshot(root), before);
-  }
-});
-
-test("rejects mechanically ineligible goal-based Cases", () => {
-  const { root, suite } = fixture();
-  const casePath = join(suite, "CASES.md");
-  const args = [
-    managerScript,
-    "prompt",
-    "CHECKOUT-C001",
-    "--root",
-    root,
-    "--profile",
-    "goal-based-ui",
-  ];
-
-  writeFileSync(
-    casePath,
-    readyCase().replace("- Automation: AI_BROWSER", "- Automation: HYBRID"),
-    "utf8",
-  );
-  let result = spawnSync(process.execPath, args, { encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr);
-
-  writeFileSync(
-    casePath,
-    readyCase().replace("- Automation: AI_BROWSER", "- Automation: MANUAL"),
-    "utf8",
-  );
-  result = spawnSync(process.execPath, args, { encoding: "utf8" });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /requires Automation AI_BROWSER or HYBRID/);
-
-  writeFileSync(
-    casePath,
-    readyCase().replace(
-      /\n### Runner Instructions\n\n- Use \/browser to open the prepared checkout UI\.\n- Complete the payment through visible controls; stop before retrying an uncertain submission\.\n/,
-      "",
-    ),
-    "utf8",
-  );
-  result = spawnSync(process.execPath, args, { encoding: "utf8" });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /requires Runner Instructions/);
-});
-
-test("keeps profiled non-ready prompts isolated and identifies the requested profile in JSON", () => {
-  const { root, suite } = fixture();
-  writeFileSync(join(suite, "CASES.md"), draftCase(), "utf8");
   const result = spawnSync(
     process.execPath,
     [
@@ -617,18 +445,13 @@ test("keeps profiled non-ready prompts isolated and identifies the requested pro
       root,
       "--profile",
       "goal-based-ui",
-      "--json",
     ],
     { encoding: "utf8" },
   );
-  assert.equal(result.status, 0, result.stderr);
-  const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.profile, "goal-based-ui");
-  assert.match(parsed.prompt, /^此测试尚未准备好/);
-  assert.doesNotMatch(
-    parsed.prompt,
-    /CHECKOUT-C001|Incomplete draft|goal-based UI tester|Outcome oracle/,
-  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unknown option: --profile/);
+  assert.deepEqual(treeSnapshot(root), before);
 });
 
 test("uses a project-owned Runner Prompt template in core, CLI, and Studio", () => {

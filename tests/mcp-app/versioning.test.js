@@ -1,5 +1,4 @@
-/* Release versioning: Project Manager's plugin, skill, and runtime stay in lockstep;
-   bundled Test Manager metadata is validated but retains an independent version. */
+/* Release versioning: the plugin, both bundled skills, and runtime stay in lockstep. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -29,11 +28,16 @@ function fixture() {
   return target;
 }
 
-test('plugin, skill, and runtime expose one release version', async () => {
+test('plugin, both skills, and runtime expose one release version', async () => {
   const { assertVersionConsistency, readReleaseVersions } = await versioning();
   const expected = JSON.parse(fs.readFileSync(path.join(root, 'plugin.json'), 'utf8')).version;
   assert.equal(await assertVersionConsistency(root), expected);
-  assert.deepEqual(await readReleaseVersions(root), { plugin: expected, skill: expected, runtime: expected });
+  assert.deepEqual(await readReleaseVersions(root), {
+    plugin: expected,
+    skill: expected,
+    testManager: expected,
+    runtime: expected,
+  });
 });
 
 test('generated plugin and standalone Studio artifacts expose the current release version', async () => {
@@ -42,10 +46,11 @@ test('generated plugin and standalone Studio artifacts expose the current releas
   assert.equal(await assertGeneratedVersionConsistency(root), expected);
 });
 
-test('Test Manager exposes an independently validated standalone identity', async () => {
+test('Test Manager exposes the shared release and its standalone source identity', async () => {
   const { readTestManagerMetadata } = await versioning();
+  const expected = JSON.parse(fs.readFileSync(path.join(root, 'plugin.json'), 'utf8')).version;
   assert.deepEqual(await readTestManagerMetadata(root), {
-    version: '0.1.0',
+    version: expected,
     source: 'https://github.com/yysun/project-manager/tree/main/skills/test-manager',
   });
 });
@@ -55,16 +60,19 @@ test('release version bump updates every release-bearing file together', async (
   try {
     const { readReleaseVersions, readTestManagerMetadata, setReleaseVersion } = await versioning();
     const previous = (await readReleaseVersions(target)).plugin;
-    const testManagerBefore = await readTestManagerMetadata(target);
     const next = `${Number(previous.split('.')[0]) + 100}.3.4-beta.1+build.7`;
     const result = await setReleaseVersion(target, next);
     assert.deepEqual(result, { previous, version: next });
     assert.deepEqual(await readReleaseVersions(target), {
       plugin: next,
       skill: next,
+      testManager: next,
       runtime: next,
     });
-    assert.deepEqual(await readTestManagerMetadata(target), testManagerBefore);
+    assert.deepEqual(await readTestManagerMetadata(target), {
+      version: next,
+      source: 'https://github.com/yysun/project-manager/tree/main/skills/test-manager',
+    });
   } finally { fs.rmSync(target, { recursive: true, force: true }); }
 });
 
@@ -93,7 +101,7 @@ test('release version bump rejects invalid, repeated, and already-drifted versio
   } finally { fs.rmSync(target, { recursive: true, force: true }); }
 });
 
-test('invalid Test Manager metadata fails version validation without coupling versions', async () => {
+test('invalid Test Manager metadata fails unified release validation', async () => {
   const target = fixture();
   try {
     const { assertVersionConsistency, readReleaseVersions, readTestManagerMetadata } = await versioning();
@@ -101,10 +109,25 @@ test('invalid Test Manager metadata fails version validation without coupling ve
     const originalRelease = await readReleaseVersions(target);
     fs.writeFileSync(
       skill,
-      fs.readFileSync(skill, 'utf8').replace('version: "0.1.0"', 'version: "not-semver"'),
+      fs.readFileSync(skill, 'utf8').replace(`version: "${originalRelease.testManager}"`, 'version: "not-semver"'),
     );
     await assert.rejects(() => readTestManagerMetadata(target), /Invalid semantic version/);
     await assert.rejects(() => assertVersionConsistency(target), /Invalid semantic version/);
-    assert.deepEqual(await readReleaseVersions(target), originalRelease);
+    await assert.rejects(() => readReleaseVersions(target), /Invalid semantic version/);
+  } finally { fs.rmSync(target, { recursive: true, force: true }); }
+});
+
+test('Test Manager metadata and body version drift fails closed', async () => {
+  const target = fixture();
+  try {
+    const { assertVersionConsistency, readReleaseVersions, readTestManagerMetadata } = await versioning();
+    const skill = path.join(target, 'skills/test-manager/SKILL.md');
+    const current = (await readReleaseVersions(target)).testManager;
+    fs.writeFileSync(
+      skill,
+      fs.readFileSync(skill, 'utf8').replace(`**Version:** \`${current}\``, '**Version:** `9.9.9`'),
+    );
+    await assert.rejects(() => readTestManagerMetadata(target), /version drift/);
+    await assert.rejects(() => assertVersionConsistency(target), /version drift/);
   } finally { fs.rmSync(target, { recursive: true, force: true }); }
 });

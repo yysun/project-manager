@@ -1,6 +1,6 @@
-// Responsibility: expose the explicit Project Manager plugin release-version operation.
-// Scope: update only lockstep Project Manager release files; Test Manager remains independent.
-// Recent change: clarify that complete affected standalone skills must be synchronized separately.
+// Responsibility: expose the explicit unified plugin release-version operation.
+// Scope: update the plugin, Project Manager, Test Manager, and MCP App runtime together.
+// Recent change: bring both bundled skills under the same release number.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,7 @@ if (args.length !== 1) {
 } else {
   try {
     const result = await setReleaseVersion(root, args[0]);
-    console.log(`Project Manager ${result.previous} -> ${result.version}`);
+    console.log(`Unified release ${result.previous} -> ${result.version}`);
     console.log('Next: update CHANGELOG.md, run npm test, then sync the plugin or affected standalone skills.');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

@@ -1,6 +1,6 @@
 // Responsibility: prove the bundled Test Manager skill works when copied and installed alone.
 // Security: verify the actual loopback socket and that unauthorized writes cannot alter Run history.
-// Recent change: verify the installed skill renders the opt-in goal-based UI prompt profile.
+// Recent change: keep standalone prompt generation project-owned and profile-free.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -126,26 +126,19 @@ try {
   writeFileSync(evidencePath, "Observed order and payment reconciliation.\n", "utf8");
   const validReady = JSON.parse(runNode(cli, ["validate", "--root", testsRoot, "--json"]));
   assert.equal(validReady.valid, true, validReady.errors?.join("\n"));
-  const goalPrompt = JSON.parse(
+  const runnerPrompt = JSON.parse(
     runNode(cli, [
       "prompt",
       "CHECKOUT-C001",
       "--root",
       testsRoot,
-      "--profile",
-      "goal-based-ui",
       "--json",
     ]),
   );
-  assert.equal(goalPrompt.profile, "goal-based-ui");
-  assert.match(goalPrompt.prompt, /^You are a fresh goal-based UI tester\./);
-  assert.match(
-    goalPrompt.prompt,
-    /Task Outcome: COMPLETED \| PARTIAL \| BLOCKED \| FAILED/,
-  );
-  assert.match(goalPrompt.prompt, /Executor: name \| agent \| runtime identity/);
-  assert.match(goalPrompt.prompt, /Do not calculate a composite score/);
-  assert.equal(existsSync(join(testsRoot, "goal-based-ui-runner-prompt.md")), false);
+  assert.equal(Object.hasOwn(runnerPrompt, "profile"), false);
+  assert.match(runnerPrompt.prompt, /^Use the visible checkout UI/);
+  assert.match(runnerPrompt.prompt, /Case: CHECKOUT-C001 — Submit a valid payment/);
+  assert.match(runnerPrompt.prompt, /Run Context: executed at/);
 
   const studioModule = await import(pathToFileURL(join(installedSkill, "scripts/test-manager-studio.mjs")).href);
   studio = studioModule.startStudio({ root: testsRoot, port: 0, open: false });

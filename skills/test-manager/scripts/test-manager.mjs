@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Responsibility: manage folder-native test roots, suites, validation, and derived status.
 // Invariants: preserve authoritative state, append-only runs, atomic writes, and safe local helpers.
-// Recent change: add an opt-in goal-based UI Runner Prompt without changing managed state.
+// Recent change: keep Runner Prompt execution policy fully project-owned and product-neutral.
 
 import {
   chmodSync,
@@ -60,8 +60,6 @@ const REQUIRED_READY_SECTIONS = [
 ];
 const OPTIONAL_CASE_SECTIONS = ["Runner Instructions"];
 const RUNNER_PROMPT_FILE = "RUNNER_PROMPT.md";
-const GOAL_BASED_UI_PROFILE = "goal-based-ui";
-const GOAL_BASED_UI_PROMPT_FILE = "goal-based-ui-runner-prompt.md";
 
 function promptLines(value) {
   return String(value || "")
@@ -113,19 +111,11 @@ function renderRunnerPromptTemplate(template, testCase) {
   return rendered.trim();
 }
 
-function loadRunnerPromptTemplate(root, profile) {
-  if (profile !== undefined && profile !== GOAL_BASED_UI_PROFILE) {
-    fail(
-      `unsupported prompt profile: ${profile}; supported: ${GOAL_BASED_UI_PROFILE}`,
-    );
-  }
+function loadRunnerPromptTemplate(root) {
   const projectTemplate = join(root, RUNNER_PROMPT_FILE);
-  const templatePath =
-    profile === GOAL_BASED_UI_PROFILE
-      ? join(assetsDir, GOAL_BASED_UI_PROMPT_FILE)
-      : existsSync(projectTemplate)
-        ? projectTemplate
-        : join(assetsDir, "runner-prompt.md");
+  const templatePath = existsSync(projectTemplate)
+    ? projectTemplate
+    : join(assetsDir, "runner-prompt.md");
   const stat = lstatSync(templatePath);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     fail(`Runner Prompt template must be a regular non-symlink file: ${templatePath}`);
@@ -136,7 +126,6 @@ function loadRunnerPromptTemplate(root, profile) {
 function buildRunnerPrompt(
   testCase,
   template = readFileSync(join(assetsDir, "runner-prompt.md"), "utf8"),
-  profile,
 ) {
   const caseState = testCase.labels?.State || "UNKNOWN";
   if (caseState !== "READY") {
@@ -148,20 +137,6 @@ function buildRunnerPrompt(
       "Evidence: —",
       "Issue / Reason: 测试尚未就绪",
     ].join("\n");
-  }
-
-  if (profile === GOAL_BASED_UI_PROFILE) {
-    const automation = testCase.labels?.Automation;
-    if (!["AI_BROWSER", "HYBRID"].includes(automation)) {
-      fail(
-        `${testCase.id}: ${GOAL_BASED_UI_PROFILE} requires Automation AI_BROWSER or HYBRID`,
-      );
-    }
-    if (!meaningful(testCase.sections?.["Runner Instructions"])) {
-      fail(
-        `${testCase.id}: ${GOAL_BASED_UI_PROFILE} requires Runner Instructions`,
-      );
-    }
   }
 
   return renderRunnerPromptTemplate(template, testCase);
@@ -192,7 +167,6 @@ function parseArgs(argv) {
     root: resolve(process.cwd(), ".tests"),
     json: false,
     write: false,
-    profile: undefined,
   };
   const positionals = [];
 
@@ -210,13 +184,6 @@ function parseArgs(argv) {
       options.json = true;
     } else if (arg === "--write") {
       options.write = true;
-    } else if (arg === "--profile") {
-      if (options.profile !== undefined)
-        fail("--profile may be specified only once");
-      const value = args[0];
-      if (!value || value.startsWith("--"))
-        fail("--profile requires a value");
-      options.profile = args.shift();
     } else if (arg === "--help" || arg === "-h") {
       options.help = true;
     } else if (arg.startsWith("--")) {
@@ -236,7 +203,7 @@ function usage() {
     "  test-manager.mjs create-suite <suite-slug> [--root <tests-root>] [--title <title>]",
     "  test-manager.mjs validate [--root <tests-root>] [--json]",
     "  test-manager.mjs status [--root <tests-root>] [--json] [--write]",
-    "  test-manager.mjs prompt <case-id> [--root <tests-root>] [--profile goal-based-ui] [--json]",
+    "  test-manager.mjs prompt <case-id> [--root <tests-root>] [--json]",
   ].join("\n");
 }
 
@@ -946,17 +913,6 @@ function printStatus(report, asJson) {
 
 function main() {
   const { command, options, positionals } = parseArgs(process.argv.slice(2));
-  if (options.profile !== undefined && command !== "prompt") {
-    fail("--profile is only valid with prompt");
-  }
-  if (
-    options.profile !== undefined &&
-    options.profile !== GOAL_BASED_UI_PROFILE
-  ) {
-    fail(
-      `unsupported prompt profile: ${options.profile}; supported: ${GOAL_BASED_UI_PROFILE}`,
-    );
-  }
   if (options.help || !command) {
     console.log(usage());
     return;
@@ -1017,12 +973,10 @@ function main() {
     if (!testCase) fail(`Case not found: ${caseId}`);
     const prompt = buildRunnerPrompt(
       testCase,
-      loadRunnerPromptTemplate(options.root, options.profile),
-      options.profile,
+      loadRunnerPromptTemplate(options.root),
     );
     const output = {
       caseId,
-      ...(options.profile === undefined ? {} : { profile: options.profile }),
       prompt,
     };
     console.log(options.json ? JSON.stringify(output, null, 2) : prompt);

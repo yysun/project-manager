@@ -1,6 +1,6 @@
-// Responsibility: validate and update release-bearing Project Manager version files atomically.
-// Version boundary: Test Manager metadata is validated independently and never bumped with the plugin.
-// Recent change: detect stale generated Project Manager artifacts after a release build.
+// Responsibility: validate and update the plugin, both skills, and runtime release version atomically.
+// Version boundary: Project Manager, Test Manager, and the plugin ship under one release version.
+// Recent change: include Test Manager metadata and body in lockstep release updates.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -10,6 +10,7 @@ const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[
 const FILES = {
   plugin: 'plugin.json',
   skill: 'skills/project-manager/SKILL.md',
+  testManager: 'skills/test-manager/SKILL.md',
   runtime: 'src/version.ts',
 };
 
@@ -49,8 +50,22 @@ function versionsFrom(files) {
   return {
     plugin: validVersion(manifest.version),
     skill: validVersion(oneMatch(files.skill.text, SKILL_VERSION, files.skill.relative)),
+    testManager: testManagerMetadataFrom(files.testManager).version,
     runtime: validVersion(oneMatch(files.runtime.text, RUNTIME_VERSION, files.runtime.relative)),
   };
+}
+
+function testManagerMetadataFrom(file) {
+  const version = validVersion(oneMatch(file.text, TEST_MANAGER_VERSION, file.relative));
+  const bodyVersion = validVersion(oneMatch(file.text, SKILL_VERSION, file.relative));
+  if (bodyVersion !== version) {
+    throw new Error(`${file.relative} version drift: metadata is ${version}; body is ${bodyVersion}.`);
+  }
+  const source = oneMatch(file.text, TEST_MANAGER_SOURCE, file.relative);
+  if (source !== EXPECTED_TEST_MANAGER_SOURCE) {
+    throw new Error(`${file.relative} source must be ${EXPECTED_TEST_MANAGER_SOURCE}.`);
+  }
+  return { version, source };
 }
 
 export async function readReleaseVersions(root) {
@@ -60,19 +75,11 @@ export async function readReleaseVersions(root) {
 export async function readTestManagerMetadata(root) {
   const file = path.join(root, TEST_MANAGER_FILE);
   const text = await fs.readFile(file, 'utf8');
-  const version = validVersion(oneMatch(text, TEST_MANAGER_VERSION, TEST_MANAGER_FILE));
-  const source = oneMatch(text, TEST_MANAGER_SOURCE, TEST_MANAGER_FILE);
-  if (source !== EXPECTED_TEST_MANAGER_SOURCE) {
-    throw new Error(`${TEST_MANAGER_FILE} source must be ${EXPECTED_TEST_MANAGER_SOURCE}.`);
-  }
-  return { version, source };
+  return testManagerMetadataFrom({ file, relative: TEST_MANAGER_FILE, text });
 }
 
 export async function assertVersionConsistency(root) {
-  const [versions] = await Promise.all([
-    readReleaseVersions(root),
-    readTestManagerMetadata(root),
-  ]);
+  const versions = await readReleaseVersions(root);
   const expected = versions.plugin;
   const drift = Object.entries(versions).filter(([, version]) => version !== expected);
   if (drift.length > 0) {
@@ -118,19 +125,29 @@ function replacePluginVersion(text, version, label) {
 
 export async function setReleaseVersion(root, nextVersion) {
   validVersion(nextVersion);
-  const [files] = await Promise.all([
-    readFiles(root),
-    readTestManagerMetadata(root),
-  ]);
+  const files = await readFiles(root);
   const current = versionsFrom(files);
   if (new Set(Object.values(current)).size !== 1) {
     throw new Error(`Refusing to bump inconsistent release files: ${Object.entries(current).map(([name, version]) => `${name}=${version}`).join(', ')}.`);
   }
   if (current.plugin === nextVersion) throw new Error(`Release version is already ${nextVersion}.`);
 
+  const testManagerWithMetadata = replaceOne(
+    files.testManager.text,
+    TEST_MANAGER_VERSION,
+    `  version: "${nextVersion}"`,
+    files.testManager.relative,
+  );
+  const testManager = replaceOne(
+    testManagerWithMetadata,
+    SKILL_VERSION,
+    `**Version:** \`${nextVersion}\``,
+    files.testManager.relative,
+  );
   const updates = [
     [files.plugin.file, replacePluginVersion(files.plugin.text, nextVersion, files.plugin.relative)],
     [files.skill.file, replaceOne(files.skill.text, SKILL_VERSION, `**Version:** \`${nextVersion}\``, files.skill.relative)],
+    [files.testManager.file, testManager],
     [files.runtime.file, replaceOne(files.runtime.text, RUNTIME_VERSION, `export const PROJECT_MANAGER_VERSION = '${nextVersion}' as const;`, files.runtime.relative)],
   ];
 

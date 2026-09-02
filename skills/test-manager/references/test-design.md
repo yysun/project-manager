@@ -37,12 +37,11 @@ Do not duplicate the same assertion at every level. Lower levels localize rules;
 - **Purpose** explains why coverage is selected or rerun: functional conformance, regression,
   recovery, exploration, or another quality objective.
 - **Automation** states the mechanism: human, AI browser, automated runner, hybrid, or unsuitable.
-- **Execution profile** adds special operating constraints. `goal-based-ui` removes product-specific
-  navigation knowledge and measures discovery through the visible interface.
 
-Do not model these dimensions as sibling tester skills. A business E2E Case may be selected for
-regression, executed by an AI browser, and use the goal-based UI profile at the same time. Read
-[goal-based-ui.md](goal-based-ui.md) when the requested evidence depends on fresh-context discovery.
+Do not turn purpose or mechanism into sibling tester skills or a core execution-profile registry. A
+business E2E Case may be selected for regression and executed by an AI browser at the same time. Put
+specialized operating constraints in the project-owned Runner Prompt or Case instructions; use an
+independent methodology skill when the purpose is a distinct audit rather than a Test Manager Run.
 
 ## Select design techniques deliberately
 

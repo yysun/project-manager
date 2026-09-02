@@ -1,14 +1,14 @@
 ---
 name: test-manager
-description: Manage QA strategy, suites, cases, test execution, evidence, defects, traceability, and release gates as folder-native state under the current workspace's .tests directory, including goal-based UI execution. Use for testing work and quality decisions; do not use for product-delivery coordination, .projects state, or implementing product fixes unless separately requested.
+description: Manage QA strategy, suites, cases, test execution, evidence, defects, traceability, and release gates as folder-native state under the current workspace's .tests directory. Use for testing work and quality decisions; do not use for product-delivery coordination, .projects state, standalone operational UX audits, or implementing product fixes unless separately requested.
 metadata:
-  version: "0.1.0"
+  version: "1.12.1"
   source: "https://github.com/yysun/project-manager/tree/main/skills/test-manager"
 ---
 
 # Test Manager
 
-**Version:** `0.1.0`
+**Version:** `1.12.1`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/test-manager
 
@@ -40,7 +40,7 @@ node <absolute-skill-dir>/scripts/test-manager.mjs init [--root <tests-root>] [-
 node <absolute-skill-dir>/scripts/test-manager.mjs create-suite <suite-slug> [--root <tests-root>] [--title <title>]
 node <absolute-skill-dir>/scripts/test-manager.mjs validate [--root <tests-root>] [--json]
 node <absolute-skill-dir>/scripts/test-manager.mjs status [--root <tests-root>] [--json] [--write]
-node <absolute-skill-dir>/scripts/test-manager.mjs prompt <case-id> [--root <tests-root>] [--profile goal-based-ui] [--json]
+node <absolute-skill-dir>/scripts/test-manager.mjs prompt <case-id> [--root <tests-root>] [--json]
 node <absolute-skill-dir>/scripts/test-manager-studio.mjs [--root <tests-root>] [--port <port>] [--no-open]
 ```
 
@@ -55,9 +55,8 @@ Infer the appropriate route from the user's goal; do not require command syntax.
 3. **Design or update cases** — add stable, observable, risk-linked cases and select suitable design techniques.
 4. **Add execution guidance when needed** — use optional Case-level `Runner Instructions` for constraints, tools, evidence, and comparison requirements; create `STEPS.md` only when an exact procedure is justified.
 5. **Review readiness** — challenge missing oracle, data, environment, ownership, negative coverage, recovery, or traceability before execution.
-6. **Execute** — run only ready cases against a recorded build and known starting state. For a
-   goal-only visible-UI run, read [references/goal-based-ui.md](references/goal-based-ui.md) before
-   generating the prompt or opening the target UI.
+6. **Execute** — run only ready cases against a recorded build and known starting state. Let the
+   project-owned Runner Prompt and Case instructions define any specialized execution method.
 7. **Record results** — append an immutable run row and suite-local evidence; link failures and blockers to a defect or explicit reason.
 8. **Triage and retest** — preserve the failed run, execute a new run after change, and link both; never rewrite history into a pass.
 9. **Status or report** — calculate facts first, then tailor the narrative for tester, test lead, release owner, or executive.
@@ -118,12 +117,13 @@ Apply risk-based QA:
 
 Prefer outcome-oriented cases. A business E2E or exploratory case may be a natural-language mission plus oracle, allowing the tester or browser agent to discover the UI.
 
-Use Case-level `Runner Instructions` to tell a human tester or browser agent how to execute without prescribing a brittle click sequence. Good instructions start with the concrete execution surface or tool, then define the safety boundary, evaluator order, comparison target, evidence discipline, and stop conditions in a few short commands. Test Manager core renders them with the project's `RUNNER_PROMPT.md`; core must not contain product names, URLs, project labels, or project-specific extraction rules. Studio and exports consume the same projection; they do not own or duplicate it. `Runner Instructions` are optional and do not replace the oracle.
+Use Case-level `Runner Instructions` to tell a human tester or browser agent how to execute without prescribing a brittle click sequence. Good instructions start with the concrete execution surface or tool, then define the safety boundary, evaluator order, comparison target, evidence discipline, and stop conditions in a few short commands. Test Manager core renders them with the project's `RUNNER_PROMPT.md`; core must not contain product names, URLs, project labels, product-specific execution profiles, extraction rules, or operational-UX metrics. Studio and exports consume the same projection; they do not own or duplicate it. `Runner Instructions` are optional and do not replace the oracle.
 
 Keep classification concerns separate: Case `Type` identifies what or where the risk is proved,
-regression is a coverage purpose, `Automation` identifies the execution mechanism, and
-`goal-based-ui` is an optional execution profile. Do not create sibling functional, regression, or
-integration tester skills. With no profile, use the existing Test Manager execution path.
+regression is a coverage purpose, and `Automation` identifies the execution mechanism. Specialized
+runner behavior belongs to the project-owned prompt or an independent skill, not a Test Manager
+profile registry. Do not create sibling functional, regression, or integration tester skills inside
+Test Manager; a distinct audit methodology remains an independent skill.
 
 Add exact steps only when at least one applies:
 
