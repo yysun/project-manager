@@ -1,5 +1,6 @@
-// Responsibility: validate and update the plugin, both skills, and runtime release version atomically.
-// Version boundary: Project Manager, Test Manager, and the plugin ship under one release version.
+// Responsibility: validate and update the plugin, versioned skills, and runtime release version atomically.
+// Version boundary: Project Manager, Test Manager, and the plugin ship under one release version;
+// document-only skills may remain unversioned.
 // Recent change: include Test Manager metadata and body in lockstep release updates.
 
 import fs from 'node:fs/promises';

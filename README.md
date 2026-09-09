@@ -5,8 +5,9 @@
 **An AI project manager you work with through conversation.**
 
 The plugin also includes Test Manager, a separate QA skill for evidence-backed test strategy, case
-design, execution history, and release gates. Project Manager owns delivery state under `.projects`;
-Test Manager owns testing state under `.tests`. Neither state tree impersonates the other.
+design, execution history, and release gates, and BRD Writer, a skill for engineering-ready business
+requirements. Project Manager owns delivery state under `.projects`; Test Manager owns testing state
+under `.tests`; BRD Writer owns no project state. Neither state tree impersonates the other.
 
 Brief Project Manager as you would a human colleague: explain the outcome, constraints, authority,
 and what is changing in the real world. It takes responsibility for the working plan—decomposing the
@@ -50,6 +51,20 @@ project reality → reasoning → coordinated change
 Project truth stays in a durable, versionable Markdown folder and is validated before changes are
 saved. Kanban and Timeline visualize that state; they do not become a second source of truth.
 
+## Skills
+
+This repository contains three skills with deliberately separate responsibilities:
+
+| Skill | Responsibility | State it owns |
+| --- | --- | --- |
+| [Project Manager](skills/project-manager/SKILL.md) | Plan, coordinate, execute, track, review, and report product delivery. | `.projects` |
+| [Test Manager](skills/test-manager/SKILL.md) | Design and manage risk-based QA, test cases, runs, evidence, defects, and release gates. | `.tests` |
+| [BRD Writer](skills/brd-writer/SKILL.md) | Draft and review engineering-ready business requirements with adaptive scope, field traceability, business rules, NFRs, and Gherkin criteria. | BRD documents |
+
+Project Manager and Test Manager are stateful operating skills; BRD Writer is a document-authoring
+skill. BRD Writer does not own `.projects` or `.tests`, and Test Manager does not replace Project
+Manager as the delivery coordinator.
+
 ## PMI alignment
 
 Project Manager is **PMBOK 7 principles-aligned with documented tailoring**. It is not certified by
@@ -79,6 +94,8 @@ say so in the rationale.
 - [中文使用指南](skills/project-manager/README.zh-CN.md) — 通过目标、事件、约束、证据和决策管理项目。
 - [Test Manager skill contract](skills/test-manager/SKILL.md) — manage QA strategy, suites, cases,
   executions, evidence, defects, and release gates under `.tests`.
+- [BRD Writer skill contract](skills/brd-writer/SKILL.md) — author requirements documents sized to the
+  scope, with field inventories, business logic, non-functional requirements, and testable acceptance criteria.
 
 ## Studio
 
@@ -128,6 +145,7 @@ project-manager/
 ├── mcp.json
 ├── skills/project-manager/       # canonical delivery-coordination skill
 ├── skills/test-manager/          # canonical QA skill and standalone runtime
+├── skills/brd-writer/            # requirements-document authoring skill
 ├── bin/project-manager-mcp.mjs   # bundled MCP server
 └── ui/                           # self-contained MCP App views
 ```
@@ -136,12 +154,12 @@ project-manager/
 tests, and build tooling may coexist with the portable components; Agent Plugins clients discover
 only the fixed root manifest, `skills/`, and `mcp.json` locations.
 
-`plugin.json` is the canonical release version. Bump it together with the Project Manager skill,
-Test Manager skill, and MCP App runtime through one explicit command. Test Manager remains
-standalone-installable, but uses the same release number as the complete plugin:
+`plugin.json` is the canonical release version. Bump it together with the versioned Project Manager
+skill, Test Manager skill, and MCP App runtime through one explicit command. BRD Writer is bundled
+without a shared release field:
 
 ```bash
-npm run release:version -- 1.13.0
+npm run release:version -- <semver>
 ```
 
 The command does not publish, tag, edit the changelog, or sync an installed copy. After it succeeds,
@@ -184,23 +202,27 @@ parse as a project, never arbitrary files. Set a projects root if you want that 
 
 Choose the installation that matches what you want.
 
-For the complete Agent Plugin — both skills, the Project Manager MCP server, and its MCP App — ask a
-client that supports GitHub Agent Plugin installation:
+For the complete Agent Plugin — all three skills, the Project Manager MCP server, and its MCP App —
+ask a client that supports GitHub Agent Plugin installation:
 
 > Install the Project Manager plugin from GitHub `yysun/project-manager`.
 
 For only the standalone Project Manager skill, ask Codex:
 
-> Install the Project Manager skill from GitHub `yysun/project-manager`.
+> Install the Project Manager skill from GitHub `yysun/project-manager`, path `skills/project-manager`.
 
 For only the standalone Test Manager skill, ask Codex:
 
 > Install the Test Manager skill from GitHub `yysun/project-manager`, path `skills/test-manager`.
 
+For only the standalone BRD Writer skill, ask Codex:
+
+> Install the BRD Writer skill from GitHub `yysun/project-manager`, path `skills/brd-writer`.
+
 Codex installs only the selected skill directory. A standalone installation does not include root
 `mcp.json`, `bin/`, or `ui/`, so Project Manager's MCP tools and embedded App are unavailable. Use the
-explicit nested path `skills/project-manager` or `skills/test-manager` when an installer cannot infer
-which sibling skill you selected.
+explicit nested path `skills/project-manager`, `skills/test-manager`, or `skills/brd-writer` when an
+installer cannot infer which sibling skill you selected.
 
 ## Development
 
@@ -238,15 +260,17 @@ npm run pm-studio:dev -- --project demo/pm-studio-demo
 npm run tm-studio:dev -- --root demo/tm-studio-demo/.tests
 ```
 
-The canonical installable skills are in `skills/project-manager/` and `skills/test-manager/`. Test
-Manager's directly runnable source and local Studio stay inside its installable directory. Project
+The canonical installable skills are in `skills/project-manager/`, `skills/test-manager/`, and
+`skills/brd-writer/`. Test Manager's directly runnable source and local Studio stay inside its
+installable directory. Project
 Manager Studio source is in `src/project-manager-studio/`; the MCP server is isolated in
 `src/mcp-app/`; and the MCP App adapter and views live beside the shared Studio code in
 `src/project-manager-studio/mcp-app/`. Portable manifests stay at the repository root.
 
 ## Technical documentation
 
-- [Skill contract](skills/project-manager/SKILL.md)
+- [Project Manager contract](skills/project-manager/SKILL.md)
 - [Project conventions](skills/project-manager/references/conventions.md)
 - [Test Manager contract](skills/test-manager/SKILL.md)
+- [BRD Writer contract](skills/brd-writer/SKILL.md)
 - [Changelog](CHANGELOG.md)

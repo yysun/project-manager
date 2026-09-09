@@ -1,4 +1,4 @@
-// Responsibility: report the validated release shared by the plugin and both bundled skills.
+// Responsibility: report the validated release shared by the plugin and its versioned skills.
 // Failure behavior: source, generated-artifact, or cross-package version drift fails closed.
 // Recent change: report Test Manager as part of the unified release identity.
 

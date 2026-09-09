@@ -1,6 +1,6 @@
 // Responsibility: expose the explicit unified plugin release-version operation.
 // Scope: update the plugin, Project Manager, Test Manager, and MCP App runtime together.
-// Recent change: bring both bundled skills under the same release number.
+// Recent change: keep the versioned delivery and QA skills under the same release number.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

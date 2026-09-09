@@ -1,6 +1,6 @@
 /* Agent Plugins 1.0 package: the repository root is the installable plugin and
    uses the standard's fixed layout and manifest constraints. The exact skill
-   inventory keeps Test Manager's project-owned Runner Prompt surface complete. */
+   inventory keeps the bundled delivery, QA, and requirements surfaces explicit. */
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
@@ -57,8 +57,8 @@ test('the package uses the standard fixed root layout', () => {
     .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(pkg, 'skills', entry.name, 'SKILL.md')));
   assert.deepEqual(
     skills.map((entry) => entry.name).sort(),
-    ['project-manager', 'test-manager'],
-    'the plugin exposes both canonical sibling skills',
+    ['brd-writer', 'project-manager', 'test-manager'],
+    'the plugin exposes all bundled skills',
   );
 });
 

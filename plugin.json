@@ -1,10 +1,10 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "project-manager",
-  "version": "1.12.1",
-  "description": "Coordinate product delivery and manage evidence-backed QA with separate Project Manager and Test Manager skills, plus a read-only project status card and board.",
+  "version": "1.13.0",
+  "description": "Coordinate product delivery, manage evidence-backed QA, and author engineering-ready business requirements with Project Manager, Test Manager, and BRD Writer skills, plus a read-only project status card and board.",
   "license": "MIT",
   "repository": "https://github.com/yysun/project-manager",
   "homepage": "https://github.com/yysun/project-manager",
-  "keywords": ["project-management", "test-management", "quality-assurance", "planning", "tasks", "kanban", "pmbok"]
+  "keywords": ["project-management", "test-management", "quality-assurance", "business-requirements", "planning", "tasks", "kanban", "pmbok"]
 }

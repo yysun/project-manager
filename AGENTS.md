@@ -3,14 +3,15 @@
 ## Agent Plugin packaging
 
 - The repository root is the single Agent Plugins 1.0 package and source of truth for the canonical
-  `skills/project-manager/` and `skills/test-manager/` installable skills.
+  `skills/project-manager/`, `skills/test-manager/`, and `skills/brd-writer/` installable skills.
 - Do not recreate `dist/plugin/`, `plugins/project-manager/`, or a repository-local Codex marketplace;
   duplicate skill identities and generated package copies have undefined precedence.
 - Develop and test the complete local plugin as `project-manager@personal`, with the personal
   marketplace source pointing at the repository root. Do not also install or symlink
-  `skills/project-manager/` or `skills/test-manager/` into the user skill directory while that
-  plugin is enabled; the plugin-owned `project-manager:project-manager` and
-  `project-manager:test-manager` identities are the canonical development surface. Exercise
+  `skills/project-manager/`, `skills/test-manager/`, or `skills/brd-writer/` into the user skill directory while that
+  plugin is enabled; the plugin-owned `project-manager:project-manager`,
+  `project-manager:test-manager`, and `project-manager:brd-writer` identities are the canonical
+  development surface. Exercise
   standalone installation behavior only through isolated validators and smoke fixtures.
 - Codex materializes the local plugin into its managed cache. After rebuilding or changing any
   plugin-packaged file, refresh the complete installation with
@@ -24,7 +25,7 @@
   `npm run release:version -- <semver>` so the skill and MCP App runtime stay synchronized.
 - After any edit that could affect an installed plugin or standalone skill, sync the complete
   affected installable unit before considering the work complete: use the repository root for the
-  plugin and the complete applicable `skills/project-manager/` or `skills/test-manager/` directory
+  plugin and the complete applicable `skills/project-manager/`, `skills/test-manager/`, or `skills/brd-writer/` directory
   for a skill-only installation. Sync after rebuilding so the installed copy includes current
   generated artifacts. Never sync only the edited files, and never modify Codex cache snapshots
   directly.

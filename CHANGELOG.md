@@ -3,13 +3,30 @@
 All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and version numbers are
-the shared plugin release recorded in `plugin.json` and both bundled skills. Studio and repository
+the shared plugin release recorded in `plugin.json` and its versioned bundled skills. Studio and repository
 tooling ship alongside the skills and are noted under the release they landed in.
 
 State-file schema versions are independent of the skill version and are called out per release. A
 project written by an older release keeps loading unchanged; no release has required a migration.
 
 ## [Unreleased]
+
+## [1.13.0] — 2026-09-09
+
+### Added
+
+- **BRD Writer skill.** The root Agent Plugin now includes a standalone requirements-authoring skill
+  at `skills/brd-writer/` for adaptive BRD sizing, field traceability, business rules, NFRs, Gherkin
+  acceptance criteria, and DoR/DoD checklists.
+
+### Changed
+
+- Bumped the shared plugin, Project Manager, Test Manager, and MCP App runtime release from `1.12.1`
+  to `1.13.0`.
+- Standardized the English and Chinese README files around the three-skill package inventory, ownership
+  boundaries, and standalone installation paths.
+
+No `.projects` or `.tests` schema changed in this release.
 
 ## [1.12.1] — 2026-09-02
 

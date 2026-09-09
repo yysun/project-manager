@@ -1,6 +1,6 @@
 // Responsibility: build the portable Agent Plugin in place at the repository root.
-// Packaging: require both canonical skills and keep generated MCP artifacts outside them.
-// Recent change: include Test Manager as a required independently runnable sibling skill.
+// Packaging: require all canonical skills and keep generated MCP artifacts outside them.
+// Recent change: include BRD Writer alongside the delivery and QA sibling skills.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import { assertVersionConsistency } from './versioning.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const projectManagerSkill = path.join(root, 'skills/project-manager');
 const testManagerSkill = path.join(root, 'skills/test-manager');
+const brdWriterSkill = path.join(root, 'skills/brd-writer');
 const mcpApp = path.join(root, 'src/project-manager-studio/mcp-app');
 
 async function required(file) {
@@ -26,6 +27,7 @@ await Promise.all([
   required(path.join(root, 'mcp.json')),
   required(path.join(projectManagerSkill, 'SKILL.md')),
   required(path.join(testManagerSkill, 'SKILL.md')),
+  required(path.join(brdWriterSkill, 'SKILL.md')),
   required(path.join(root, 'src/mcp-app/cli.ts')),
   required(path.join(mcpApp, 'status.html')),
   required(path.join(mcpApp, 'board.html')),

@@ -4,9 +4,9 @@
 
 **一名通过对话与你协作的 AI 项目经理。**
 
-Plugin 还包含独立的 Test Manager QA Skill，用于基于证据的测试策略、用例设计、执行历史和发布门禁。
-Project Manager 管理 `.projects` 下的交付状态；Test Manager 管理 `.tests` 下的测试状态。两棵状态树
-各自保持权威，不会相互冒充。
+Plugin 还包含两个独立的 Skill：Test Manager 用于基于证据的测试策略、用例设计、执行历史和发布门禁；
+BRD Writer 用于编写工程可执行的业务需求文档。Project Manager 管理 `.projects` 下的交付状态；Test
+Manager 管理 `.tests` 下的测试状态；BRD Writer 不管理项目状态。两棵状态树各自保持权威，不会相互冒充。
 
 像向真人同事交代工作一样向 Project Manager 说明结果、约束、权限，以及现实中正在发生的变化。
 它会对工作计划负责：拆解目标、协调依赖与负责人、维护排期与风险、跟踪证据，并持续处理变化带来的影响。
@@ -42,6 +42,19 @@ Project Manager 会追踪受影响的工作，用新约束检验计划，根据�
 项目事实保存在持久、可版本控制的 Markdown 文件夹中，所有变更在保存前都会经过验证。Kanban 和
 Timeline 只是这些状态的可视化，不会成为第二个事实来源。
 
+## Skills
+
+本仓库包含三个职责明确分离的 Skill：
+
+| Skill | 职责 | 管理的状态 |
+| --- | --- | --- |
+| [Project Manager](skills/project-manager/SKILL.md) | 规划、协调、执行、跟踪、评审和汇报产品交付。 | `.projects` |
+| [Test Manager](skills/test-manager/SKILL.md) | 设计和管理基于风险的 QA、测试用例、执行、证据、缺陷和发布门禁。 | `.tests` |
+| [BRD Writer](skills/brd-writer/SKILL.md) | 编写和评审工程可执行的业务需求文档，覆盖分层裁剪、字段追踪、业务规则、非功能需求和 Gherkin 验收条件。 | BRD 文档 |
+
+Project Manager 和 Test Manager 是有状态的工作 Skill；BRD Writer 是文档编写 Skill。BRD Writer 不管理
+`.projects` 或 `.tests`，Test Manager 也不会取代 Project Manager 作为交付协调者。
+
 ## 与 PMI 的一致性
 
 Project Manager **遵循 PMBOK 7 原则，并对裁剪决策留有记录**。它没有获得 PMI 认证——任何工具
@@ -66,6 +79,8 @@ Project Manager **遵循 PMBOK 7 原则，并对裁剪决策留有记录**。它
 - [中文使用指南](skills/project-manager/README.zh-CN.md) — 通过目标、事件、约束、证据和决策管理项目。
 - [Test Manager Skill 合约](skills/test-manager/SKILL.md) — 管理 `.tests` 下的 QA 策略、套件、用例、
   执行、证据、缺陷和发布门禁。
+- [BRD Writer Skill 合约](skills/brd-writer/SKILL.md) — 按范围编写需求文档，并保留字段清单、业务逻辑、
+  非功能需求和可测试的验收条件。
 
 ## Studio
 
@@ -111,6 +126,7 @@ project-manager/
 ├── mcp.json
 ├── skills/project-manager/       # 规范的交付协调 Skill
 ├── skills/test-manager/          # 规范的 QA Skill 与独立运行时
+├── skills/brd-writer/            # 需求文档编写 Skill
 ├── bin/project-manager-mcp.mjs   # 已打包的 MCP 服务器
 └── ui/                           # 自包含的 MCP App 视图
 ```
@@ -118,9 +134,12 @@ project-manager/
 `npm run build:plugin` 会就地刷新已提交的 `bin/` 和 `ui/` 运行时产物。源代码、测试和构建工具可以与
 可移植组件共存；Agent Plugins 客户端只会发现根目录中固定的清单、`skills/` 和 `mcp.json` 路径。
 
-`plugin.json` 是 Plugin 与 Project Manager 的规范发布版本。通过
-`npm run release:version -- 1.11.0` 同步更新 Project Manager Skill 和 MCP App 运行时；Test Manager
-在自己的 `SKILL.md` metadata 中保留独立版本。
+`plugin.json` 是规范发布版本。通过一个明确的命令同步更新有版本号的 Project Manager Skill、Test
+Manager Skill 和 MCP App 运行时；BRD Writer 随插件提供，但没有共享的发布字段：
+
+```bash
+npm run release:version -- <semver>
+```
 
 ### 在 Claude Desktop 中安装
 
@@ -157,7 +176,7 @@ MCP App。省略文件夹时，Agent 只会在所选工作区根目录下搜索�
 
 请选择与你的需求相符的安装方式。
 
-如需完整的 Agent Plugin——包括两个 Skill、Project Manager MCP 服务器及其 MCP App——请在支持
+如需完整的 Agent Plugin——包括三个 Skill、Project Manager MCP 服务器及其 MCP App——请在支持
 从 GitHub 安装 Agent Plugin 的客户端中提出：
 
 > 从 GitHub 安装 Project Manager Plugin：`yysun/project-manager`。
@@ -170,9 +189,13 @@ MCP App。省略文件夹时，Agent 只会在所选工作区根目录下搜索�
 
 > 从 GitHub `yysun/project-manager` 的 `skills/test-manager` 路径安装 Test Manager Skill。
 
+如果只需要独立的 BRD Writer Skill，请向 Codex 提出：
+
+> 从 GitHub `yysun/project-manager` 的 `skills/brd-writer` 路径安装 BRD Writer Skill。
+
 Codex 只会安装所选的 Skill 目录。独立安装不会包含根目录的 `mcp.json`、`bin/` 或 `ui/`，因此
 Project Manager 的 MCP 工具和内嵌 App 不可用。安装器无法推断选择时，请明确指定
-`skills/project-manager` 或 `skills/test-manager`。
+`skills/project-manager`、`skills/test-manager` 或 `skills/brd-writer`。
 
 ## 开发
 
@@ -182,6 +205,7 @@ npm test
 npm run check:syntax
 npm run test:e2e:tm
 npm run pm-studio:dev
+npm run tm-studio:dev
 ```
 
 开发服务器每次启动都会生成一个全新的临时演示项目，因此无需设置即可运行。如需打开特定项目，请使用：
@@ -203,14 +227,15 @@ npm run demo
 npm run pm-studio:dev -- --project demo/pm-studio-demo
 ```
 
-两个规范的可安装 Skill 分别位于 `skills/project-manager/` 和 `skills/test-manager/`。Test Manager
-可直接运行的源代码和本地 Studio 保留在其可安装目录中。Project Manager Studio 源代码位于
+三个规范的可安装 Skill 位于 `skills/project-manager/`、`skills/test-manager/` 和
+`skills/brd-writer/`。Test Manager 可直接运行的源代码和本地 Studio 保留在其可安装目录中。Project Manager Studio 源代码位于
 `src/project-manager-studio/`；MCP 服务器独立放在 `src/mcp-app/`；MCP App 适配器和视图与共享的
 Studio 代码一起位于 `src/project-manager-studio/mcp-app/`。可移植清单保留在仓库根目录。
 
 ## 技术文档
 
-- [Skill 合约](skills/project-manager/SKILL.md)
+- [Project Manager 合约](skills/project-manager/SKILL.md)
 - [项目约定](skills/project-manager/references/conventions.md)
 - [Test Manager 合约](skills/test-manager/SKILL.md)
+- [BRD Writer 合约](skills/brd-writer/SKILL.md)
 - [更新日志](CHANGELOG.md)

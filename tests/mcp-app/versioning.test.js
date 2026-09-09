@@ -1,4 +1,4 @@
-/* Release versioning: the plugin, both bundled skills, and runtime stay in lockstep. */
+/* Release versioning: the plugin, versioned bundled skills, and runtime stay in lockstep. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -28,7 +28,7 @@ function fixture() {
   return target;
 }
 
-test('plugin, both skills, and runtime expose one release version', async () => {
+test('plugin, versioned skills, and runtime expose one release version', async () => {
   const { assertVersionConsistency, readReleaseVersions } = await versioning();
   const expected = JSON.parse(fs.readFileSync(path.join(root, 'plugin.json'), 'utf8')).version;
   assert.equal(await assertVersionConsistency(root), expected);

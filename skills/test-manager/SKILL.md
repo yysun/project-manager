@@ -2,13 +2,13 @@
 name: test-manager
 description: Manage QA strategy, suites, cases, test execution, evidence, defects, traceability, and release gates as folder-native state under the current workspace's .tests directory. Use for testing work and quality decisions; do not use for product-delivery coordination, .projects state, standalone operational UX audits, or implementing product fixes unless separately requested.
 metadata:
-  version: "1.12.1"
+  version: "1.13.0"
   source: "https://github.com/yysun/project-manager/tree/main/skills/test-manager"
 ---
 
 # Test Manager
 
-**Version:** `1.12.1`
+**Version:** `1.13.0`
 **Repository:** https://github.com/yysun/project-manager
 **Source:** https://github.com/yysun/project-manager/tree/main/skills/test-manager
 
